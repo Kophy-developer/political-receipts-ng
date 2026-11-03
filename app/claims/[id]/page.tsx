@@ -1,32 +1,18 @@
 import { Suspense } from "react";
 import type { Metadata } from "next";
+import { connection } from "next/server";
 import { notFound } from "next/navigation";
-import { claimById, claims } from "@/lib/claims";
 import { Dossier } from "@/components/claims/dossier";
+import { EmptyDesk } from "@/components/marks";
+import { PageFrame } from "@/components/shell/page-frame";
+import { getClaim } from "@/lib/db/claims";
 import Loading from "@/app/loading";
 
-export function generateStaticParams() {
-  return claims.map((claim) => ({ id: claim.id }));
-}
+export const metadata: Metadata = {
+  title: "Claim",
+};
 
-export async function generateMetadata({
-  params,
-}: {
-  params: Promise<{ id: string }>;
-}): Promise<Metadata> {
-  const { id } = await params;
-  const claim = claimById(id);
-  return {
-    title: claim ? claim.id.toUpperCase() : "Claim",
-    description: claim?.claim,
-  };
-}
-
-export default function ClaimPage({
-  params,
-}: {
-  params: Promise<{ id: string }>;
-}) {
+export default function ClaimPage({ params }: { params: Promise<{ id: string }> }) {
   return (
     <Suspense fallback={<Loading />}>
       <ClaimBody params={params} />
@@ -35,8 +21,19 @@ export default function ClaimPage({
 }
 
 async function ClaimBody({ params }: { params: Promise<{ id: string }> }) {
+  await connection();
   const { id } = await params;
-  const claim = claimById(id);
-  if (!claim) notFound();
-  return <Dossier claim={claim} />;
+  const result = await getClaim(id);
+  if (!result.ok) {
+    return (
+      <PageFrame>
+        <EmptyDesk
+          title={result.reason === "unconfigured" ? "Database not configured" : "Claim unavailable"}
+          body={result.reason === "schema" ? "The editorial tables are not installed yet." : "The desk could not read this claim from the database."}
+        />
+      </PageFrame>
+    );
+  }
+  if (!result.claim) notFound();
+  return <Dossier claim={result.claim} mode={result.claim.origin === "demo" ? "demo" : "live"} />;
 }

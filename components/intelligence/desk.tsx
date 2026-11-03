@@ -3,21 +3,20 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { claimById } from "@/lib/claims";
-import { conversations } from "@/lib/conversations";
+import type { DeskConversation, DeskMode } from "@/lib/desk/types";
 import { formatNumber, growthLabel } from "@/lib/format";
 import type { Velocity } from "@/lib/types";
 import { PageFrame } from "@/components/shell/page-frame";
-import { SampleNote, SectionHeading, StatusMark, VelocityMark } from "@/components/marks";
+import { DemoMark, EmptyDesk, OriginNote, SectionHeading, StatusMark, VelocityMark } from "@/components/marks";
 import { cn } from "cn";
 
 const filters: Array<Velocity | "All"> = ["All", "Breaking", "Rapid", "Growing", "Normal"];
 
-export function IntelligenceDesk() {
+export function IntelligenceDesk({ conversations, mode }: { conversations: DeskConversation[]; mode: DeskMode }) {
   const params = useSearchParams();
   const router = useRouter();
   const requested = params.get("topic");
-  const activeId = conversations.some((item) => item.id === requested) ? requested! : conversations[0].id;
+  const activeId = conversations.some((item) => item.id === requested) ? requested! : conversations[0]?.id ?? "";
   const [filter, setFilter] = useState<Velocity | "All">("All");
   const [query, setQuery] = useState("");
 
@@ -27,9 +26,9 @@ export function IntelligenceDesk() {
       const haystack = `${item.topic} ${item.summary} ${item.entities.join(" ")}`.toLowerCase();
       return matchesFilter && haystack.includes(query.trim().toLowerCase());
     });
-  }, [filter, query]);
+  }, [conversations, filter, query]);
 
-  const active = conversations.find((item) => item.id === activeId) ?? visible[0] ?? conversations[0];
+  const active = conversations.find((item) => item.id === activeId) ?? visible[0] ?? null;
 
   function choose(id: string) {
     router.replace(`/intelligence?topic=${id}`, { scroll: false });
@@ -41,9 +40,9 @@ export function IntelligenceDesk() {
         <SectionHeading
           kicker="Live intelligence"
           title="What is moving"
-          dek="Conversations detected in the sample monitoring set. Confidence here means the desk believes this is a distinct conversation. It is not a verdict on any claim inside it."
+          dek="Conversations filed in the database. Automated monitoring has not started, so an empty board is the honest state."
         />
-        <SampleNote />
+        <OriginNote mode={mode} />
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex flex-wrap gap-1.5">
             {filters.map((item) => (
@@ -70,14 +69,16 @@ export function IntelligenceDesk() {
         </div>
         <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(320px,420px)]">
           <div className="border border-rule bg-paper">
-            {visible.length === 0 ? (
+            {conversations.length === 0 ? (
+              <EmptyDesk title="No conversations filed" body="Nothing is being watched automatically. A conversation appears here when it is written to the database." />
+            ) : visible.length === 0 ? (
               <div className="px-6 py-16 text-center">
                 <p className="font-serif text-2xl">Nothing on this slice.</p>
                 <p className="mt-2 text-sm text-ink-soft">Clear the search or widen the velocity filter.</p>
               </div>
             ) : (
               visible.map((item) => {
-                const selected = item.id === active.id;
+                const selected = item.id === active?.id;
                 return (
                   <button
                     key={item.id}
@@ -92,14 +93,14 @@ export function IntelligenceDesk() {
                     <span className="min-w-0 flex-1">
                       <span className="flex flex-wrap items-center gap-2">
                         <span className="font-serif text-lg leading-tight">{item.topic}</span>
-                        <VelocityMark value={item.velocity} />
+                        {item.origin === "demo" ? <DemoMark /> : null}
+                        {item.velocity ? <VelocityMark value={item.velocity} /> : null}
                       </span>
                       <span className="mt-1.5 block text-sm leading-relaxed text-ink-soft">{item.summary}</span>
                       <span className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 font-mono text-[11px] text-ink-soft sm:grid-cols-4">
-                        <span>Vol {formatNumber(item.volume)}</span>
-                        <span>{growthLabel(item.growthPct)}</span>
-                        <span>{item.firstDetected.split("·")[0]}</span>
-                        <span>Signal {item.confidence}</span>
+                        <span>{item.volume === null ? "Volume not recorded" : `Vol ${formatNumber(item.volume)}`}</span>
+                        <span>{item.growthPct === null ? "Growth not recorded" : growthLabel(item.growthPct)}</span>
+                        <span>{item.firstDetected}</span>
                       </span>
                     </span>
                   </button>
@@ -108,23 +109,26 @@ export function IntelligenceDesk() {
             )}
           </div>
           <aside id="conversation" className="border border-rule bg-paper lg:sticky lg:top-6">
+            {!active ? (
+              <p className="px-5 py-8 text-sm text-ink-soft">Select a conversation when the board has one.</p>
+            ) : (
+            <>
             <div className="border-b border-rule px-5 py-4">
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <p className="font-mono text-[10px] tracking-[0.16em] text-ink-soft uppercase">Conversation</p>
                   <h2 className="mt-1 font-serif text-2xl tracking-[-0.02em]">{active.topic}</h2>
                 </div>
-                <VelocityMark value={active.velocity} />
+                {active.velocity ? <VelocityMark value={active.velocity} /> : null}
               </div>
-              <p className="mt-3 text-sm leading-relaxed text-ink-soft">{active.velocityNote}</p>
+              <p className="mt-3 text-sm leading-relaxed text-ink-soft">{active.velocityNote || "No velocity note is filed."}</p>
             </div>
             <div className="space-y-5 px-5 py-5">
-              <Spark values={active.series} />
               <dl className="grid grid-cols-2 gap-3 text-sm">
-                <Metric label="Volume" value={formatNumber(active.volume)} />
-                <Metric label="Growth" value={growthLabel(active.growthPct)} />
-                <Metric label="Signal" value={String(active.confidence)} />
+                <Metric label="Volume" value={active.volume === null ? "Not recorded" : formatNumber(active.volume)} />
+                <Metric label="Growth" value={active.growthPct === null ? "Not recorded" : growthLabel(active.growthPct)} />
                 <Metric label="First detected" value={active.firstDetected} />
+                <Metric label="Record" value={active.origin === "demo" ? "Demonstration" : "Live"} />
               </dl>
               {active.narrative.map((paragraph) => (
                 <p key={paragraph} className="text-sm leading-relaxed">
@@ -141,51 +145,33 @@ export function IntelligenceDesk() {
                   ))}
                 </ul>
               </div>
-              <div>
-                <p className="font-mono text-[10px] tracking-[0.14em] text-ink-soft uppercase">Where the volume sits</p>
-                <ul className="mt-2 space-y-2">
-                  {active.regions.map((region) => (
-                    <li key={region.name}>
-                      <div className="flex justify-between font-mono text-[11px]">
-                        <span>{region.name}</span>
-                        <span className="tabular-nums">{region.share}%</span>
-                      </div>
-                      <div className="mt-1 h-1 bg-rule">
-                        <div className="h-full bg-ink" style={{ width: `${region.share}%` }} />
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              </div>
               <div className="border border-rule bg-[#f6f1e8] px-3 py-3 text-sm leading-relaxed">
                 <p className="font-mono text-[10px] tracking-[0.14em] text-ink-soft uppercase">Desk note</p>
-                <p className="mt-1">{active.deskNote}</p>
+                <p className="mt-1">{active.deskNote || "No desk note is filed."}</p>
               </div>
               <div>
                 <p className="font-mono text-[10px] tracking-[0.14em] text-ink-soft uppercase">Related claims</p>
-                {active.relatedClaimIds.length === 0 ? (
+                {active.relatedClaims.length === 0 ? (
                   <p className="mt-2 text-sm text-ink-soft">No claim has been opened from this conversation.</p>
                 ) : (
                   <ul className="mt-2 space-y-2">
-                    {active.relatedClaimIds.map((id) => {
-                      const claim = claimById(id);
-                      if (!claim) return null;
-                      return (
-                        <li key={id}>
-                          <Link href={`/claims/${id}`} className="block border border-rule px-3 py-2 transition-colors hover:border-ink/30">
-                            <span className="flex items-center justify-between gap-2">
-                              <span className="font-mono text-[10px] tracking-[0.12em]">{id.toUpperCase()}</span>
-                              <StatusMark value={claim.status} />
-                            </span>
-                            <span className="mt-1 block text-sm leading-snug">{claim.claim}</span>
-                          </Link>
-                        </li>
-                      );
-                    })}
+                    {active.relatedClaims.map((claim) => (
+                      <li key={claim.id}>
+                        <Link href={`/claims/${claim.id}`} className="block border border-rule px-3 py-2 transition-colors hover:border-ink/30">
+                          <span className="flex items-center justify-between gap-2">
+                            <span className="font-mono text-[10px] tracking-[0.12em]">Claim</span>
+                            <StatusMark value={claim.status} />
+                          </span>
+                          <span className="mt-1 block text-sm leading-snug">{claim.claim}</span>
+                        </Link>
+                      </li>
+                    ))}
                   </ul>
                 )}
               </div>
             </div>
+            </>
+            )}
           </aside>
         </div>
       </div>
@@ -202,24 +188,3 @@ function Metric({ label, value }: { label: string; value: string }) {
   );
 }
 
-function Spark({ values }: { values: number[] }) {
-  const width = 360;
-  const height = 72;
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-  const span = max - min || 1;
-  const step = width / (values.length - 1);
-  const points = values.map((value, index) => {
-    const x = index * step;
-    const y = height - 8 - ((value - min) / span) * (height - 18);
-    return `${x.toFixed(1)},${y.toFixed(1)}`;
-  });
-  const line = `M${points.join(" L")}`;
-  const fill = `${line} L${width},${height} L0,${height} Z`;
-  return (
-    <svg viewBox={`0 0 ${width} ${height}`} className="h-16 w-full text-ink" role="img" aria-label="Relative volume across the latest readings">
-      <path d={fill} fill="currentColor" opacity="0.08" />
-      <path d={line} fill="none" stroke="currentColor" strokeWidth="1.6" />
-    </svg>
-  );
-}

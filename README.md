@@ -4,7 +4,7 @@ Politics. Claims. Receipts.
 
 Political Receipts NG is a Nigerian political intelligence and fact-checking desk. It watches political conversation, opens the sentences that can be checked, lays the evidence beside the claim, and prepares posts a human editor can approve.
 
-This version is a working editorial product on demonstration data. Gemini and Supabase are still unused. X is called only when an editor tests the connection or confirms a finished draft. Nothing publishes on its own.
+This version stores the desk in Supabase. Gemini is not integrated. X is called only when an editor tests the connection or confirms a finished draft. Nothing publishes on its own, and automated monitoring has not started.
 
 ## What this version does
 
@@ -13,8 +13,8 @@ This version is a working editorial product on demonstration data. Gemini and Su
 - Opens a dossier for every detected claim: the original post placeholder, evidence cards, and a fact-check that is not allowed to sound more certain than the pack.
 - Drafts three versions of a researched claim. A is straight. B is conversational. C is a hook that still has to stay inside the evidence.
 - Requires a pre-publication checklist before approval is offered.
-- **Approve & post to X** shows a final preview and posts only after a second confirmation. The returned post id stays in that browser session until a database exists.
-- Keeps a sample archive, a source library, analytics computed from that archive, and settings for the X connection.
+- **Approve & post to X** shows a final preview and posts only after a second confirmation. A successful send stores the X post id with that approval.
+- Shows an empty desk when the database has no rows. Demonstration records appear only after an explicit seed, and they are marked. Analytics does not invent performance numbers.
 
 Classifications used on the desk: Verified, Contradicted, Needs Context, Unverified. Formats: `#CheckAm`, `#ShowYourWorking`, and `#NotTrue`. `#NotTrue` is reserved for claims the evidence clearly contradicts.
 
@@ -93,6 +93,7 @@ Gemini and Supabase are still unused. The X variables are read only in server mo
 | `NEXT_PUBLIC_SUPABASE_URL` | Public Supabase project URL |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Public Supabase anon key, safe to expose only because row-level security must restrict it |
 | `SUPABASE_SERVICE_ROLE_KEY` | Server only. Never prefix it with `NEXT_PUBLIC_` and never import it into a client component. |
+| `TOKEN_ENCRYPTION_KEY` | Server only. 32-byte key, base64. Generate with `openssl rand -base64 32`, then add that value in Vercel. Never commit it. OAuth tokens are not stored without it. |
 
 X and Gemini secrets must stay on the server. The settings screen never accepts a key and never renders a secret. “Configured” means the variable is present. It does not mean the account has been verified.
 
@@ -116,7 +117,7 @@ Two server-side paths exist. Neither one runs on a timer.
 
 **OAuth 1.0a.** `X_API_KEY`, `X_API_SECRET`, `X_ACCESS_TOKEN`, and `X_ACCESS_TOKEN_SECRET` identify the desk account already issued by X. Settings → Test connection calls `GET /2/users/me` once per click, with a short cooldown. It does not post. Publishing uses `POST /2/tweets` only from `/api/x/publish`, and only after the checklist, a one-time ticket, and an explicit confirmation of the exact text.
 
-**OAuth 2.0 with PKCE.** Connect X Account sends the editor to X with `tweet.read`, `tweet.write`, `users.read`, and `offline.access`. The callback checks the state cookie, exchanges the code, reads the account, and drops the access token before the response is finished. There is no Supabase project yet, so those tokens are not written to a database, a cookie, local storage, or the repository. A handshake can name the account for that visit. It does not survive a refresh.
+**OAuth 2.0 with PKCE.** Connect X Account sends the editor to X with `tweet.read`, `tweet.write`, `users.read`, and `offline.access`. The callback checks the state cookie, exchanges the code, reads the account, and writes the access and refresh tokens only as AES-256-GCM ciphertext in `x_connections`. That write needs `TOKEN_ENCRYPTION_KEY`. Without the key, the tokens are dropped and nothing is stored. The anon key cannot read the table.
 
 The publish id and URL stay in the browser session that sent the post. Refreshing clears them. That is intentional until an audit table exists.
 
@@ -131,9 +132,29 @@ Gemini, when added, prepares drafts from the evidence pack. It does not choose t
 3. Return three versions into the draft studio. The editor still edits, checks the list, and approves.
 4. If the model’s wording is stronger than the sources, the editor’s job is to cut it. The product rule does not move.
 
-## Later data
+## Database
 
-Supabase is the intended store for claims, evidence, draft versions, checklist decisions, OAuth 2.0 tokens, and an audit of who approved what. Until that exists, OAuth 2.0 tokens are discarded after the callback, and a published post id lives only in the browser session that sent it. Refreshing the browser clears session-only actions such as a saved draft or a rejection.
+Migrations live in `supabase/migrations`. Apply them with the Supabase CLI after `supabase login` and `supabase link --project-ref <project-ref>`. The project ref is the subdomain of `NEXT_PUBLIC_SUPABASE_URL`. Do not paste the service role key into chat.
+
+```bash
+npx supabase db push
+```
+
+The anon and authenticated roles have no privileges on the editorial tables. The Next.js server uses the service role. Row level security is enabled and forced, with no public policies.
+
+Demonstration claims, sources, and drafts stay in `lib/claims.ts`, `lib/conversations.ts`, and `lib/drafts.ts`. They are not shown until you explicitly seed them:
+
+```bash
+SEED_DEMO=1 npm run seed:demo
+```
+
+The seed marks every row `origin = demo`, replaces previous demo rows, and does not insert metrics or tokens. The interface badges those rows. An empty database shows an empty desk instead of fake production numbers. Analytics says “No real performance data yet” until `post_metrics` has readings.
+
+Generate the encryption key on your own machine and add it to Vercel as `TOKEN_ENCRYPTION_KEY`:
+
+```bash
+openssl rand -base64 32
+```
 
 ## Sample data
 

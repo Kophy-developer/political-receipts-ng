@@ -2,14 +2,17 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import type { SystemHealth } from "@/lib/desk/types";
+import { lagosStamp } from "@/lib/format";
 import { editor, xCallbackPath } from "@/lib/system";
 import { xProductionOrigin } from "@/lib/x/public";
 import { XDesk, type XFlags } from "@/components/settings/x-desk";
 import { Input } from "@/components/ui/input";
 import { PageFrame } from "@/components/shell/page-frame";
-import { SampleNote, SectionHeading } from "@/components/marks";
+import { SectionHeading } from "@/components/marks";
 
 const sections = [
+  { href: "#system", label: "System" },
   { href: "#x", label: "X Integration" },
   { href: "#ai", label: "AI Provider" },
   { href: "#sources", label: "Sources" },
@@ -18,7 +21,7 @@ const sections = [
   { href: "#account", label: "Account" },
 ];
 
-export function SettingsPanel({ flags }: { flags: XFlags }) {
+export function SettingsPanel({ flags, health }: { flags: XFlags; health: SystemHealth }) {
   const [origin, setOrigin] = useState(xProductionOrigin);
 
   return (
@@ -29,7 +32,6 @@ export function SettingsPanel({ flags }: { flags: XFlags }) {
           title="The gate in front of X"
           dek="Credentials stay on the server. An account counts as connected only after a check, and a post leaves only after a person confirms the text."
         />
-        <SampleNote />
         <div className="grid gap-8 xl:grid-cols-[180px_minmax(0,1fr)]">
           <nav className="hidden xl:block" aria-label="Settings sections">
             <ul className="sticky top-8 space-y-2">
@@ -43,12 +45,28 @@ export function SettingsPanel({ flags }: { flags: XFlags }) {
             </ul>
           </nav>
           <div className="space-y-12">
+            <Section id="system" kicker="System" title="What the server can see">
+              <dl className="grid gap-3 sm:grid-cols-2">
+                <Health label="Supabase" value={health.supabaseConfigured ? "Configured" : "Not configured"} />
+                <Health label="Database" value={health.databaseReachable ? "Reachable" : "Unreachable"} />
+                <Health label="Schema" value={health.schema === "present" ? "Present" : health.schema === "missing" ? "Migration not applied" : "Unknown"} />
+                <Health label="X credentials" value={health.xCredentials ? "Configured" : "Missing"} />
+                <Health label="X account" value={health.xAccount.username ? `@${health.xAccount.username}` : health.xAccount.status} />
+                <Health label="Last X verification" value={health.xAccount.lastVerified ? lagosStamp(health.xAccount.lastVerified) : "Not verified"} />
+                <Health label="Token encryption" value={health.encryptionKey ? "Key present" : "Missing"} />
+                <Health label="AI provider" value={health.ai} />
+                <Health label="Monitoring" value={health.monitoring} />
+              </dl>
+              <p className="mt-4 max-w-2xl text-sm leading-relaxed text-ink-soft">
+                No secret is shown here. A stored X connection means ciphertext is in the database, not that this page can read the token. Gemini is not integrated. Automated monitoring has not started.
+              </p>
+            </Section>
             <Section id="x" kicker="X Integration" title="The account that can post">
               <XDesk flags={flags} />
             </Section>
             <Section id="ai" kicker="AI Provider" title="Gemini">
               <p className="text-sm leading-relaxed text-ink-soft">
-                Status: <span className="text-ink">Not Configured</span>
+                Status: <span className="text-ink">Not integrated</span>
               </p>
               <p className="mt-3 max-w-2xl text-sm leading-relaxed">
                 When a model is added, it will draft on the server from the evidence pack. It will not approve, and it will not post. The key belongs in GEMINI_API_KEY on the server.
@@ -127,6 +145,15 @@ function Section({
       <h2 className="mt-2 font-serif text-3xl tracking-[-0.03em]">{title}</h2>
       <div className="mt-4">{children}</div>
     </section>
+  );
+}
+
+function Health({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="border border-rule px-3 py-3">
+      <dt className="font-mono text-[10px] tracking-[0.14em] text-ink-soft uppercase">{label}</dt>
+      <dd className="mt-1 text-sm">{value}</dd>
+    </div>
   );
 }
 

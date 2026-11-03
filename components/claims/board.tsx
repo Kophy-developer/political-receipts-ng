@@ -2,10 +2,10 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { claims } from "@/lib/claims";
+import type { DeskClaimSummary, DeskMode } from "@/lib/desk/types";
 import type { ClaimStatus } from "@/lib/types";
 import { PageFrame } from "@/components/shell/page-frame";
-import { SampleNote, SectionHeading, StatusMark } from "@/components/marks";
+import { DemoMark, EmptyDesk, OriginNote, SectionHeading, StatusMark } from "@/components/marks";
 import { cn } from "cn";
 
 const filters: Array<ClaimStatus | "All"> = [
@@ -18,7 +18,7 @@ const filters: Array<ClaimStatus | "All"> = [
   "Unverified",
 ];
 
-export function ClaimsBoard() {
+export function ClaimsBoard({ claims, mode }: { claims: DeskClaimSummary[]; mode: DeskMode }) {
   const [filter, setFilter] = useState<ClaimStatus | "All">("All");
   const [query, setQuery] = useState("");
 
@@ -28,7 +28,7 @@ export function ClaimsBoard() {
       const haystack = `${claim.id} ${claim.claim} ${claim.handle} ${claim.topic} ${claim.speaker}`.toLowerCase();
       return matchesFilter && haystack.includes(query.trim().toLowerCase());
     });
-  }, [filter, query]);
+  }, [claims, filter, query]);
 
   return (
     <PageFrame>
@@ -36,9 +36,9 @@ export function ClaimsBoard() {
         <SectionHeading
           kicker="Claim detection"
           title="Sentences worth opening"
-          dek="Each row is a checkable sentence pulled from the sample conversation set. A status is a stage of work, not a dare to publish."
+          dek="Each row is a claim filed in the database. A status is a stage of work, not a dare to publish."
         />
-        <SampleNote />
+        <OriginNote mode={mode} />
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex flex-wrap gap-1.5">
             {filters.map((item) => (
@@ -63,10 +63,12 @@ export function ClaimsBoard() {
             className="h-9 w-full border border-rule bg-paper px-3 text-sm outline-none focus:border-ink lg:max-w-xs"
           />
         </div>
-        {visible.length === 0 ? (
+        {claims.length === 0 ? (
+          <EmptyDesk title="No claims filed" body="The queue is empty. A claim appears here after it is written to the database, not from the old sample list." />
+        ) : visible.length === 0 ? (
           <div className="border border-dashed border-rule bg-paper px-6 py-16 text-center">
             <p className="font-serif text-2xl">Nothing matches.</p>
-            <p className="mt-2 text-sm text-ink-soft">Clear the filter or try a claim ID, a topic, or a handle.</p>
+            <p className="mt-2 text-sm text-ink-soft">Clear the filter or try a topic, a handle, or a phrase from the claim.</p>
           </div>
         ) : (
           <div className="border border-rule bg-paper">
@@ -77,7 +79,7 @@ export function ClaimsBoard() {
                 className="group grid gap-3 border-b border-rule px-4 py-5 transition-colors last:border-b-0 hover:bg-[#f6f1e8] md:grid-cols-[140px_minmax(0,1fr)_148px]"
               >
                 <div>
-                  <p className="font-mono text-[11px] tracking-[0.14em] text-ink">{claim.id.toUpperCase()}</p>
+                  <p className="font-mono text-[11px] tracking-[0.14em] text-ink">{claim.origin === "demo" ? <DemoMark /> : "Filed"}</p>
                   <p className="mt-2 text-xs text-ink-soft">{claim.topic}</p>
                   <p className="mt-1 font-mono text-[11px] text-ink-soft">{claim.postedAt}</p>
                 </div>
@@ -89,14 +91,12 @@ export function ClaimsBoard() {
                 </div>
                 <div className="flex flex-wrap items-start gap-2 md:flex-col md:items-end">
                   <StatusMark value={claim.status} />
+                  <p className="font-mono text-[11px] text-ink-soft">{claim.virality ? `Spread ${claim.virality}` : "Spread not recorded"}</p>
                   <p className="font-mono text-[11px] text-ink-soft">
-                    {claim.virality} · {claim.viralityScore}
+                    {claim.confidence === null ? "Confidence not scored" : `Confidence ${claim.confidence}`}
                   </p>
                   <p className="font-mono text-[11px] text-ink-soft">
-                    {claim.confidence === null ? "Confidence open" : `Confidence ${claim.confidence}`}
-                  </p>
-                  <p className="font-mono text-[11px] text-ink-soft">
-                    {claim.evidence.length} source{claim.evidence.length === 1 ? "" : "s"}
+                    {claim.evidenceCount} source{claim.evidenceCount === 1 ? "" : "s"}
                   </p>
                 </div>
               </Link>

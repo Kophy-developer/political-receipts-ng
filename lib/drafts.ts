@@ -1,3 +1,4 @@
+// Demonstration seed input. The desk does not render this module.
 import type { DraftPackage } from "@/lib/types";
 
 export const draftPackages: DraftPackage[] = [

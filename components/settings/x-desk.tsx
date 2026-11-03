@@ -29,6 +29,8 @@ const reasons: Record<string, string> = {
   exchange: "X did not complete the code exchange. No token was stored.",
   config: "The server is missing the OAuth client credentials.",
   identity: "X authorised the app, but the desk could not read the account. The token was discarded.",
+  encrypt: "The server has no encryption key, so the tokens were not stored.",
+  store: "The account was identified, but the desk could not store the connection. The tokens were not kept.",
 };
 
 function safeHandle(value: string | null) {
@@ -120,14 +122,14 @@ export function XDesk({ flags }: { flags: XFlags }) {
       <div className="mt-4 border border-rule px-4 py-4">
         <p className="font-mono text-[10px] tracking-[0.16em] text-ink-soft uppercase">OAuth 2.0 with PKCE</p>
         <p className="mt-2 text-sm leading-relaxed">
-          Connect X Account starts an authorisation-code flow for tweet.read, tweet.write, users.read, and offline.access. Direct messages are not requested. The callback validates state, exchanges the code, reads the account, and then discards the tokens.
+          Connect X Account starts an authorisation-code flow for tweet.read, tweet.write, users.read, and offline.access. Direct messages are not requested. The callback validates state, exchanges the code, and stores the tokens only as server-side ciphertext.
         </p>
         <p className="mt-2 text-sm leading-relaxed text-ink-soft">
-          Keeping that connection across a refresh needs a server-side secret store. Supabase is not connected, so the access token and refresh token are not saved.
+          Storage needs the server encryption key. Without it, the handshake still names the account and then drops the tokens.
         </p>
         {handshake ? (
           <p className="mt-3 text-sm">
-            This visit identified @{handshake}. The tokens from that handshake were discarded.
+            This visit identified @{handshake}. If the encryption key is set, the connection is stored on the server. The tokens are not in this page.
           </p>
         ) : null}
         {reason ? <p className="mt-3 text-sm text-stamp">{reason}</p> : null}

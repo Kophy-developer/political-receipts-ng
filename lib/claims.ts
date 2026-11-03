@@ -1,3 +1,4 @@
+// Demonstration seed input. The desk does not render this module.
 import type { Claim } from "@/lib/types";
 
 export const claims: Claim[] = [

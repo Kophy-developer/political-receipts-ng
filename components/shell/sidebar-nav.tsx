@@ -72,7 +72,7 @@ export function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
           </li>
           <li className="flex items-center justify-between">
             <span>Gemini</span>
-            <span className="text-white/55">Not configured</span>
+            <span className="text-white/55">Not integrated</span>
           </li>
         </ul>
         <DeskClock tone="ink" />

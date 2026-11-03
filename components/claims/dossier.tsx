@@ -1,11 +1,9 @@
 import Link from "next/link";
-import type { Claim } from "@/lib/types";
-import { packageFor } from "@/lib/drafts";
+import type { DeskClaim, DeskMode } from "@/lib/desk/types";
 import { PageFrame } from "@/components/shell/page-frame";
-import { ClassificationWord, SampleNote, StatusMark, tierRail } from "@/components/marks";
+import { ClassificationWord, DemoMark, OriginNote, StatusMark, tierRail } from "@/components/marks";
 
-export function Dossier({ claim }: { claim: Claim }) {
-  const draft = packageFor(claim.id);
+export function Dossier({ claim, mode }: { claim: DeskClaim; mode: DeskMode }) {
   const initials = claim.handle.replace("@", "").slice(0, 2).toUpperCase();
 
   return (
@@ -16,7 +14,8 @@ export function Dossier({ claim }: { claim: Claim }) {
             Claims
           </Link>
           <span className="text-ink-soft">/</span>
-          <span className="font-mono text-[11px] tracking-[0.14em]">{claim.id.toUpperCase()}</span>
+          <span className="font-mono text-[11px] tracking-[0.14em]">{claim.origin === "demo" ? "Demonstration claim" : "Filed claim"}</span>
+          {claim.origin === "demo" ? <DemoMark /> : null}
         </div>
         <header className="max-w-4xl">
           <div className="flex flex-wrap items-center gap-2">
@@ -39,22 +38,20 @@ export function Dossier({ claim }: { claim: Claim }) {
             </div>
             <div>
               <dt className="font-mono text-[10px] tracking-[0.12em] text-ink-soft uppercase">Virality</dt>
-              <dd className="mt-1">
-                {claim.virality} · {claim.viralityScore}
-              </dd>
+              <dd className="mt-1">{claim.virality ?? "Not recorded"}</dd>
             </div>
             <div>
               <dt className="font-mono text-[10px] tracking-[0.12em] text-ink-soft uppercase">Verification confidence</dt>
-              <dd className="mt-1">{claim.confidence === null ? "Not scored" : claim.confidence}</dd>
+              <dd className="mt-1">{claim.confidence ?? "Not scored"}</dd>
             </div>
           </dl>
         </header>
-        <SampleNote />
+        <OriginNote mode={mode} />
         <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.2fr)]">
           <section className="border border-rule bg-paper">
             <header className="flex items-center justify-between border-b border-rule px-4 py-3">
               <h2 className="font-mono text-[11px] tracking-[0.16em] uppercase">Original post</h2>
-              <span className="font-mono text-[10px] tracking-[0.14em] text-amber uppercase">Placeholder</span>
+              <span className="font-mono text-[10px] tracking-[0.14em] text-amber uppercase">{claim.postUrl ? "Linked" : "No live embed"}</span>
             </header>
             <div className="p-4 sm:p-5">
               <div className="flex gap-3">
@@ -70,27 +67,36 @@ export function Dossier({ claim }: { claim: Claim }) {
                 </div>
               </div>
               <p className="mt-4 text-[15px] leading-relaxed">{claim.postText}</p>
-              <dl className="mt-4 grid grid-cols-4 border-t border-rule pt-3 text-center font-mono text-[11px]">
-                <div>
-                  <dt className="text-ink-soft">Replies</dt>
-                  <dd className="mt-1">{claim.engagement.replies}</dd>
-                </div>
-                <div>
-                  <dt className="text-ink-soft">Reposts</dt>
-                  <dd className="mt-1">{claim.engagement.reposts}</dd>
-                </div>
-                <div>
-                  <dt className="text-ink-soft">Likes</dt>
-                  <dd className="mt-1">{claim.engagement.likes}</dd>
-                </div>
-                <div>
-                  <dt className="text-ink-soft">Views</dt>
-                  <dd className="mt-1">{claim.engagement.views}</dd>
-                </div>
-              </dl>
+              {claim.engagement ? (
+                <dl className="mt-4 grid grid-cols-4 border-t border-rule pt-3 text-center font-mono text-[11px]">
+                  <div>
+                    <dt className="text-ink-soft">Replies</dt>
+                    <dd className="mt-1">{claim.engagement.replies}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-ink-soft">Reposts</dt>
+                    <dd className="mt-1">{claim.engagement.reposts}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-ink-soft">Likes</dt>
+                    <dd className="mt-1">{claim.engagement.likes}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-ink-soft">Views</dt>
+                    <dd className="mt-1">{claim.engagement.views}</dd>
+                  </div>
+                </dl>
+              ) : (
+                <p className="mt-4 text-sm text-ink-soft">Engagement was not recorded with this claim.</p>
+              )}
               <p className="mt-4 text-xs leading-relaxed text-ink-soft">
-                X embed is not connected. This card is a desk placeholder for the original post, not a live embed, and the engagement counts are sample figures.
+                {claim.origin === "demo"
+                  ? "Demonstration card. Engagement figures, when present, belong to the seed and are not a live embed."
+                  : claim.postUrl
+                    ? "The original URL is filed. This is not a live embed."
+                    : "No public post URL is filed, and this is not a live embed."}
               </p>
+              {claim.notes ? <p className="mt-3 text-sm leading-relaxed">{claim.notes}</p> : null}
             </div>
           </section>
           <section>
@@ -116,10 +122,11 @@ export function Dossier({ claim }: { claim: Claim }) {
                         <h3 className="mt-2 font-serif text-lg leading-snug">{item.organization}</h3>
                         <p className="mt-1 text-sm">{item.title}</p>
                         <p className="mt-1 font-mono text-[11px] text-ink-soft">
-                          {item.sourceType} · {item.published}
+                          {item.category} · {item.published}
                         </p>
                         <p className="mt-3 text-sm leading-relaxed">{item.excerpt}</p>
-                        <p className="mt-3 break-all font-mono text-[11px] text-ink-soft">{item.urlPlaceholder}</p>
+                        <p className="mt-2 font-mono text-[10px] tracking-[0.12em] uppercase text-ink-soft">{item.stance}</p>
+                        <p className="mt-3 break-all font-mono text-[11px] text-ink-soft">{item.url ?? "No public URL filed"}</p>
                       </div>
                     </div>
                   </article>
@@ -133,26 +140,27 @@ export function Dossier({ claim }: { claim: Claim }) {
             <h2 className="font-mono text-[11px] tracking-[0.16em] uppercase">Fact check</h2>
           </header>
           <div className="grid gap-6 px-5 py-5 sm:px-6 lg:grid-cols-3">
-            <FactColumn title="What we know" items={claim.factCheck.known} empty="Nothing is locked yet." />
-            <FactColumn title="What the evidence supports" items={claim.factCheck.supports} empty="The pack does not yet support a finding." />
-            <FactColumn title="What remains uncertain" items={claim.factCheck.uncertain} empty="No open question has been written." />
+            <FactColumn title="Supports" items={claim.evidence.filter((item) => item.stance === "supports").map((item) => item.excerpt)} empty="Nothing filed as support." />
+            <FactColumn title="Contradicts" items={claim.evidence.filter((item) => item.stance === "contradicts").map((item) => item.excerpt)} empty="Nothing filed as a contradiction." />
+            <FactColumn title="Context" items={claim.evidence.filter((item) => item.stance === "contextualizes").map((item) => item.excerpt)} empty="No contextual note is filed." />
           </div>
           <div className="border-t border-rule px-5 py-6 sm:px-6">
-            {claim.factCheck.classification ? (
+            {claim.classification ? (
               <p className="font-serif text-4xl leading-none sm:text-5xl">
-                <ClassificationWord value={claim.factCheck.classification} />
+                <ClassificationWord value={claim.classification} />
               </p>
             ) : (
               <p className="font-serif text-4xl leading-none text-ink-soft sm:text-5xl">No stamp</p>
             )}
-            <p className="mt-4 max-w-3xl text-sm leading-relaxed text-ink-soft">{claim.factCheck.note}</p>
+            <p className="mt-4 max-w-3xl text-sm leading-relaxed text-ink-soft">
+              {claim.notes || "The status is the editor’s classification. There is no numerical truth score."}
+            </p>
             <p className="mt-4 max-w-3xl text-sm leading-relaxed">
               <span className="font-mono text-[11px] tracking-[0.12em] text-ink-soft uppercase">Suggested format </span>
-              {claim.factCheck.hashtag ?? "None"}
-              <span className="mt-1 block text-ink-soft">{claim.factCheck.hashtagReason}</span>
+              {claim.hashtag ?? "None"}
             </p>
             <div className="mt-5">
-              {draft ? (
+              {claim.draftReady ? (
                 <Link
                   href={`/drafts?claim=${claim.id}`}
                   className="inline-flex h-10 items-center bg-ink px-4 text-sm text-paper transition-colors hover:bg-ink/85"

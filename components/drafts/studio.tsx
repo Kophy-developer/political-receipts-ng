@@ -3,12 +3,11 @@
 import { useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Check, Copy, RotateCcw } from "lucide-react";
-import { claims } from "@/lib/claims";
-import { packageFor } from "@/lib/drafts";
+import { Check, Copy } from "lucide-react";
+import type { DeskMode, StudioClaim, StudioPackage } from "@/lib/desk/types";
 import { characterCount, POST_LIMIT } from "@/lib/format";
 import { checklist, editor } from "@/lib/system";
-import type { DraftVersion, VersionId } from "@/lib/types";
+import type { VersionId } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -21,7 +20,7 @@ import {
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { PageFrame } from "@/components/shell/page-frame";
-import { ClassificationWord, SampleNote, SectionHeading, StatusMark } from "@/components/marks";
+import { ClassificationWord, DemoMark, EmptyDesk, OriginNote, SectionHeading, StatusMark } from "@/components/marks";
 import { cn } from "cn";
 
 const slots = ["Tomorrow · 07:30 WAT", "Tomorrow · 12:15 WAT", "Tomorrow · 18:40 WAT"];
@@ -36,7 +35,6 @@ const rejectReasons = [
 interface PackageState {
   selected: VersionId | null;
   texts: Record<VersionId, string>;
-  regen: Record<VersionId, number>;
   checks: Record<string, boolean>;
   editing: VersionId | null;
   draftEdit: string;
@@ -44,6 +42,7 @@ interface PackageState {
   heldSlot: string | null;
   rejectedReason: string | null;
   approvalNoted: boolean;
+  approvalId: string | null;
   copied: VersionId | null;
   notice: string | null;
 }
@@ -52,14 +51,12 @@ function blankChecks() {
   return Object.fromEntries(checklist.map((item) => [item.id, false]));
 }
 
-function initialState(versions: DraftVersion[]): PackageState {
-  const texts = { A: "", B: "", C: "" };
-  const regen = { A: 0, B: 0, C: 0 };
+function initialState(versions: StudioPackage["versions"]): PackageState {
+  const texts = { A: "", B: "", C: "" } as Record<VersionId, string>;
   for (const version of versions) texts[version.id] = version.text;
   return {
     selected: null,
     texts,
-    regen,
     checks: blankChecks(),
     editing: null,
     draftEdit: "",
@@ -67,17 +64,17 @@ function initialState(versions: DraftVersion[]): PackageState {
     heldSlot: null,
     rejectedReason: null,
     approvalNoted: false,
+    approvalId: null,
     copied: null,
     notice: null,
   };
 }
 
-export function DraftStudio() {
+export function DraftStudio({ claims, packages, mode }: { claims: StudioClaim[]; packages: StudioPackage[]; mode: DeskMode }) {
   const params = useSearchParams();
   const router = useRouter();
-  const drafted = claims.filter((claim) => packageFor(claim.id));
   const requested = params.get("claim");
-  const fallback = drafted.find((claim) => packageFor(claim.id)?.ready)?.id ?? drafted[0]?.id ?? claims[0].id;
+  const fallback = packages.find((item) => item.ready)?.claimId ?? packages[0]?.claimId ?? claims[0]?.id ?? "";
   const activeId = claims.some((claim) => claim.id === requested) ? requested! : fallback;
   const [states, setStates] = useState<Record<string, PackageState>>({});
   const [approveOpen, setApproveOpen] = useState(false);
@@ -85,18 +82,18 @@ export function DraftStudio() {
   const [posting, setPosting] = useState(false);
   const [intentReady, setIntentReady] = useState(false);
   const [publishError, setPublishError] = useState<string | null>(null);
-  const [posted, setPosted] = useState<{ claimId: string; id: string; url: string } | null>(null);
+  const [posted, setPosted] = useState<{ claimId: string; id: string; url: string; retained: boolean } | null>(null);
   const postLock = useRef(false);
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [rejectOpen, setRejectOpen] = useState(false);
   const [rejectChoice, setRejectChoice] = useState(rejectReasons[0]);
 
-  const claim = claims.find((item) => item.id === activeId) ?? claims[0];
-  const pack = packageFor(claim.id);
-  const state = states[claim.id] ?? (pack ? initialState(pack.versions) : null);
+  const claim = claims.find((item) => item.id === activeId) ?? null;
+  const pack = packages.find((item) => item.claimId === claim?.id) ?? null;
+  const state = claim ? (states[claim.id] ?? (pack ? initialState(pack.versions) : null)) : null;
 
   function patch(next: Partial<PackageState>) {
-    if (!pack || !state) return;
+    if (!claim || !pack || !state) return;
     setStates((current) => ({
       ...current,
       [claim.id]: { ...(current[claim.id] ?? state), ...next },
@@ -123,12 +120,12 @@ export function DraftStudio() {
 
   const ordered = useMemo(() => {
     return [...claims].sort((a, b) => {
-      const aPack = packageFor(a.id);
-      const bPack = packageFor(b.id);
-      const rank = (item: typeof aPack) => (item?.ready ? 0 : item ? 1 : 2);
+      const aPack = packages.find((item) => item.claimId === a.id);
+      const bPack = packages.find((item) => item.claimId === b.id);
+      const rank = (item: StudioPackage | undefined) => (item?.ready ? 0 : item ? 1 : 2);
       return rank(aPack) - rank(bPack);
     });
-  }, []);
+  }, [claims, packages]);
 
   async function copyVersion(id: VersionId, text: string) {
     try {
@@ -137,20 +134,6 @@ export function DraftStudio() {
     } catch {
       patch({ notice: "The browser blocked clipboard access." });
     }
-  }
-
-  function regenerate(version: DraftVersion) {
-    if (!state) return;
-    const pool = [version.text, ...version.alternates];
-    const nextIndex = (state.regen[version.id] + 1) % pool.length;
-    patch({
-      texts: { ...state.texts, [version.id]: pool[nextIndex] },
-      regen: { ...state.regen, [version.id]: nextIndex },
-      checks: blankChecks(),
-      approvalNoted: false,
-      selected: state.selected,
-      notice: "Regenerated from the sample alternatives. The checklist was reset because the text changed.",
-    });
   }
 
   function selectVersion(id: VersionId) {
@@ -165,14 +148,14 @@ export function DraftStudio() {
 
   async function readBody(response: Response) {
     try {
-      return (await response.json()) as { ok?: boolean; message?: string; id?: string; url?: string };
+      return (await response.json()) as { ok?: boolean; message?: string; id?: string; url?: string; approvalId?: string; retained?: boolean };
     } catch {
       return {};
     }
   }
 
   async function openApprove() {
-    if (!state) return;
+    if (!claim || !state || !selectedVersion) return;
     setApproveOpen(true);
     setConfirmPost(false);
     setIntentReady(false);
@@ -182,21 +165,22 @@ export function DraftStudio() {
       const response = await fetch("/api/x/intent", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ text: selectedText, claimId: claim.id, checks: state.checks }),
+        body: JSON.stringify({ text: selectedText, claimId: claim.id, draftId: selectedVersion?.draftId, checks: state.checks }),
       });
       const data = await readBody(response);
-      if (!response.ok || !data.ok) {
+      if (!response.ok || !data.ok || !data.approvalId) {
         setPublishError((data.message || "The desk could not open a publish ticket.").slice(0, 180));
         return;
       }
       setIntentReady(true);
+      patch({ approvalId: data.approvalId });
     } catch {
       setPublishError("The desk could not open a publish ticket.");
     }
   }
 
   async function confirmPublish() {
-    if (postLock.current || !state || !confirmPost || !intentReady) return;
+    if (postLock.current || !claim || !state || !confirmPost || !intentReady || !state.approvalId) return;
     postLock.current = true;
     setPosting(true);
     setPublishError(null);
@@ -204,17 +188,26 @@ export function DraftStudio() {
       const response = await fetch("/api/x/publish", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ text: selectedText, claimId: claim.id, checks: state.checks, confirm: true }),
+        body: JSON.stringify({
+          text: selectedText,
+          claimId: claim.id,
+          draftId: selectedVersion?.draftId,
+          approvalId: state.approvalId,
+          checks: state.checks,
+          confirm: true,
+        }),
       });
       const data = await readBody(response);
       if (!response.ok || !data.ok || !data.id || !data.url || !/^https:\/\/x\.com\/i\/web\/status\/\d+$/.test(data.url)) {
         setPublishError((data.message || "X did not accept the post. Check the account before trying again.").slice(0, 180));
         return;
       }
-      setPosted({ claimId: claim.id, id: data.id, url: data.url });
+      setPosted({ claimId: claim.id, id: data.id, url: data.url, retained: data.retained === true });
       patch({
         approvalNoted: true,
-        notice: "Sent to X. The id stays in this browser session only. Nothing was written to a database.",
+        notice: data.retained
+          ? "Sent to X. The post id is stored with this approval."
+          : "Sent to X. The id is on screen, but the database did not confirm the row.",
       });
     } catch {
       setPublishError("The desk could not reach the publish route. Check X before trying again.");
@@ -232,13 +225,16 @@ export function DraftStudio() {
           title="Three ways to say what the evidence allows"
           dek="Version A is straight. Version B is conversational. Version C is built to travel on X without leaving the record. Selecting a version does not publish it."
         />
-        <SampleNote />
-        <div className="grid items-start gap-6 lg:grid-cols-[280px_minmax(0,1fr)]">
+        <OriginNote mode={mode} />
+        {claims.length === 0 ? (
+          <EmptyDesk title="No drafts filed" body="The studio is empty. Demonstration drafts stay in the seed until someone loads them, and Gemini has not been asked to write any." />
+        ) : null}
+        {claim ? <div className="grid items-start gap-6 lg:grid-cols-[280px_minmax(0,1fr)]">
           <aside className="border border-rule bg-paper lg:sticky lg:top-6">
             <p className="border-b border-rule px-4 py-3 font-mono text-[10px] tracking-[0.16em] uppercase">Queue</p>
             <ul className="max-h-[70vh] overflow-auto">
               {ordered.map((item) => {
-                const itemPack = packageFor(item.id);
+                const itemPack = packages.find((entry) => entry.claimId === item.id);
                 const active = item.id === claim.id;
                 return (
                   <li key={item.id}>
@@ -264,11 +260,11 @@ export function DraftStudio() {
           <div className="min-w-0">
             <div className="border border-rule bg-paper px-4 py-4 sm:px-5">
               <div className="flex flex-wrap items-center gap-2">
-                <p className="font-mono text-[10px] tracking-[0.14em]">{claim.id.toUpperCase()}</p>
+                <p className="font-mono text-[10px] tracking-[0.14em]">{claim.origin === "demo" ? <DemoMark /> : "Filed"}</p>
                 <StatusMark value={claim.status} />
-                {claim.factCheck.classification ? (
+                {claim.classification ? (
                   <span className="font-serif text-lg leading-none">
-                    <ClassificationWord value={claim.factCheck.classification} />
+                    <ClassificationWord value={claim.classification} />
                   </span>
                 ) : null}
               </div>
@@ -285,7 +281,7 @@ export function DraftStudio() {
               <div className="mt-4 border border-dashed border-rule bg-paper px-5 py-10">
                 <p className="font-serif text-2xl">No draft on this claim.</p>
                 <p className="mt-2 max-w-xl text-sm leading-relaxed text-ink-soft">
-                  {claim.factCheck.note} The studio does not generate a post until there is an evidence pack and a classification, including a classification of unverified.
+                  {claim.note} Gemini is not connected, so the studio will not invent a version.
                 </p>
               </div>
             ) : (
@@ -344,17 +340,16 @@ export function DraftStudio() {
                               <dd className="text-ink">{version.hashtag}</dd>
                             </div>
                             <div className="flex justify-between gap-3">
-                              <dt>Confidence</dt>
-                              <dd className="text-ink">{version.confidence}</dd>
+                              <dt>Style</dt>
+                              <dd className="text-ink">{version.style}</dd>
                             </div>
                             <div className="flex justify-between gap-3">
-                              <dt>Risk</dt>
-                              <dd className={riskClass(version.risk)}>{version.risk}</dd>
+                              <dt>Status</dt>
+                              <dd className="text-ink">{version.editorModified ? "Edited" : version.status}</dd>
                             </div>
                           </dl>
-                          <p className="mt-2 text-xs leading-relaxed text-ink-soft">{version.riskNote}</p>
                           <p className="mt-3 text-xs leading-relaxed text-ink-soft">
-                            Sources: {claim.evidence.length === 0 ? "None attached" : claim.evidence.map((item) => item.organization).join(" · ")}
+                            Sources: {claim.evidenceOrgs.length === 0 ? "None attached" : claim.evidenceOrgs.join(" · ")}
                           </p>
                           <div className="mt-4 grid grid-cols-2 gap-2">
                             {editing ? (
@@ -363,14 +358,32 @@ export function DraftStudio() {
                                   type="button"
                                   variant="outline"
                                   onClick={() => {
-                                    const changed = state.draftEdit !== text;
-                                    patch({
-                                      editing: null,
-                                      texts: { ...state.texts, [version.id]: state.draftEdit },
-                                      checks: changed ? blankChecks() : state.checks,
-                                      approvalNoted: changed ? false : state.approvalNoted,
-                                      notice: changed ? "Edit kept on this desk. Checklist reset." : "No change.",
-                                    });
+                                    void (async () => {
+                                      const changed = state.draftEdit !== text;
+                                      if (!changed) {
+                                        patch({ editing: null, notice: "No change." });
+                                        return;
+                                      }
+                                      const response = await fetch("/api/desk/drafts", {
+                                        method: "POST",
+                                        headers: { "content-type": "application/json" },
+                                        body: JSON.stringify({ draftId: version.draftId, content: state.draftEdit }),
+                                      });
+                                      const data = await readBody(response);
+                                      if (!response.ok || !data.ok) {
+                                        patch({ notice: (data.message || "The edit was not stored.").slice(0, 180) });
+                                        return;
+                                      }
+                                      patch({
+                                        editing: null,
+                                        texts: { ...state.texts, [version.id]: state.draftEdit },
+                                        checks: blankChecks(),
+                                        approvalNoted: false,
+                                        approvalId: null,
+                                        notice: "Edit stored. Any approval of the previous text was invalidated.",
+                                      });
+                                      setIntentReady(false);
+                                    })();
                                   }}
                                 >
                                   Save edit
@@ -388,8 +401,7 @@ export function DraftStudio() {
                                   {state.copied === version.id ? <Check /> : <Copy />}
                                   {state.copied === version.id ? "Copied" : "Copy"}
                                 </Button>
-                                <Button type="button" variant="outline" onClick={() => regenerate(version)}>
-                                  <RotateCcw />
+                                <Button type="button" variant="outline" disabled>
                                   Regenerate
                                 </Button>
                                 <Button
@@ -494,7 +506,7 @@ export function DraftStudio() {
                       ) : null}
                       {posted && posted.claimId === claim.id ? (
                         <p className="text-sm">
-                          Posted by {editor.name}. X id {posted.id}. This session can show it. The desk does not keep a database record.{" "}
+                          Posted by {editor.name}. X id {posted.id}. {posted.retained ? "The id is stored with the approval." : "The database did not confirm the row."}{" "}
                           <a href={posted.url} className="underline" target="_blank" rel="noreferrer">
                             Open the post
                           </a>
@@ -510,7 +522,7 @@ export function DraftStudio() {
               </>
             )}
           </div>
-        </div>
+        </div> : null}
       </div>
       <Dialog open={approveOpen} onOpenChange={setApproveOpen}>
         <DialogContent className="sm:max-w-xl">
@@ -533,7 +545,7 @@ export function DraftStudio() {
           {publishError ? <p className="text-sm text-stamp">{publishError}</p> : null}
           {posted ? (
             <p className="text-sm">
-              X accepted the post. Id {posted.id}. It is not stored in a database.{" "}
+              X accepted the post. Id {posted.id}. {posted.retained ? "It is stored with this approval." : "The database did not confirm the row."}{" "}
               <a href={posted.url} className="underline" target="_blank" rel="noreferrer">
                 Open it
               </a>
@@ -637,8 +649,3 @@ function QueueBadge({ ready, drafted }: { ready: boolean | null; drafted: boolea
   return <span className="font-mono text-[10px] tracking-[0.12em] text-amber uppercase">Held</span>;
 }
 
-function riskClass(risk: "Low" | "Moderate" | "Elevated") {
-  if (risk === "Low") return "text-forest";
-  if (risk === "Moderate") return "text-amber";
-  return "text-stamp";
-}

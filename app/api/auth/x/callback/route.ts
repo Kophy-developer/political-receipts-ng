@@ -1,3 +1,4 @@
+import { saveOauth2Connection } from "@/lib/db/connections";
 import { readOauth2 } from "@/lib/x/env";
 import { identifyBearer } from "@/lib/x/account";
 import { xCallbackUrl } from "@/lib/x/public";
@@ -90,15 +91,36 @@ export async function GET(request: Request) {
   }
   if (!tokenResponse.ok) return finish("/settings?x=exchange");
   let accessToken = "";
+  let refreshToken = "";
+  let expiresIn = 0;
   try {
-    const payload = (await tokenResponse.json()) as { access_token?: unknown };
+    const payload = (await tokenResponse.json()) as { access_token?: unknown; refresh_token?: unknown; expires_in?: unknown };
     if (typeof payload.access_token !== "string" || !payload.access_token) return finish("/settings?x=exchange");
+    if (typeof payload.refresh_token !== "string" || !payload.refresh_token) return finish("/settings?x=exchange");
     accessToken = payload.access_token;
+    refreshToken = payload.refresh_token;
+    expiresIn = typeof payload.expires_in === "number" ? payload.expires_in : 0;
   } catch {
     return finish("/settings?x=exchange");
   }
   const identified = await identifyBearer(accessToken);
-  if (!identified.ok) return finish("/settings?x=identity");
+  if (!identified.ok) {
+    accessToken = "";
+    refreshToken = "";
+    return finish("/settings?x=identity");
+  }
+  const saved = await saveOauth2Connection({
+    xUserId: identified.account.id,
+    username: identified.account.username,
+    displayName: identified.account.name,
+    accessToken,
+    refreshToken,
+    expiresIn,
+  });
+  accessToken = "";
+  refreshToken = "";
+  if (!saved.ok && saved.reason === "encrypt") return finish("/settings?x=encrypt");
+  if (!saved.ok) return finish("/settings?x=store");
   const handle = encodeURIComponent(identified.account.username);
   return finish(`/settings?x=handshake&handle=${handle}`);
 }

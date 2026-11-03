@@ -1,3 +1,4 @@
+import { markConnectionVerified } from "@/lib/db/connections";
 import { verifyOauth1Account } from "@/lib/x/account";
 import { credentialFlags } from "@/lib/x/env";
 import { assertEditorPost, reserveAccountRead } from "@/lib/x/guard";
@@ -24,6 +25,7 @@ export async function POST(request: Request) {
   const stamp = seal({ at: Date.now() } satisfies CheckCookie);
   const cookie = stamp ? writeCookie("prng_x_check", stamp, "/api/x", 60) : undefined;
   if (!result.ok) return json({ ok: false, connected: false, message: result.message }, result.status >= 400 ? result.status : 502, cookie);
+  await markConnectionVerified(result.account.username);
   return json(
     {
       ok: true,

@@ -27,3 +27,14 @@ export function growthLabel(value: number) {
   const sign = value > 0 ? "+" : "";
   return `${sign}${value}%`;
 }
+
+export function lagosStamp(iso: string | null) {
+  if (!iso) return "Not recorded";
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "Not recorded";
+  return `${new Intl.DateTimeFormat("en-NG", {
+    timeZone: "Africa/Lagos",
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(date)} WAT`;
+}

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import type { DeskMode } from "@/lib/desk/types";
 import type { ClaimStatus, Classification, SourceTier, Velocity } from "@/lib/types";
 import { cn } from "cn";
 
@@ -56,10 +57,32 @@ export function ClassificationWord({ value }: { value: Classification }) {
 }
 
 export function SampleNote() {
+  return <OriginNote mode="demo" />;
+}
+
+export function OriginNote({ mode }: { mode: DeskMode }) {
+  if (mode === "live" || mode === "empty") return null;
+  const copy =
+    mode === "demo"
+      ? "Demonstration records. They were loaded by the demo seed. They are not a live scrape and they are not published fact-checks."
+      : mode === "mixed"
+        ? "Demonstration rows are marked Demo. They are not mixed into live counts without that mark."
+        : mode === "unconfigured"
+          ? "Supabase is not configured on the server. Sample numbers are not being shown in their place."
+          : "The database could not be reached. This screen is not filling the gap with sample numbers.";
+  return <p className="border-l-2 border-stamp/80 pl-3 text-[12.5px] leading-relaxed text-ink-soft">{copy}</p>;
+}
+
+export function DemoMark() {
+  return <span className="font-mono text-[10px] tracking-[0.12em] text-stamp uppercase">Demo</span>;
+}
+
+export function EmptyDesk({ title, body }: { title: string; body: string }) {
   return (
-    <p className="border-l-2 border-stamp/80 pl-3 text-[12.5px] leading-relaxed text-ink-soft">
-      Sample desk. Figures, posts, and evidence cards are demonstration material. They are not a live scrape, and they are not published fact-checks.
-    </p>
+    <div className="border border-dashed border-rule bg-paper px-6 py-16 text-center">
+      <p className="font-serif text-2xl">{title}</p>
+      <p className="mx-auto mt-2 max-w-xl text-sm leading-relaxed text-ink-soft">{body}</p>
+    </div>
   );
 }
 
