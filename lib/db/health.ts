@@ -1,6 +1,6 @@
 import "server-only";
 import type { SystemHealth } from "@/lib/desk/types";
-import { schemaMissing, serviceClient } from "@/lib/db/client";
+import { schemaMissing } from "@/lib/db/client";
 import { encryptionReady } from "@/lib/db/crypto";
 import { latestConnection } from "@/lib/db/connections";
 import { credentialFlags } from "@/lib/x/env";
@@ -38,12 +38,23 @@ export async function systemHealth(): Promise<SystemHealth> {
     ai: "Not integrated",
     monitoring: "Not started",
   };
-  const db = serviceClient();
-  if (!db) return base;
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
+  if (!url || !key) return base;
   const probes = await Promise.all(
     tables.map(async (table) => {
-      const { error } = await db.from(table).select("id", { head: true, count: "exact" });
-      return { table, missing: Boolean(error && schemaMissing(error.message)), failed: Boolean(error && !schemaMissing(error.message)) };
+      try {
+        const response = await fetch(`${url.replace(/\/$/, "")}/rest/v1/${table}?select=id&limit=1`, {
+          headers: { apikey: key, Authorization: `Bearer ${key}`, Accept: "application/json" },
+          cache: "no-store",
+        });
+        if (response.ok) return { table, missing: false, failed: false };
+        const body = await response.text();
+        const missing = response.status === 404 || schemaMissing(body);
+        return { table, missing, failed: !missing };
+      } catch {
+        return { table, missing: false, failed: true };
+      }
     }),
   );
   const missing = probes.filter((probe) => probe.missing).map((probe) => probe.table);
