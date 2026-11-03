@@ -3,15 +3,8 @@
 import { useState } from "react";
 import Link from "next/link";
 import { editor, xCallbackPath } from "@/lib/system";
-import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { xProductionOrigin } from "@/lib/x/public";
+import { XDesk, type XFlags } from "@/components/settings/x-desk";
 import { Input } from "@/components/ui/input";
 import { PageFrame } from "@/components/shell/page-frame";
 import { SampleNote, SectionHeading } from "@/components/marks";
@@ -25,17 +18,16 @@ const sections = [
   { href: "#account", label: "Account" },
 ];
 
-export function SettingsPanel() {
-  const [open, setOpen] = useState(false);
-  const [origin, setOrigin] = useState("https://[your-vercel-domain]");
+export function SettingsPanel({ flags }: { flags: XFlags }) {
+  const [origin, setOrigin] = useState(xProductionOrigin);
 
   return (
     <PageFrame>
       <div className="desk-in flex flex-col gap-8">
         <SectionHeading
           kicker="Settings"
-          title="Connections, still closed"
-          dek="Placeholders for the credentials this desk will need later. Nothing typed here is stored, and no secret is shipped to the browser."
+          title="The gate in front of X"
+          dek="Credentials stay on the server. An account counts as connected only after a check, and a post leaves only after a person confirms the text."
         />
         <SampleNote />
         <div className="grid gap-8 xl:grid-cols-[180px_minmax(0,1fr)]">
@@ -51,19 +43,8 @@ export function SettingsPanel() {
             </ul>
           </nav>
           <div className="space-y-12">
-            <Section id="x" kicker="X Integration" title="The account that would post">
-              <p className="text-sm leading-relaxed text-ink-soft">
-                Status: <span className="text-ink">Not Connected</span>
-              </p>
-              <p className="mt-3 max-w-2xl text-sm leading-relaxed">
-                OAuth is not configured. The callback route exists so the developer portal has an address to point at. It does not exchange codes.
-              </p>
-              <p className="mt-3 break-all font-mono text-xs text-ink-soft">
-                Callback path {xCallbackPath}
-              </p>
-              <Button type="button" className="mt-4 h-10" onClick={() => setOpen(true)}>
-                Connect X Account
-              </Button>
+            <Section id="x" kicker="X Integration" title="The account that can post">
+              <XDesk flags={flags} />
             </Section>
             <Section id="ai" kicker="AI Provider" title="Gemini">
               <p className="text-sm leading-relaxed text-ink-soft">
@@ -101,8 +82,8 @@ export function SettingsPanel() {
             </Section>
             <Section id="publishing" kicker="Publishing" title="The gate">
               <ul className="max-w-2xl space-y-3 text-sm leading-relaxed">
-                <li>The pre-publication checklist must be complete before approval is even offered as a real send.</li>
-                <li>In this build, approval records a note and opens a warning. It does not call X.</li>
+                <li>The pre-publication checklist must be complete before the server will accept a post.</li>
+                <li>Approve and post opens a preview. X is called only after a second, explicit confirmation of that text.</li>
                 <li>Schedule later is a hold on the desk, not a queued publish.</li>
                 <li>Reject keeps the package off the approve button until the editor undoes it.</li>
               </ul>
@@ -125,24 +106,6 @@ export function SettingsPanel() {
           </div>
         </div>
       </div>
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="sm:max-w-lg">
-          <DialogHeader>
-            <DialogTitle className="font-serif text-2xl">X is not connected</DialogTitle>
-            <DialogDescription className="text-sm leading-relaxed text-ink-soft">
-              X authentication is not configured. This demo cannot authorise an account or publish a post. Add the server credentials when you are ready. Nothing in this dialog starts an OAuth flow.
-            </DialogDescription>
-          </DialogHeader>
-          <p className="text-sm">
-            Status: <span className="font-medium">Not Connected</span>
-          </p>
-          <DialogFooter>
-            <Button type="button" onClick={() => setOpen(false)}>
-              Close
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </PageFrame>
   );
 }

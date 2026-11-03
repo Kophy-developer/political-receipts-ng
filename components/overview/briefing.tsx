@@ -68,7 +68,7 @@ export function Briefing() {
             <DeskClock />
             <div className="flex flex-wrap gap-2">
               <StatusChip live label="Monitoring" value="Live" />
-              <StatusChip label="X" value="Not connected" />
+              <StatusChip label="X" value="Not verified" />
               <StatusChip label="Gemini" value="Not configured" />
             </div>
             <p className="font-mono text-[10px] tracking-[0.12em] text-ink-soft uppercase">

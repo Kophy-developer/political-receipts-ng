@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Check, Copy, RotateCcw } from "lucide-react";
@@ -81,6 +81,12 @@ export function DraftStudio() {
   const activeId = claims.some((claim) => claim.id === requested) ? requested! : fallback;
   const [states, setStates] = useState<Record<string, PackageState>>({});
   const [approveOpen, setApproveOpen] = useState(false);
+  const [confirmPost, setConfirmPost] = useState(false);
+  const [posting, setPosting] = useState(false);
+  const [intentReady, setIntentReady] = useState(false);
+  const [publishError, setPublishError] = useState<string | null>(null);
+  const [posted, setPosted] = useState<{ claimId: string; id: string; url: string } | null>(null);
+  const postLock = useRef(false);
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [rejectOpen, setRejectOpen] = useState(false);
   const [rejectChoice, setRejectChoice] = useState(rejectReasons[0]);
@@ -155,6 +161,67 @@ export function DraftStudio() {
       return;
     }
     patch({ selected: id, notice: null });
+  }
+
+  async function readBody(response: Response) {
+    try {
+      return (await response.json()) as { ok?: boolean; message?: string; id?: string; url?: string };
+    } catch {
+      return {};
+    }
+  }
+
+  async function openApprove() {
+    if (!state) return;
+    setApproveOpen(true);
+    setConfirmPost(false);
+    setIntentReady(false);
+    setPublishError(null);
+    setPosted(null);
+    try {
+      const response = await fetch("/api/x/intent", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ text: selectedText, claimId: claim.id, checks: state.checks }),
+      });
+      const data = await readBody(response);
+      if (!response.ok || !data.ok) {
+        setPublishError((data.message || "The desk could not open a publish ticket.").slice(0, 180));
+        return;
+      }
+      setIntentReady(true);
+    } catch {
+      setPublishError("The desk could not open a publish ticket.");
+    }
+  }
+
+  async function confirmPublish() {
+    if (postLock.current || !state || !confirmPost || !intentReady) return;
+    postLock.current = true;
+    setPosting(true);
+    setPublishError(null);
+    try {
+      const response = await fetch("/api/x/publish", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ text: selectedText, claimId: claim.id, checks: state.checks, confirm: true }),
+      });
+      const data = await readBody(response);
+      if (!response.ok || !data.ok || !data.id || !data.url || !/^https:\/\/x\.com\/i\/web\/status\/\d+$/.test(data.url)) {
+        setPublishError((data.message || "X did not accept the post. Check the account before trying again.").slice(0, 180));
+        return;
+      }
+      setPosted({ claimId: claim.id, id: data.id, url: data.url });
+      patch({
+        approvalNoted: true,
+        notice: "Sent to X. The id stays in this browser session only. Nothing was written to a database.",
+      });
+    } catch {
+      setPublishError("The desk could not reach the publish route. Check X before trying again.");
+    } finally {
+      postLock.current = false;
+      setPosting(false);
+    }
   }
 
   return (
@@ -379,7 +446,7 @@ export function DraftStudio() {
                         {selectedCount > POST_LIMIT
                           ? `Bring Version ${state.selected} within ${POST_LIMIT} characters before approval.`
                           : canApprove
-                            ? `Version ${state.selected} is ready for a human decision. Approval still will not post.`
+                            ? `Version ${state.selected} is ready for a human decision. X is called only after the final confirmation.`
                             : "The approve button stays closed until every line is checked."}
                       </p>
                       <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
@@ -387,7 +454,9 @@ export function DraftStudio() {
                           type="button"
                           disabled={!canApprove}
                           className="h-11 bg-stamp text-[#f8f1ee] hover:bg-[#8a261b]"
-                          onClick={() => setApproveOpen(true)}
+                          onClick={() => {
+                            void openApprove();
+                          }}
                         >
                           Approve & post to X
                         </Button>
@@ -423,9 +492,12 @@ export function DraftStudio() {
                           </button>
                         </p>
                       ) : null}
-                      {state.approvalNoted ? (
+                      {posted && posted.claimId === claim.id ? (
                         <p className="text-sm">
-                          Approval noted by {editor.name}. X was not contacted. The draft is still on the desk.
+                          Posted by {editor.name}. X id {posted.id}. This session can show it. The desk does not keep a database record.{" "}
+                          <a href={posted.url} className="underline" target="_blank" rel="noreferrer">
+                            Open the post
+                          </a>
                         </p>
                       ) : null}
                     </div>
@@ -443,29 +515,43 @@ export function DraftStudio() {
       <Dialog open={approveOpen} onOpenChange={setApproveOpen}>
         <DialogContent className="sm:max-w-xl">
           <DialogHeader>
-            <DialogTitle className="font-serif text-2xl">This will not post</DialogTitle>
+            <DialogTitle className="font-serif text-2xl">Final confirmation</DialogTitle>
             <DialogDescription className="text-sm leading-relaxed text-ink-soft">
-              X integration has not been connected yet. This draft would be published after X authentication is configured.
+              This is the only step that sends text to X. The checklist is checked again on the server. Closing this window sends nothing.
             </DialogDescription>
           </DialogHeader>
           <div className="border border-rule bg-[#f6f1e8] px-3 py-3">
             <p className="font-mono text-[10px] tracking-[0.14em] text-ink-soft uppercase">
-              Version {state?.selected} · would-be post
+              Version {state?.selected} · exact text
             </p>
             <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed">{selectedText}</p>
           </div>
+          <label className="flex items-start gap-3 text-sm leading-relaxed">
+            <Checkbox checked={confirmPost} onCheckedChange={(checked) => setConfirmPost(checked)} className="mt-0.5" disabled={Boolean(posted) || posting} />
+            <span>Post this exact text to X. I have read it and I am sending it on purpose.</span>
+          </label>
+          {publishError ? <p className="text-sm text-stamp">{publishError}</p> : null}
+          {posted ? (
+            <p className="text-sm">
+              X accepted the post. Id {posted.id}. It is not stored in a database.{" "}
+              <a href={posted.url} className="underline" target="_blank" rel="noreferrer">
+                Open it
+              </a>
+            </p>
+          ) : null}
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setApproveOpen(false)}>
+            <Button type="button" variant="outline" onClick={() => setApproveOpen(false)} disabled={posting}>
               Keep editing
             </Button>
             <Button
               type="button"
+              disabled={!confirmPost || !intentReady || posting || Boolean(posted)}
+              className="bg-stamp text-[#f8f1ee] hover:bg-[#8a261b]"
               onClick={() => {
-                patch({ approvalNoted: true, notice: "Held for X. No request left this browser." });
-                setApproveOpen(false);
+                void confirmPublish();
               }}
             >
-              Note the approval
+              {posting ? "Sending…" : "Post to X"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -475,7 +561,7 @@ export function DraftStudio() {
           <DialogHeader>
             <DialogTitle className="font-serif text-2xl">Schedule is a hold</DialogTitle>
             <DialogDescription className="text-sm leading-relaxed text-ink-soft">
-              Choosing a slot does not send the post. When X is connected, a person will still have to approve the release.
+              Choosing a slot does not send the post. A person still has to confirm the text before anything reaches X.
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-2">

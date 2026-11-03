@@ -68,7 +68,7 @@ export function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
           </li>
           <li className="flex items-center justify-between">
             <span>X</span>
-            <span className="text-white/55">Not connected</span>
+            <span className="text-white/55">Not verified</span>
           </li>
           <li className="flex items-center justify-between">
             <span>Gemini</span>
