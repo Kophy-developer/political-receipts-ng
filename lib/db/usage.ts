@@ -2,8 +2,9 @@ import "server-only";
 import type { UsageView } from "@/lib/desk/types";
 import { schemaMissing, scrubDbMessage, serviceClient } from "@/lib/db/client";
 import { lagosDayLabel, lagosDayStart, publishedRates, scanLimits, usd } from "@/lib/intel/limits";
-import { researchLimits } from "@/lib/research/limits";
-import { searchProvider } from "@/lib/research/provider";
+import { billingPeriodStart } from "@/lib/research/choose";
+import { researchBudget, researchLimits } from "@/lib/research/limits";
+import { researchKeys, searchProvider } from "@/lib/research/provider";
 
 export type UsageTotals = {
   xRequests: number;
@@ -45,20 +46,23 @@ export async function usageSince(startIso: string) {
       totals.inputTokens += typeof row.input_tokens === "number" ? row.input_tokens : 0;
       totals.outputTokens += typeof row.output_tokens === "number" ? row.output_tokens : 0;
     }
-    if (row.provider === "search") totals.searches += requests;
+    if (row.provider === "search" || row.provider === "tavily" || row.provider === "brave") totals.searches += requests;
     if (row.provider === "retrieval") totals.retrievals += requests;
   }
   return { ok: true as const, totals };
 }
 
 export async function recordUsage(input: {
-  provider: "x" | "gemini" | "search" | "retrieval";
+  provider: "x" | "gemini" | "search" | "retrieval" | "tavily" | "brave";
   operation: string;
   requests: number;
   units: number;
   inputTokens?: number | null;
   outputTokens?: number | null;
   scanId?: string | null;
+  selectionReason?: string | null;
+  fallbackReason?: string | null;
+  creditsReported?: number | null;
 }) {
   const db = serviceClient();
   if (!db) return { ok: false as const };
@@ -70,6 +74,9 @@ export async function recordUsage(input: {
     input_tokens: input.inputTokens ?? null,
     output_tokens: input.outputTokens ?? null,
     scan_id: input.scanId ?? null,
+    selection_reason: input.selectionReason ?? null,
+    fallback_reason: input.fallbackReason ?? null,
+    credits_reported: input.creditsReported ?? null,
   });
   return { ok: !error };
 }
@@ -123,8 +130,20 @@ export async function usageView(): Promise<UsageView> {
     searchLimit: researchLimits.dailySearches,
     retrievals: 0,
     retrievalLimit: researchLimits.dailyRetrievals,
-    searchProvider: "Brave Search",
-    searchCredential: "BRAVE_SEARCH_API_KEY",
+    searchProvider: "Tavily",
+    searchCredential: "TAVILY_API_KEY",
+    researchPeriod: "Not available",
+    tavilyUsed: 0,
+    tavilyRemaining: 900,
+    tavilyCeiling: 900,
+    braveUsed: 0,
+    braveRemaining: 900,
+    braveCeiling: 900,
+    researchRuns: 0,
+    researchDocuments: 0,
+    researchCostNote: "Research allowances are not loaded.",
+    tavilyConfigured: false,
+    braveConfigured: false,
   };
   const db = serviceClient();
   if (!db) return base;
@@ -150,5 +169,62 @@ export async function usageView(): Promise<UsageView> {
   const provider = searchProvider();
   base.searchProvider = provider.name;
   base.searchCredential = provider.credential;
+  const month = await researchMonthView();
+  base.researchPeriod = month.period;
+  base.tavilyUsed = month.tavilyUsed;
+  base.tavilyRemaining = month.tavilyRemaining;
+  base.tavilyCeiling = month.tavilyCeiling;
+  base.braveUsed = month.braveUsed;
+  base.braveRemaining = month.braveRemaining;
+  base.braveCeiling = month.braveCeiling;
+  base.researchRuns = month.runs;
+  base.researchDocuments = month.documents;
+  base.researchCostNote = month.costNote;
+  base.tavilyConfigured = month.tavilyConfigured;
+  base.braveConfigured = month.braveConfigured;
   return base;
+}
+
+export async function researchMonthTotals() {
+  const budget = researchBudget();
+  const start = billingPeriodStart(new Date(), budget.billingDay);
+  const empty = { tavily: 0, brave: 0, documents: 0, runs: 0, start };
+  const db = serviceClient();
+  if (!db) return empty;
+  const [usage, runs] = await Promise.all([
+    db.from("api_usage").select("provider, units").gte("occurred_at", start).in("provider", ["tavily", "brave", "retrieval"]),
+    db.from("research_runs").select("id", { count: "exact", head: true }).gte("started_at", start),
+  ]);
+  let tavily = 0;
+  let brave = 0;
+  let documents = 0;
+  for (const row of usage.data ?? []) {
+    const units = typeof row.units === "number" ? row.units : 0;
+    if (row.provider === "tavily") tavily += units;
+    if (row.provider === "brave") brave += units;
+    if (row.provider === "retrieval") documents += units;
+  }
+  return { tavily, brave, documents, runs: runs.count ?? 0, start };
+}
+
+async function researchMonthView() {
+  const budget = researchBudget();
+  const keys = researchKeys();
+  const month = await researchMonthTotals();
+  const start = new Date(month.start);
+  const period = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }).format(start);
+  return {
+    period: `${period} UTC`,
+    tavilyUsed: month.tavily,
+    tavilyRemaining: Math.max(0, budget.tavilyCeiling - month.tavily),
+    tavilyCeiling: budget.tavilyCeiling,
+    braveUsed: month.brave,
+    braveRemaining: Math.max(0, budget.braveCeiling - month.brave),
+    braveCeiling: budget.braveCeiling,
+    runs: month.runs,
+    documents: month.documents,
+    tavilyConfigured: keys.tavily,
+    braveConfigured: keys.brave,
+    costNote: "Ceilings are application credits for this billing period. A dollar amount is not invented. The period starts on RESEARCH_BILLING_DAY (UTC), which should match the provider reset day.",
+  };
 }

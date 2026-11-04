@@ -99,17 +99,27 @@ export function ResearchPanel({ claim, plan }: { claim: DeskClaim; plan: Researc
             <p className="mt-2 text-sm text-ink-soft">Source tiers are not installed yet, so research stays closed.</p>
           )}
           <p className="mt-4 text-sm">
-            Maximum search operations this run: {plan?.maxSearchOperations ?? 3}. Provider: {plan?.providerName ?? "Brave Search"}.
+            Maximum search operations this run: {plan?.maxSearchOperations ?? 3}. Primary provider: {plan?.providerName ?? "Tavily"}. A thin result does not switch providers. Search second provider only runs when you click it.
           </p>
           {configured ? (
-            <button
-              type="button"
-              disabled={busy !== null}
-              onClick={() => post("/api/research/run", { claimId: claim.id }, "run")}
-              className="mt-4 inline-flex h-10 items-center bg-ink px-4 text-sm text-paper disabled:opacity-50"
-            >
-              {busy === "run" ? "Researching…" : "Begin research"}
-            </button>
+            <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+              <button
+                type="button"
+                disabled={busy !== null}
+                onClick={() => post("/api/research/run", { claimId: claim.id }, "run")}
+                className="inline-flex h-10 items-center bg-ink px-4 text-sm text-paper disabled:opacity-50"
+              >
+                {busy === "run" ? "Researching…" : "Begin research"}
+              </button>
+              <button
+                type="button"
+                disabled={busy !== null}
+                onClick={() => post("/api/research/second", { claimId: claim.id }, "second")}
+                className="inline-flex h-10 items-center border border-ink px-4 text-sm disabled:opacity-50"
+              >
+                {busy === "second" ? "Asking…" : "Search second provider"}
+              </button>
+            </div>
           ) : (
             <p className="mt-4 max-w-2xl text-sm leading-relaxed">
               Begin research is off. Set {plan?.credential ?? "BRAVE_SEARCH_API_KEY"} on the server. No search is sent until that key exists.

@@ -190,6 +190,25 @@ export function SettingsPanel({ flags, health, usage }: { flags: XFlags; health:
                     {usage.searchProvider} is configured. A search still waits for Begin research on a claim.
                   </p>
                 )}
+                <div className="mt-6 max-w-3xl">
+                  <h3 className="font-serif text-xl">Research this billing period</h3>
+                  <p className="mt-2 text-sm leading-relaxed text-ink-soft">Period starting {usage.researchPeriod}. {usage.researchCostNote}</p>
+                  <dl className="mt-4 grid gap-3 sm:grid-cols-2">
+                    <Health label="Tavily used this period" value={String(usage.tavilyUsed)} />
+                    <Health label="Tavily remaining" value={String(usage.tavilyRemaining)} />
+                    <Health label="Tavily monthly ceiling" value={String(usage.tavilyCeiling)} />
+                    <Health label="Tavily key" value={usage.tavilyConfigured ? "Set on the server" : "TAVILY_API_KEY is not set"} />
+                    <Health label="Brave used this period" value={String(usage.braveUsed)} />
+                    <Health label="Brave remaining" value={String(usage.braveRemaining)} />
+                    <Health label="Brave monthly ceiling" value={String(usage.braveCeiling)} />
+                    <Health label="Brave key" value={usage.braveConfigured ? "Set on the server" : "BRAVE_API_KEY is not set"} />
+                    <Health label="Research runs" value={String(usage.researchRuns)} />
+                    <Health label="Documents retrieved" value={String(usage.researchDocuments)} />
+                  </dl>
+                  <p className="mt-3 text-sm leading-relaxed">
+                    Tavily is primary. Brave is used when Tavily is missing, over its ceiling, or not answering, and when you click Search second provider. A weak result does not switch by itself. When both ceilings are spent, research stops.
+                  </p>
+                </div>
                 <div className="mt-6 max-w-2xl">
                   <p className="text-sm leading-relaxed">
                     Reprocess stored posts with the current relevance and clustering rules, then run claim extraction on what is already saved. This does not call X.

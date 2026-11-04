@@ -66,8 +66,8 @@ export function Briefing({ snapshot, gemini = "Not configured" }: { snapshot: De
             <div>
               <div className="mb-3 flex items-end justify-between gap-3">
                 <h2 className="font-serif text-2xl tracking-[-0.02em]">Conversations</h2>
-                <Link href="/intelligence" className="text-sm underline decoration-rule underline-offset-4 hover:decoration-stamp">
-                  Full board
+                <Link href="/opportunities" className="text-sm underline decoration-rule underline-offset-4 hover:decoration-stamp">
+                  Opportunities
                 </Link>
               </div>
               <div className="border border-rule bg-paper">

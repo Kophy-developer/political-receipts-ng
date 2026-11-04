@@ -96,7 +96,12 @@ X, Supabase, and Gemini are read only in server modules. Gemini is used for clai
 | `X_ACCESS_TOKEN_SECRET` | Server-side token secret |
 | `GEMINI_API_KEY` | Server-side Gemini key for claim extraction. |
 | `GEMINI_MODEL` | Optional server override. When unset, the default in `lib/ai/env.ts` is used (currently `gemini-3.8-flash`). |
-| `BRAVE_SEARCH_API_KEY` | Server only. Brave Search API token. Research search does not run when it is unset. Never prefix it with `NEXT_PUBLIC_`. |
+| `TAVILY_API_KEY` | Server only. Primary research search. Never prefix it with `NEXT_PUBLIC_`. |
+| `BRAVE_API_KEY` | Server only. Secondary research search. `BRAVE_SEARCH_API_KEY` is still read if this is unset. |
+| `RESEARCH_PROVIDER` | `tavily` (default) or `brave`. The desk does not switch providers just because a result was thin. |
+| `RESEARCH_BILLING_DAY` | UTC day, 1–28, when the monthly research allowance resets. Default 1. Set it to the provider’s real reset day. |
+| `TAVILY_MONTHLY_CEILING` | Application credit ceiling. Default 900. |
+| `BRAVE_MONTHLY_CEILING` | Application search ceiling. Default 900. |
 | `NEXT_PUBLIC_SUPABASE_URL` | Public Supabase project URL |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Public Supabase anon key, safe to expose only because row-level security must restrict it |
 | `SUPABASE_SERVICE_ROLE_KEY` | Server only. Never prefix it with `NEXT_PUBLIC_` and never import it into a client component. |
@@ -139,7 +144,9 @@ Gemini’s job in this phase is claim extraction, not verdicts and not drafts.
 3. The model must return JSON. The server drops a claim when a number, quotation, or URL is not in the source post.
 4. Importance is High, Medium, or Low from reach, account count, and whether a record could check the sentence. It is not a candidate score.
 5. `#NotTrue` stays unavailable until collected evidence contradicts the claim at high confidence. Incomplete evidence stays Unverified or Needs Context.
-6. Find evidence shows the claim type, the questions, and the source tiers for that pillar, then waits. Begin research calls Brave only after the editor clicks it and only when `BRAVE_SEARCH_API_KEY` is set. A pasted URL is fetched by the server, with private addresses refused. Gemini is not asked to browse, and it is not retried on its own.
+6. Find evidence shows the claim type, the questions, and the source tiers for that pillar, then waits. Begin research calls the configured provider only after the editor clicks it. Tavily is primary. Brave runs when Tavily cannot, or when the editor clicks Search second provider. A pasted URL is fetched by the server, with private addresses refused. Gemini is not asked to browse, and it is not retried on its own.
+
+Opportunities sit between live intelligence and claims. A stored conversation can become a reaction, an opinion, a check, an analysis, an original insight, a joke, or a question. Research is yes, recommended, or no. The editor’s own take is stored. The desk does not invent the belief, and it does not post.
 
 Search terms live in `search_groups`. They stay on Nigerian politics. Football and finance have their own source tiers and are not added to the X rotation. Research limits live in `lib/research/limits.ts`. Usage for the Lagos day, including search and document retrieval, is under Settings → Usage.
 

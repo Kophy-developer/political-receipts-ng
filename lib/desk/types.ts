@@ -199,6 +199,18 @@ export type UsageView = {
   retrievalLimit: number;
   searchProvider: string;
   searchCredential: string | null;
+  researchPeriod: string;
+  tavilyUsed: number;
+  tavilyRemaining: number;
+  tavilyCeiling: number;
+  braveUsed: number;
+  braveRemaining: number;
+  braveCeiling: number;
+  researchRuns: number;
+  researchDocuments: number;
+  researchCostNote: string;
+  tavilyConfigured: boolean;
+  braveConfigured: boolean;
 };
 
 export type ResearchCard = {

@@ -3,6 +3,7 @@ import {
   BarChart3,
   LayoutDashboard,
   Library,
+  Lightbulb,
   PenLine,
   Radio,
   Scale,
@@ -19,6 +20,7 @@ export interface NavItem {
 export const navItems: NavItem[] = [
   { href: "/", label: "Overview", icon: LayoutDashboard },
   { href: "/intelligence", label: "Live Intelligence", icon: Radio },
+  { href: "/opportunities", label: "Opportunities", icon: Lightbulb },
   { href: "/claims", label: "Claims", icon: Scale },
   { href: "/drafts", label: "Drafts", icon: PenLine },
   { href: "/published", label: "Published", icon: Archive },

@@ -93,7 +93,7 @@ export function IntelligenceDesk({
         <SectionHeading
           kicker="Live intelligence"
           title="What is moving"
-          dek="A scan runs only when you start it. One search, then it stops. An empty board means nothing has been filed."
+          dek="A scan runs only when you start it. One search, then it stops. If a conversation is worth saying something about, it belongs on Opportunities."
         />
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <p className="max-w-xl text-sm leading-relaxed text-ink-soft">

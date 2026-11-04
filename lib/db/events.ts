@@ -24,7 +24,10 @@ export type DeskAction =
   | "evidence revised"
   | "verdict revised"
   | "verdict recorded"
-  | "more research requested";
+  | "more research requested"
+  | "opportunity filed"
+  | "opportunity decided"
+  | "research sent";
 
 function safeDetail(detail: Record<string, unknown>) {
   const out: Record<string, unknown> = {};
