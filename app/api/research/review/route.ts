@@ -14,6 +14,10 @@ export async function POST(request: Request) {
     stance?: unknown;
     verdict?: unknown;
     working?: unknown;
+    angle?: unknown;
+    angleText?: unknown;
+    take?: unknown;
+    confidence?: unknown;
   };
   try {
     body = (await request.json()) as typeof body;
@@ -28,6 +32,10 @@ export async function POST(request: Request) {
     stance: typeof body.stance === "string" ? body.stance : undefined,
     verdict: typeof body.verdict === "string" ? body.verdict : undefined,
     working: typeof body.working === "string" ? body.working : undefined,
+    angle: typeof body.angle === "string" ? body.angle : undefined,
+    angleText: typeof body.angleText === "string" ? body.angleText : undefined,
+    take: typeof body.take === "string" ? body.take : undefined,
+    confidence: typeof body.confidence === "string" ? body.confidence : undefined,
   });
   return Response.json(result, { status: result.ok ? 200 : 400 });
 }

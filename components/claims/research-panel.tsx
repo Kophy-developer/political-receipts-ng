@@ -253,6 +253,11 @@ export function ResearchPanel({ claim, plan }: { claim: DeskClaim; plan: Researc
       {claim.evidence.length > 0 ? (
         <div className="border-t border-rule px-5 py-5 sm:px-6">
           <h3 className="font-mono text-[11px] tracking-[0.16em] uppercase">Review the passages</h3>
+          {claim.editorReview ? (
+            <p className="mt-2 max-w-3xl text-sm leading-relaxed text-ink-soft">
+              Accepting a passage does not accept the verdict. Record the verdict in Editor review.
+            </p>
+          ) : null}
           <div className="mt-3 space-y-4">
             {claim.evidence.map((item) => (
               <EvidenceControls key={item.id} item={item} claimId={claim.id} busy={busy} onPost={post} />
@@ -260,7 +265,7 @@ export function ResearchPanel({ claim, plan }: { claim: DeskClaim; plan: Researc
           </div>
         </div>
       ) : null}
-      <div className="border-t border-rule px-5 py-5 sm:px-6">
+      {claim.editorReview ? null : <div className="border-t border-rule px-5 py-5 sm:px-6">
         <h3 className="font-mono text-[11px] tracking-[0.16em] uppercase">Proposed verdict</h3>
         <p className="mt-2 text-sm text-ink-soft">Proposed. Not published, and not a post.</p>
         <p className="mt-3 font-serif text-3xl leading-none">{claim.proposedVerdict ?? "INSUFFICIENT EVIDENCE"}</p>
@@ -322,8 +327,8 @@ export function ResearchPanel({ claim, plan }: { claim: DeskClaim; plan: Researc
             placeholder="The arithmetic, the comparison, or the timeline a reader could redo."
           />
         </label>
-        {message ? <p className="mt-4 max-w-2xl text-sm">{message}</p> : null}
-      </div>
+      </div>}
+      {message ? <p className="border-t border-rule px-5 py-4 text-sm sm:px-6">{message}</p> : null}
     </section>
   );
 }

@@ -7,6 +7,7 @@ import { recordEvent } from "@/lib/db/events";
 import { claimStatusLabel, classificationFor, confidenceLabel, sourceTier, stanceLabel } from "@/lib/db/labels";
 import { editorialFormat } from "@/lib/intel/formats";
 import { publicPostUrl } from "@/lib/intel/text";
+import { parseEditorReview, parseRecordedSources, type ReviewAngleId } from "@/lib/research/editor-review";
 
 type EvidenceRow = {
   id: string;
@@ -75,6 +76,14 @@ type ClaimRow = {
   verdict_unknown?: string | null;
   verdict_confidence?: string | null;
   working_notes?: string | null;
+  editor_review?: unknown;
+  verdict_recorded_at?: string | null;
+  verdict_recorded_by?: string | null;
+  verdict_evidence_used?: unknown;
+  editor_angle?: string | null;
+  editor_angle_text?: string | null;
+  editor_take?: string | null;
+  format_recommendation?: string | null;
   topics: { name: string } | { name: string }[] | null;
   evidence: EvidenceRow[] | null;
   drafts: { id: string; status: string }[] | null;
@@ -96,6 +105,8 @@ const richClaimSelect = `
   importance, importance_reason, verifiability_reason, evidence_needed, ai_confidence, mentioned_entities,
   content_pillar, statement_kind, claim_types, research_questions, attribution_note,
   proposed_verdict, verdict_reasoning, verdict_caveats, verdict_unknown, verdict_confidence, working_notes,
+  editor_review, verdict_recorded_at, verdict_recorded_by, verdict_evidence_used,
+  editor_angle, editor_angle_text, editor_take, format_recommendation,
   topics ( name ),
   evidence ( id, excerpt, stance, editor_notes, review_status, reliability_notes, page_label, research_question, sources ( organization, title, url, published_label, published_on, category, reliability, tier_rank ) ),
   drafts ( id, status )
@@ -216,7 +227,20 @@ export function toClaim(row: ClaimRow): DeskClaim {
     verdictUnknown: row.verdict_unknown ?? null,
     verdictConfidence: confidenceLabel(row.verdict_confidence ?? null),
     workingNotes: row.working_notes ?? null,
+    editorReview: parseEditorReview(row.editor_review),
+    verdictRecordedAt: row.verdict_recorded_at ?? null,
+    verdictRecordedBy: row.verdict_recorded_by ?? null,
+    verdictEvidenceUsed: parseRecordedSources(row.verdict_evidence_used),
+    editorAngle: angleOf(row.editor_angle),
+    editorAngleText: row.editor_angle_text ?? null,
+    editorTake: row.editor_take ?? null,
+    formatRecommendation: row.format_recommendation === "#CheckAm" || row.format_recommendation === "#ShowYourWorking" ? row.format_recommendation : null,
   };
+}
+
+function angleOf(value: string | null | undefined): ReviewAngleId | null {
+  if (value === "receipts" || value === "serious" || value === "trust" || value === "own") return value;
+  return null;
 }
 
 function claimFailure(message: string) {

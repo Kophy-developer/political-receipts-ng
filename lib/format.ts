@@ -28,6 +28,17 @@ export function growthLabel(value: number) {
   return `${sign}${value}%`;
 }
 
+export function chicagoStamp(iso: string | null) {
+  if (!iso) return "Not recorded";
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "Not recorded";
+  return `${new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Chicago",
+    dateStyle: "full",
+    timeStyle: "short",
+  }).format(date)} CT`;
+}
+
 export function lagosStamp(iso: string | null) {
   if (!iso) return "Not recorded";
   const date = new Date(iso);

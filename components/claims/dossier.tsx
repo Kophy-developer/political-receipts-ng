@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { DeskClaim, DeskMode } from "@/lib/desk/types";
 import { PageFrame } from "@/components/shell/page-frame";
 import { ClassificationWord, DemoMark, OriginNote, StatusMark, tierRail } from "@/components/marks";
+import { EditorReview } from "@/components/claims/editor-review";
 import { ResearchPanel } from "@/components/claims/research-panel";
 import { SearchInventory } from "@/components/claims/search-inventory";
 import type { StoredSearchResult } from "@/lib/research/inventory";
@@ -213,6 +214,7 @@ export function Dossier({
             )}
           </section>
         </div>
+        <EditorReview claim={claim} />
         <ResearchPanel claim={claim} plan={plan} />
         <section>
           <h2 className="font-mono text-[11px] tracking-[0.16em] uppercase">Related posts</h2>
@@ -260,6 +262,11 @@ export function Dossier({
               </p>
               <p>#CheckAm is a fact-check. #ShowYourWorking is for a calculation the evidence can show. Neither is chosen by the model.</p>
               <p>{claim.format.notTrueReason}</p>
+              {claim.formatRecommendation ? (
+                <p>
+                  Recommended for the first post: {claim.formatRecommendation}. #NotTrue is not recommended.
+                </p>
+              ) : null}
               {claim.hashtag ? <p>Editor’s stored tag: {claim.hashtag}</p> : null}
             </div>
             <div className="mt-5">
@@ -270,6 +277,8 @@ export function Dossier({
                 >
                   Open draft studio
                 </Link>
+              ) : claim.editorReview ? (
+                <p className="text-sm text-ink-soft">No draft has been written. Create draft opens only from Editor review, after a verdict is accepted and an angle is chosen.</p>
               ) : (
                 <p className="text-sm text-ink-soft">No draft. Research is still open, so the studio will not invent three versions.</p>
               )}

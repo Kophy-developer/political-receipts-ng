@@ -24,6 +24,7 @@ export type DeskAction =
   | "evidence revised"
   | "verdict revised"
   | "verdict recorded"
+  | "angle saved"
   | "more research requested"
   | "opportunity filed"
   | "opportunity decided"

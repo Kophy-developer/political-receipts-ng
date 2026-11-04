@@ -1,7 +1,9 @@
 import "server-only";
-import { scrubDbMessage, serviceClient } from "@/lib/db/client";
+import { columnMissing, scrubDbMessage, serviceClient } from "@/lib/db/client";
 import { recordEvent } from "@/lib/db/events";
 import { isUuid } from "@/lib/db/labels";
+import { draftUnlocked, evidenceUsedFrom, parseEditorReview } from "@/lib/research/editor-review";
+import { editor } from "@/lib/system";
 import { inferClaimTypes, inferStatementKind, questionsFor } from "@/lib/research/claim-types";
 import { prepareEvidenceDraft } from "@/lib/research/passage";
 import { proposeVerdict, type Verdict } from "@/lib/research/verdict";
@@ -163,6 +165,8 @@ async function acceptedEvidence(claimId: string) {
 export async function storeVerdict(claimId: string, statementKind: StatementKind) {
   const db = serviceClient();
   if (!db) return null;
+  const existing = await db.from("claims").select("editor_review").eq("id", claimId).maybeSingle();
+  if (!existing.error && existing.data?.editor_review) return null;
   const verdict = proposeVerdict({ statementKind, evidence: await acceptedEvidence(claimId) });
   await db
     .from("claims")
@@ -178,6 +182,25 @@ export async function storeVerdict(claimId: string, statementKind: StatementKind
   return verdict;
 }
 
+const angles = new Set(["receipts", "serious", "trust", "own"]);
+const confidences = new Set(["low", "moderate", "high"]);
+const recordedStatuses = new Set(["verified", "contradicted", "needs_context", "unverified"]);
+
+async function updateClaim(claimId: string, patch: Record<string, unknown>) {
+  const db = serviceClient();
+  if (!db) return { error: { message: "The database is not configured." } };
+  const first = await db.from("claims").update(patch).eq("id", claimId);
+  if (first.error && columnMissing(first.error.message)) {
+    const basic: Record<string, unknown> = {};
+    for (const key of ["status", "proposed_verdict", "verdict_reasoning", "verdict_confidence", "verification_confidence", "working_notes"]) {
+      if (key in patch) basic[key] = patch[key];
+    }
+    if (Object.keys(basic).length === 0) return first;
+    return db.from("claims").update(basic).eq("id", claimId);
+  }
+  return first;
+}
+
 export async function reviewResearch(input: {
   claimId: string;
   action: string;
@@ -186,13 +209,21 @@ export async function reviewResearch(input: {
   stance?: string;
   verdict?: string;
   working?: string;
+  angle?: string;
+  angleText?: string;
+  take?: string;
+  confidence?: string;
 }) {
   const db = serviceClient();
   if (!db) return { ok: false as const, message: "The database is not configured." };
   if (!isUuid(input.claimId)) return { ok: false as const, message: "That claim is not on the desk." };
-  const claim = await db.from("claims").select("id, statement_kind, status").eq("id", input.claimId).maybeSingle();
+  let claim = await db.from("claims").select("id, statement_kind, status, editor_review, verdict_reasoning, verdict_confidence").eq("id", input.claimId).maybeSingle();
+  if (claim.error && columnMissing(claim.error.message)) {
+    claim = await db.from("claims").select("id, statement_kind, status").eq("id", input.claimId).maybeSingle();
+  }
   if (claim.error || !claim.data) return { ok: false as const, message: "That claim is not on the desk." };
   const kind: StatementKind = claim.data.statement_kind === "opinion" || claim.data.statement_kind === "analysis" ? claim.data.statement_kind : "fact";
+  const reviewPacket = parseEditorReview("editor_review" in claim.data ? claim.data.editor_review : null);
 
   if (input.action === "accept_evidence" || input.action === "reject_evidence") {
     if (!input.evidenceId || !isUuid(input.evidenceId)) return { ok: false as const, message: "Choose an evidence card." };
@@ -226,22 +257,46 @@ export async function reviewResearch(input: {
 
   if (input.action === "set_verdict") {
     if (!input.verdict || !verdicts.has(input.verdict as ProposedVerdict)) return { ok: false as const, message: "That verdict is not one the desk uses." };
-    const working = input.working ? sanitizeText(input.working, 2000) : null;
-    const { error } = await db
-      .from("claims")
-      .update({
-        proposed_verdict: input.verdict,
-        verdict_reasoning: "The editor set this proposed verdict. It is not published.",
-        working_notes: working,
-      })
-      .eq("id", input.claimId);
-    if (error) return { ok: false as const, message: scrubDbMessage(error.message) };
-    await recordEvent({ action: "verdict revised", actor: "editor", subjectType: "claim", subjectId: input.claimId, detail: { verdict: input.verdict } });
-    return { ok: true as const };
+    const patch: Record<string, unknown> = {
+      proposed_verdict: input.verdict,
+      verdict_recorded_at: null,
+      verdict_recorded_by: null,
+      verdict_evidence_used: null,
+    };
+    if (reviewPacket) {
+      if (recordedStatuses.has(claim.data.status)) {
+        patch.status = "researching";
+        patch.verification_confidence = null;
+      }
+    } else {
+      patch.verdict_reasoning = "The editor set this proposed verdict. It is not published.";
+      patch.working_notes = input.working ? sanitizeText(input.working, 2000) : null;
+    }
+    const { error } = await updateClaim(input.claimId, patch);
+    if (error) return { ok: false as const, message: columnMissing(error.message) ? "Editor review is not installed on this desk yet." : scrubDbMessage(error.message) };
+    await recordEvent({ action: "verdict revised", actor: editor.name, subjectType: "claim", subjectId: input.claimId, detail: { verdict: input.verdict } });
+    return { ok: true as const, message: "The proposed verdict is saved. It is not recorded until you accept it." };
+  }
+
+  if (input.action === "save_angle") {
+    if (!input.angle || !angles.has(input.angle)) return { ok: false as const, message: "Choose an angle, or write your own." };
+    const take = input.take ? sanitizeText(input.take, 2000) : null;
+    const written = input.angleText ? sanitizeText(input.angleText, 2000) : "";
+    if (input.angle === "own" && written.length < 40) {
+      return { ok: false as const, message: "Write your own angle in a sentence or two. The desk will not choose it for you." };
+    }
+    const { error } = await updateClaim(input.claimId, {
+      editor_angle: input.angle,
+      editor_angle_text: input.angle === "own" ? written : null,
+      editor_take: take,
+    });
+    if (error) return { ok: false as const, message: columnMissing(error.message) ? "Editor review is not installed on this desk yet." : scrubDbMessage(error.message) };
+    await recordEvent({ action: "angle saved", actor: editor.name, subjectType: "claim", subjectId: input.claimId, detail: { angle: input.angle } });
+    return { ok: true as const, message: "The angle is saved. It is a starting point, not a published opinion." };
   }
 
   if (input.action === "accept_verdict") {
-    const row = await db.from("claims").select("proposed_verdict, verdict_confidence, statement_kind").eq("id", input.claimId).maybeSingle();
+    const row = await db.from("claims").select("proposed_verdict, verdict_confidence, statement_kind, verdict_reasoning").eq("id", input.claimId).maybeSingle();
     const proposed = row.data?.proposed_verdict;
     const status =
       proposed === "SUPPORTED" ? "verified"
@@ -253,17 +308,51 @@ export async function reviewResearch(input: {
     if (row.data?.statement_kind === "opinion" && status === "contradicted") {
       return { ok: false as const, message: "An opinion is not recorded as contradicted. #NotTrue is for a factual claim." };
     }
-    const { error } = await db.from("claims").update({ status, verification_confidence: row.data?.verdict_confidence ?? "low" }).eq("id", input.claimId);
-    if (error) return { ok: false as const, message: scrubDbMessage(error.message) };
-    await recordEvent({ action: "verdict recorded", actor: "editor", subjectType: "claim", subjectId: input.claimId, detail: { status } });
-    return { ok: true as const };
+    const confidence = input.confidence && confidences.has(input.confidence) ? input.confidence : row.data?.verdict_confidence ?? "low";
+    if (!confidences.has(confidence)) return { ok: false as const, message: "Choose a confidence the desk can record." };
+    const recordedAt = new Date().toISOString();
+    const { error } = await updateClaim(input.claimId, {
+      status,
+      verification_confidence: confidence,
+      verdict_confidence: confidence,
+      verdict_recorded_at: recordedAt,
+      verdict_recorded_by: editor.name,
+      verdict_evidence_used: reviewPacket ? evidenceUsedFrom(reviewPacket) : [],
+    });
+    if (error) return { ok: false as const, message: columnMissing(error.message) ? "Editor review is not installed on this desk yet." : scrubDbMessage(error.message) };
+    await recordEvent({
+      action: "verdict recorded",
+      actor: editor.name,
+      subjectType: "claim",
+      subjectId: input.claimId,
+      detail: { status, verdict: proposed, confidence },
+    });
+    return { ok: true as const, message: "The verdict is recorded on the claim. The original post was not changed, and nothing was published." };
   }
 
   if (input.action === "request_more") {
-    const { error } = await db.from("claims").update({ status: "researching" }).eq("id", input.claimId);
+    const { error } = await updateClaim(input.claimId, {
+      status: "researching",
+      verification_confidence: null,
+      verdict_recorded_at: null,
+      verdict_recorded_by: null,
+      verdict_evidence_used: null,
+    });
     if (error) return { ok: false as const, message: scrubDbMessage(error.message) };
-    await recordEvent({ action: "more research requested", actor: "editor", subjectType: "claim", subjectId: input.claimId });
-    return { ok: true as const };
+    await recordEvent({ action: "more research requested", actor: editor.name, subjectType: "claim", subjectId: input.claimId });
+    return { ok: true as const, message: "More research is requested. The recorded verdict is withdrawn. The original post was not changed." };
+  }
+
+  if (input.action === "draft_gate") {
+    const row = await db.from("claims").select("verdict_recorded_at, editor_angle, editor_angle_text").eq("id", input.claimId).maybeSingle();
+    if (row.error) return { ok: false as const, message: columnMissing(row.error.message) ? "Editor review is not installed on this desk yet." : scrubDbMessage(row.error.message) };
+    const gate = draftUnlocked({
+      recordedAt: row.data?.verdict_recorded_at ?? null,
+      angle: row.data?.editor_angle ?? null,
+      angleText: row.data?.editor_angle_text ?? null,
+    });
+    if (!gate.open) return { ok: false as const, message: gate.reason };
+    return { ok: true as const, message: "Create draft is open. No draft was written." };
   }
 
   return { ok: false as const, message: "That review action is not available." };

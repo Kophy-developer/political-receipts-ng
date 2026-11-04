@@ -1,3 +1,4 @@
+import type { EditorReviewPacket, RecordedSource, ReviewAngleId } from "@/lib/research/editor-review";
 import type { ClaimStatus, Classification, SourceTier } from "@/lib/types";
 
 export type RecordOrigin = "demo" | "live";
@@ -89,6 +90,14 @@ export type DeskClaim = DeskClaimSummary & {
   verdictUnknown: string | null;
   verdictConfidence: ConfidenceLabel | null;
   workingNotes: string | null;
+  editorReview: EditorReviewPacket | null;
+  verdictRecordedAt: string | null;
+  verdictRecordedBy: string | null;
+  verdictEvidenceUsed: RecordedSource[];
+  editorAngle: ReviewAngleId | null;
+  editorAngleText: string | null;
+  editorTake: string | null;
+  formatRecommendation: "#CheckAm" | "#ShowYourWorking" | null;
 };
 
 export type DeskClassName = "actionable" | "discussion" | "noise";
