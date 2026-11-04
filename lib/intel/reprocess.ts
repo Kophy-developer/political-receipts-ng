@@ -149,7 +149,7 @@ export async function reprocessStoredPosts(): Promise<ReprocessReport> {
     } else if (candidates.length === 0) {
       extraction = blank("not_run", "Extraction did not run. No actionable or discussion post was sent to the model.");
     } else if (remaining < 1) {
-      extraction = blank("failed", "AI extraction failed: the daily Gemini limit is reached. The posts were not sent.");
+      extraction = blank("not_run", "Gemini’s daily allowance is spent. Desk rules classified the stored posts. The model was not called.");
     } else if (remaining < 2) {
       extraction = await extractFromPosts(posts, scanId);
     } else if (!geminiConfigured()) {
@@ -197,7 +197,7 @@ export async function reprocessStoredPosts(): Promise<ReprocessReport> {
     const noise = posts.filter((post) => post.deskClass === "noise").length;
     const geminiCalls = healthCalls + extraction.geminiRequests;
     if (aiFailed) errors.unshift(extraction.detail);
-    else if (extraction.outcome !== "extracted" || extraction.dropped > 0) errors.push(extraction.detail);
+    else if (extraction.dropped > 0 || extraction.outcome === "rejected") errors.push(extraction.detail);
 
     await finishScan(scanId, {
       status: aiFailed ? "stopped" : "completed",

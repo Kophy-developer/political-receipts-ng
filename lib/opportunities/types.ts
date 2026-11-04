@@ -43,6 +43,8 @@ export type OpportunityCard = {
   editorTake: string | null;
   source: string;
   claimId: string | null;
+  postCount: number | null;
+  accountCount: number | null;
 };
 
 export type OpportunityProposal = {
@@ -56,4 +58,6 @@ export type OpportunityProposal = {
   angles: OpportunityAngle[];
   questions: string[];
   voice: OpportunityVoice;
+  postCount: number;
+  accountCount: number;
 };

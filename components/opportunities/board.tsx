@@ -164,6 +164,11 @@ function Card({
         <span className="font-mono text-[10px] tracking-[0.14em] text-ink-soft uppercase">{item.source}</span>
       </div>
       {item.conversationTitle ? <p className="mt-3 text-sm text-ink-soft">{item.conversationTitle}</p> : null}
+      {item.postCount != null && item.accountCount != null ? (
+        <p className="mt-2 font-mono text-[11px] tracking-[0.12em] text-ink-soft uppercase">
+          {item.postCount} {item.postCount === 1 ? "post" : "posts"} · {item.accountCount} independent {item.accountCount === 1 ? "account" : "accounts"}
+        </p>
+      ) : null}
       <dl className="mt-4 grid gap-4">
         <div>
           <dt className="font-mono text-[10px] tracking-[0.14em] uppercase">What happened?</dt>
@@ -180,7 +185,7 @@ function Card({
         <div>
           <dt className="font-mono text-[10px] tracking-[0.14em] uppercase">Do I need research?</dt>
           <dd className="mt-1 text-sm leading-relaxed">
-            {item.research === "yes" ? "Yes. A factual sentence is doing the work." : item.research === "recommended" ? "Recommended. There may be a fact inside the view." : "No. Do not invent a citation for this."}
+            {item.research === "yes" ? "Yes. The angle depends on a record that is not in the stored post." : item.research === "recommended" ? "Recommended before generalizing past the stored accounts." : "No. This angle is a view. Do not invent a citation."}
           </dd>
         </div>
       </dl>

@@ -153,6 +153,7 @@ function clusterSummary(count: number, lead: string | undefined, outcome: Extrac
   if (lead) return `${head} Checkable line: ${lead}`.slice(0, 500);
   if (outcome === "failed" || outcome === "invalid") return `${head} Extraction failed, so no claim was filed.`.slice(0, 500);
   if (outcome === "rejected") return `${head} Validation rejected the candidate claims.`.slice(0, 500);
+  if (outcome === "not_run") return `${head} Reclassified from stored posts. The model was not called.`.slice(0, 500);
   if (outcome === "no_claims") return `${head} No checkable claims existed.`.slice(0, 500);
   return `${head} No checkable claim was filed from these posts.`.slice(0, 500);
 }

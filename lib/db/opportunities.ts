@@ -1,11 +1,12 @@
 import "server-only";
 import { recordEvent } from "@/lib/db/events";
-import { scrubDbMessage, serviceClient } from "@/lib/db/client";
+import { columnMissing, scrubDbMessage, serviceClient } from "@/lib/db/client";
 import { isUuid } from "@/lib/db/labels";
 import { proposeVerdict } from "@/lib/research/verdict";
 import { inferClaimTypes, questionsFor } from "@/lib/research/claim-types";
 import type { Pillar, StatementKind } from "@/lib/research/types";
-import { proposeOpportunities, type OpportunityPost } from "@/lib/opportunities/rules";
+import { proposeOpportunities, proposeSampleReading, type OpportunityPost } from "@/lib/opportunities/rules";
+import { reclassifyStoredPosts } from "@/lib/intel/reclassify";
 import { opportunityTypes, type OpportunityAngle, type OpportunityCard, type OpportunityProposal, type OpportunityScore, type OpportunityType, type ResearchNeed } from "@/lib/opportunities/types";
 import { publicPostUrl, sanitizeText } from "@/lib/intel/text";
 
@@ -21,24 +22,68 @@ function voiceFor(type: OpportunityType): OpportunityProposal["voice"] {
   return "opinion";
 }
 
+type RulesRow = {
+  id: string;
+  opportunity_type: string;
+  status: string;
+  editor_take: string | null;
+  claim_id: string | null;
+  score_reason: string | null;
+};
+
+function kept(row: RulesRow) {
+  return row.status !== "open" || Boolean(row.editor_take) || Boolean(row.claim_id);
+}
+
+function omit(body: Record<string, unknown>, keys: string[]) {
+  const copy = { ...body };
+  for (const key of keys) delete copy[key];
+  return copy;
+}
+
+async function writeRulesCard(proposal: OpportunityProposal, conversationId: string | null, existingId?: string) {
+  const db = serviceClient();
+  if (!db) return null;
+  const payload = rowFrom(proposal, conversationId, "rules");
+  const write = async (body: Record<string, unknown>) => {
+    const record = existingId ? omit(body, ["status"]) : body;
+    if (existingId) return db.from("opportunities").update(record).eq("id", existingId).select("id").single();
+    return db.from("opportunities").insert(record).select("id").single();
+  };
+  let result = await write(payload);
+  if (result.error && columnMissing(result.error.message)) result = await write(omit(payload, ["post_count", "account_count"]));
+  if (result.error || !result.data) return null;
+  return result.data.id as string;
+}
+
 export async function reviewStoredConversations() {
   const db = serviceClient();
   if (!db) return { ok: false as const, message: "The database is not configured." };
-  const posts = await db.from("x_posts").select("conversation_id, text, username, x_post_id").not("conversation_id", "is", null);
+  const refreshed = await reclassifyStoredPosts();
+  if (!refreshed.ok) return { ok: false as const, message: refreshed.message };
+  const posts = await db.from("x_posts").select("conversation_id, text, username, x_post_id, desk_class");
   if (posts.error) return { ok: false as const, message: scrubDbMessage(posts.error.message) };
   const grouped = new Map<string, OpportunityPost[]>();
+  const samplePosts: OpportunityPost[] = [];
   for (const row of posts.data ?? []) {
-    if (typeof row.conversation_id !== "string" || typeof row.text !== "string") continue;
+    if (typeof row.text !== "string") continue;
+    const item = { text: row.text, username: typeof row.username === "string" ? row.username : null };
+    samplePosts.push(item);
+    if (typeof row.conversation_id !== "string") continue;
     const list = grouped.get(row.conversation_id) ?? [];
-    list.push({ text: row.text, username: typeof row.username === "string" ? row.username : null });
+    list.push(item);
     grouped.set(row.conversation_id, list);
   }
   const counts: Record<OpportunityType, number> = { reaction: 0, opinion: 0, check: 0, analysis: 0, original_insight: 0, humour: 0, question: 0 };
   const scoreCounts = { high: 0, medium: 0, low: 0 };
   const researchCounts = { yes: 0, recommended: 0, no: 0 };
   let filed = 0;
+  let updated = 0;
+  let removed = 0;
   let quiet = 0;
+  const reviewed = new Set<string>();
   for (const [conversationId, conversationPosts] of grouped) {
+    reviewed.add(conversationId);
     const reading = proposeOpportunities(conversationPosts);
     await db.from("opportunity_reviews").insert({
       conversation_id: conversationId,
@@ -46,30 +91,139 @@ export async function reviewStoredConversations() {
       rules_status: reading.worthSaying ? "filed" : "nothing_to_say",
       note: `Opportunity analysis unavailable. ${reading.note}`,
     });
-    if (!reading.worthSaying) {
-      quiet += 1;
-      continue;
-    }
-    const existing = await db.from("opportunities").select("opportunity_type").eq("conversation_id", conversationId).eq("source", "rules");
-    const have = new Set((existing.data ?? []).map((row) => row.opportunity_type));
-    for (const proposal of reading.proposals) {
-      if (have.has(proposal.type)) continue;
-      const inserted = await db.from("opportunities").insert(rowFrom(proposal, conversationId, "rules")).select("id").single();
-      if (inserted.error || !inserted.data) continue;
+    const sync = await syncRules(conversationId, reading.proposals);
+    filed += sync.filed;
+    updated += sync.updated;
+    removed += sync.removed;
+    if (!reading.worthSaying) quiet += 1;
+    for (const proposal of sync.live) {
       counts[proposal.type] += 1;
       scoreCounts[proposal.score] += 1;
       researchCounts[proposal.research] += 1;
-      filed += 1;
-      await recordEvent({
-        action: "opportunity filed",
-        actor: "desk",
-        subjectType: "opportunity",
-        subjectId: inserted.data.id,
-        detail: { type: proposal.type, source: "rules", research: proposal.research },
-      });
     }
   }
-  return { ok: true as const, conversations: grouped.size, filed, quiet, counts, scoreCounts, researchCounts, model: "not_called" as const, xRequests: 0, searches: 0 };
+  const sample = proposeSampleReading(samplePosts);
+  if (sample) {
+    const sync = await syncSample(sample);
+    filed += sync.filed;
+    updated += sync.updated;
+    if (sync.live) {
+      counts[sample.type] += 1;
+      scoreCounts[sample.score] += 1;
+      researchCounts[sample.research] += 1;
+    }
+  }
+  const stale = await db.from("opportunities").select("id, conversation_id, status, source, editor_take, claim_id").eq("source", "rules").eq("status", "open");
+  if (!stale.error) {
+    for (const row of stale.data ?? []) {
+      if (row.editor_take || row.claim_id) continue;
+      if (typeof row.conversation_id === "string" && reviewed.has(row.conversation_id)) continue;
+      if (row.conversation_id == null) continue;
+      const deleted = await db.from("opportunities").delete().eq("id", row.id).eq("status", "open").eq("source", "rules");
+      if (!deleted.error) removed += 1;
+    }
+  }
+  const classCounts = { actionable: 0, discussion: 0, noise: 0 };
+  for (const row of posts.data ?? []) {
+    const deskClass = typeof row.desk_class === "string" ? row.desk_class : "";
+    if (deskClass === "actionable" || deskClass === "discussion" || deskClass === "noise") classCounts[deskClass] += 1;
+  }
+  return {
+    ok: true as const,
+    conversations: grouped.size,
+    filed,
+    updated,
+    removed,
+    quiet,
+    counts,
+    scoreCounts,
+    researchCounts,
+    classCounts,
+    rescued: refreshed.rescued,
+    rescuedPosts: refreshed.rescuedPosts,
+    posts: refreshed.posts,
+    model: "not_called" as const,
+    xRequests: 0,
+    searches: 0,
+    tavily: 0,
+    brave: 0,
+    posted: false,
+    message: `Reviewed ${grouped.size} conversations. ${refreshed.rescued} posts left noise because a proposition remained. ${removed} redundant cards were removed. The model was not called.`,
+  };
+}
+
+async function syncRules(conversationId: string, proposals: OpportunityProposal[]) {
+  const db = serviceClient();
+  const empty = { filed: 0, updated: 0, removed: 0, live: [] as OpportunityProposal[] };
+  if (!db) return empty;
+  const existing = await db
+    .from("opportunities")
+    .select("id, opportunity_type, status, editor_take, claim_id, score_reason")
+    .eq("conversation_id", conversationId)
+    .eq("source", "rules");
+  const rows = (existing.data ?? []) as RulesRow[];
+  let filed = 0;
+  let updated = 0;
+  let removed = 0;
+  const live: OpportunityProposal[] = [];
+  for (const row of rows) {
+    const proposal = proposals.find((item) => item.type === row.opportunity_type);
+    if (!proposal) {
+      if (kept(row)) {
+        continue;
+      }
+      const deleted = await db.from("opportunities").delete().eq("id", row.id).eq("status", "open").eq("source", "rules");
+      if (!deleted.error) removed += 1;
+      continue;
+    }
+    const id = await writeRulesCard(proposal, conversationId, row.id);
+    if (id) {
+      updated += 1;
+      live.push(proposal);
+    }
+  }
+  for (const proposal of proposals) {
+    if (rows.some((row) => row.opportunity_type === proposal.type)) continue;
+    const id = await writeRulesCard(proposal, conversationId);
+    if (!id) continue;
+    filed += 1;
+    live.push(proposal);
+    await recordEvent({
+      action: "opportunity filed",
+      actor: "desk",
+      subjectType: "opportunity",
+      subjectId: id,
+      detail: { type: proposal.type, source: "rules", research: proposal.research },
+    });
+  }
+  return { filed, updated, removed, live };
+}
+
+async function syncSample(proposal: OpportunityProposal) {
+  const db = serviceClient();
+  if (!db) return { filed: 0, updated: 0, live: false };
+  const existing = await db
+    .from("opportunities")
+    .select("id, status, editor_take, claim_id, score_reason")
+    .eq("source", "rules")
+    .eq("opportunity_type", "analysis")
+    .is("conversation_id", null);
+  const row = (existing.data ?? []).find((item) => typeof item.score_reason === "string" && item.score_reason.includes("Sample across stored posts."));
+  if (row && !kept(row as RulesRow)) {
+    const id = await writeRulesCard(proposal, null, row.id as string);
+    return { filed: 0, updated: id ? 1 : 0, live: Boolean(id) };
+  }
+  if (row) return { filed: 0, updated: 0, live: true };
+  const id = await writeRulesCard(proposal, null);
+  if (!id) return { filed: 0, updated: 0, live: false };
+  await recordEvent({
+    action: "opportunity filed",
+    actor: "desk",
+    subjectType: "opportunity",
+    subjectId: id,
+    detail: { type: proposal.type, source: "rules", research: proposal.research, sample: true },
+  });
+  return { filed: 1, updated: 0, live: true };
 }
 
 function rowFrom(proposal: OpportunityProposal, conversationId: string | null, source: "rules" | "manual") {
@@ -89,6 +243,8 @@ function rowFrom(proposal: OpportunityProposal, conversationId: string | null, s
     status: "open",
     source,
     origin: "live",
+    post_count: proposal.postCount,
+    account_count: proposal.accountCount,
   };
 }
 
@@ -129,6 +285,8 @@ export async function createManualOpportunity(input: {
     angles: [],
     questions: type === "check" ? ["What record would confirm or contradict the factual sentence?"] : [],
     voice: voiceFor(type),
+    postCount: 0,
+    accountCount: 0,
   };
   const { data, error } = await db.from("opportunities").insert({ ...rowFrom(proposal, conversationId, "manual"), content_pillar: input.pillar || "politics" }).select("id").single();
   if (error || !data) return { ok: false as const, message: scrubDbMessage(error?.message || "opportunity") };
@@ -222,13 +380,18 @@ async function sendToResearch(row: {
 export async function listOpportunityDesk() {
   const db = serviceClient();
   if (!db) return { ok: false as const, reason: "unconfigured" as const };
-  const [cards, reviews, conversations] = await Promise.all([
-    db.from("opportunities").select("id, conversation_id, claim_id, opportunity_type, research_required, score, score_reason, what_happened, why_interesting, what_could_add, angles, research_questions, voice, status, editor_angle, editor_take, source, conversations ( title )").order("created_at", { ascending: false }),
+  const cardColumns = "id, conversation_id, claim_id, opportunity_type, research_required, score, score_reason, what_happened, why_interesting, what_could_add, angles, research_questions, voice, status, editor_angle, editor_take, source, post_count, account_count, conversations ( title )";
+  const cardColumnsFallback = "id, conversation_id, claim_id, opportunity_type, research_required, score, score_reason, what_happened, why_interesting, what_could_add, angles, research_questions, voice, status, editor_angle, editor_take, source, conversations ( title )";
+  const primaryCards = await db.from("opportunities").select(cardColumns).order("created_at", { ascending: false });
+  const cardResult = primaryCards.error && columnMissing(primaryCards.error.message)
+    ? await db.from("opportunities").select(cardColumnsFallback).order("created_at", { ascending: false })
+    : primaryCards;
+  const [reviews, conversations] = await Promise.all([
     db.from("opportunity_reviews").select("conversation_id, model_status, rules_status, note, created_at").order("created_at", { ascending: false }).limit(40),
     db.from("conversations").select("id, title, status").order("started_at", { ascending: false }),
   ]);
-  if (cards.error) return { ok: false as const, reason: "unreachable" as const, message: scrubDbMessage(cards.error.message) };
-  const items: OpportunityCard[] = (cards.data ?? []).map((row) => {
+  if (cardResult.error) return { ok: false as const, reason: "unreachable" as const, message: scrubDbMessage(cardResult.error.message) };
+  const items: OpportunityCard[] = (cardResult.data ?? []).map((row) => {
     const conversation = Array.isArray(row.conversations) ? row.conversations[0] : row.conversations;
     return {
       id: row.id as string,
@@ -249,6 +412,8 @@ export async function listOpportunityDesk() {
       editorTake: row.editor_take,
       source: row.source,
       claimId: row.claim_id,
+      postCount: typeof (row as unknown as { post_count?: unknown }).post_count === "number" ? (row as unknown as { post_count: number }).post_count : null,
+      accountCount: typeof (row as unknown as { account_count?: unknown }).account_count === "number" ? (row as unknown as { account_count: number }).account_count : null,
     };
   });
   return {

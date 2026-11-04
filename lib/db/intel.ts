@@ -140,7 +140,7 @@ export async function loadStoredPosts() {
   if (!db) return { ok: false as const, message: "The database is not configured." };
   const { data, error } = await db
     .from("x_posts")
-    .select("x_post_id, text, author_id, username, display_name, posted_at, public_metrics, x_conversation_id, referenced, language, source_query")
+    .select("x_post_id, text, author_id, username, display_name, posted_at, public_metrics, x_conversation_id, referenced, language, source_query, desk_class")
     .order("posted_at", { ascending: true });
   if (error) return { ok: false as const, message: "Stored posts could not be read." };
   return { ok: true as const, rows: data ?? [] };
