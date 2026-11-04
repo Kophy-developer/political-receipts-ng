@@ -1,5 +1,6 @@
 import "server-only";
 import type { ResearchProviderId } from "@/lib/research/choose";
+import { braveSearchQuery, tavilySearchBody } from "@/lib/research/search-request";
 
 export type SearchHit = {
   url: string;
@@ -38,12 +39,12 @@ function braveKey() {
   return process.env.BRAVE_API_KEY?.trim() || process.env.BRAVE_SEARCH_API_KEY?.trim() || "";
 }
 
-export async function searchWeb(provider: ResearchProviderId, query: string, count: number): Promise<SearchResult> {
-  if (provider === "tavily") return searchTavily(query, count);
-  return searchBrave(query, count);
+export async function searchWeb(provider: ResearchProviderId, query: string, count: number, includeDomains: string[] = []): Promise<SearchResult> {
+  if (provider === "tavily") return searchTavily(query, count, includeDomains);
+  return searchBrave(query, count, includeDomains);
 }
 
-async function searchTavily(query: string, count: number): Promise<SearchResult> {
+async function searchTavily(query: string, count: number, includeDomains: string[]): Promise<SearchResult> {
   const key = process.env.TAVILY_API_KEY?.trim() || "";
   if (!key) return { ok: false, message: "TAVILY_API_KEY is not set. No search was sent.", cause: "unconfigured" };
   let response: Response;
@@ -51,13 +52,7 @@ async function searchTavily(query: string, count: number): Promise<SearchResult>
     response = await fetch("https://api.tavily.com/search", {
       method: "POST",
       headers: { "content-type": "application/json", authorization: `Bearer ${key}` },
-      body: JSON.stringify({
-        query: query.slice(0, 300),
-        max_results: Math.min(5, Math.max(1, count)),
-        search_depth: "basic",
-        include_answer: false,
-        include_raw_content: false,
-      }),
+      body: JSON.stringify(tavilySearchBody(query, count, includeDomains)),
       cache: "no-store",
       signal: AbortSignal.timeout(12_000),
     });
@@ -86,11 +81,11 @@ async function searchTavily(query: string, count: number): Promise<SearchResult>
   return { ok: true, hits, credits: reported };
 }
 
-async function searchBrave(query: string, count: number): Promise<SearchResult> {
+async function searchBrave(query: string, count: number, includeDomains: string[]): Promise<SearchResult> {
   const key = braveKey();
   if (!key) return { ok: false, message: "BRAVE_API_KEY is not set. No search was sent.", cause: "unconfigured" };
   const url = new URL("https://api.search.brave.com/res/v1/web/search");
-  url.searchParams.set("q", query.slice(0, 300));
+  url.searchParams.set("q", braveSearchQuery(query, includeDomains));
   url.searchParams.set("count", String(Math.min(5, Math.max(1, count))));
   let response: Response;
   try {

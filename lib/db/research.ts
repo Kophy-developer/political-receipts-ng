@@ -198,6 +198,7 @@ export async function reviewResearch(input: {
     const status = input.action === "accept_evidence" ? "accepted" : "rejected";
     const { error } = await db.from("evidence").update({ review_status: status }).eq("id", input.evidenceId).eq("claim_id", input.claimId);
     if (error) return { ok: false as const, message: scrubDbMessage(error.message) };
+    await syncAcceptedCount(input.evidenceId);
     await storeVerdict(input.claimId, kind);
     await recordEvent({ action: status === "accepted" ? "evidence accepted" : "evidence rejected", actor: "editor", subjectType: "evidence", subjectId: input.evidenceId, detail: { claimId: input.claimId } });
     return { ok: true as const };
@@ -267,6 +268,17 @@ export async function reviewResearch(input: {
   return { ok: false as const, message: "That review action is not available." };
 }
 
+async function syncAcceptedCount(evidenceId: string) {
+  const db = serviceClient();
+  if (!db) return;
+  const row = await db.from("evidence").select("usage_id").eq("id", evidenceId).maybeSingle();
+  if (row.error || !row.data?.usage_id) return;
+  const usageId = row.data.usage_id as string;
+  const accepted = await db.from("evidence").select("id", { count: "exact", head: true }).eq("usage_id", usageId).eq("review_status", "accepted");
+  if (accepted.error) return;
+  await db.from("api_usage").update({ editor_accepted: accepted.count ?? 0 }).eq("id", usageId);
+}
+
 export async function fileRetrievedEvidence(input: {
   claimId: string;
   pillar: Pillar;
@@ -279,6 +291,9 @@ export async function fileRetrievedEvidence(input: {
   tierRank: number;
   tierName: string;
   notes: string;
+  stance?: "contextualizes" | "attribution_only";
+  problem?: string | null;
+  usageId?: string | null;
 }) {
   const db = serviceClient();
   if (!db) return { ok: false as const, message: "The database is not configured." };
@@ -300,19 +315,29 @@ export async function fileRetrievedEvidence(input: {
     .select("id")
     .single();
   if (source.error || !source.data) return { ok: false as const, message: scrubDbMessage(source.error?.message || "source") };
-  const evidence = await db
-    .from("evidence")
-    .insert({
-      claim_id: input.claimId,
-      source_id: source.data.id,
-      excerpt: input.passage.slice(0, 700),
-      stance: "contextualizes",
-      review_status: "proposed",
-      reliability_notes: input.notes,
-      origin: "live",
-    })
-    .select("id")
-    .single();
+  const evidenceRow = {
+    claim_id: input.claimId,
+    source_id: source.data.id,
+    excerpt: input.passage.slice(0, 700),
+    stance: input.stance === "attribution_only" ? "attribution_only" : "contextualizes",
+    review_status: "proposed",
+    reliability_notes: input.notes,
+    origin: "live" as const,
+    research_problem: input.problem ?? null,
+    usage_id: input.usageId ?? null,
+  };
+  let evidence = await db.from("evidence").insert(evidenceRow).select("id").single();
+  if (evidence.error && /research_problem|usage_id|schema cache|PGRST204/i.test(evidence.error.message)) {
+    evidence = await db.from("evidence").insert({
+      claim_id: evidenceRow.claim_id,
+      source_id: evidenceRow.source_id,
+      excerpt: evidenceRow.excerpt,
+      stance: evidenceRow.stance,
+      review_status: evidenceRow.review_status,
+      reliability_notes: evidenceRow.reliability_notes,
+      origin: evidenceRow.origin,
+    }).select("id").single();
+  }
   if (evidence.error || !evidence.data) return { ok: false as const, message: scrubDbMessage(evidence.error?.message || "evidence") };
   await recordEvent({
     action: "evidence added",

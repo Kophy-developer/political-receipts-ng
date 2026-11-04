@@ -47,8 +47,9 @@ export function ResearchPanel({ claim, plan }: { claim: DeskClaim; plan: Researc
     }
   }
 
-  const questions = plan?.questions.length ? plan.questions : claim.questions;
+  const questions = plan?.questions.length ? plan.questions.map((item) => item.question) : claim.questions;
   const types = plan?.claimTypes.length ? plan.claimTypes : claim.claimTypes;
+  const searches = plan?.searches ?? [];
 
   return (
     <section className="border border-ink bg-paper">
@@ -71,6 +72,7 @@ export function ResearchPanel({ claim, plan }: { claim: DeskClaim; plan: Researc
         </div>
         <div>
           <p className="font-mono text-[10px] tracking-[0.12em] text-ink-soft uppercase">Research questions</p>
+          <p className="mt-2 text-sm leading-relaxed text-ink-soft">These stay separate. A pack summary is not a verdict.</p>
           {questions.length === 0 ? (
             <p className="mt-2 text-sm text-ink-soft">No questions are filed.</p>
           ) : (
@@ -80,6 +82,20 @@ export function ResearchPanel({ claim, plan }: { claim: DeskClaim; plan: Researc
               ))}
             </ol>
           )}
+          {plan ? (
+            <div className="mt-4 border border-rule px-3 py-3">
+              <p className="font-mono text-[10px] tracking-[0.12em] uppercase">Evidence quality: {plan.quality.label}</p>
+              <p className="mt-2 text-sm leading-relaxed">{plan.quality.reason}</p>
+              <ul className="mt-3 space-y-2">
+                {plan.problems.map((item) => (
+                  <li key={item.question} className="text-sm leading-relaxed">
+                    <span className="font-mono text-[10px] tracking-[0.12em] uppercase">{item.label}. </span>
+                    {item.question} {item.reason}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
         </div>
         <div className="lg:col-span-2">
           <p className="font-mono text-[10px] tracking-[0.12em] text-ink-soft uppercase">Planned source categories</p>
@@ -98,11 +114,60 @@ export function ResearchPanel({ claim, plan }: { claim: DeskClaim; plan: Researc
           ) : (
             <p className="mt-2 text-sm text-ink-soft">Source tiers are not installed yet, so research stays closed.</p>
           )}
-          <p className="mt-4 text-sm">
-            Maximum search operations this run: {plan?.maxSearchOperations ?? 3}. Primary provider: {plan?.providerName ?? "Tavily"}. A thin result does not switch providers. Search second provider only runs when you click it.
-          </p>
-          {configured ? (
-            <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+          <div className="mt-4 space-y-3">
+            <p className="font-mono text-[10px] tracking-[0.12em] text-ink-soft uppercase">Searches this run</p>
+            <p className="text-sm leading-relaxed">
+              {plan?.stageLabel ?? "Stage 1 · Primary source"}. Target authority: {plan?.authority ?? "Not chosen"}. Maximum search operations: {plan?.maxSearchOperations ?? 3}. Maximum document retrievals: {plan?.maxDocumentOperations ?? 2}. Provider: {plan?.providerName ?? "Tavily"}.
+            </p>
+            {plan?.outcome ? <p className="text-sm">{plan.outcome}</p> : null}
+            {searches.length === 0 ? (
+              <p className="text-sm text-ink-soft">No search is scheduled.</p>
+            ) : (
+              <ol className="space-y-3">
+                {searches.map((item) => (
+                  <li key={`${item.stage}-${item.query}`} className="border border-rule px-3 py-3 text-sm">
+                    <p className="font-mono text-[10px] tracking-[0.12em] text-ink-soft uppercase">{item.stageLabel}</p>
+                    <p className="mt-2">{item.question}</p>
+                    <p className="mt-2">Target authority: {item.authority}</p>
+                    <p className="mt-1 break-words">Target domains: {item.domains.length ? item.domains.join(", ") : "No domain constraint on this stage"}</p>
+                    <p className="mt-1">Search query: {item.query}</p>
+                    <p className="mt-1">Maximum operations: {plan?.maxSearchOperations ?? 3} searches, {plan?.maxDocumentOperations ?? 2} documents</p>
+                  </li>
+                ))}
+              </ol>
+            )}
+            {plan?.directNote ? <p className="text-sm leading-relaxed text-ink-soft">{plan.directNote}</p> : null}
+            {plan?.outside.length ? (
+              <div>
+                <p className="font-mono text-[10px] tracking-[0.12em] text-ink-soft uppercase">Returned outside this stage</p>
+                <ul className="mt-2 space-y-2">
+                  {plan.outside.map((item) => (
+                    <li key={item.url} className="text-sm leading-relaxed">
+                      <span className="break-all font-mono text-[11px]">{item.url}</span>
+                      <span className="mt-1 block text-ink-soft">{item.reason} Not retrieved.</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+          </div>
+          <p className="mt-4 text-sm">A thin result does not switch providers. Search second provider only runs when you click it. Opening the next source tier shows that plan first. It spends a search only after you use the plan and begin research.</p>
+          {plan?.awaitingReview ? (
+            <div className="mt-4">
+              <p className="max-w-2xl text-sm leading-relaxed">This plan changed. Review the searches above, then use this plan. No search runs until you do.</p>
+              <button
+                type="button"
+                disabled={busy !== null}
+                onClick={() => post("/api/research/plan", { claimId: claim.id, action: "accept" }, "accept-plan")}
+                className="mt-3 inline-flex h-10 items-center bg-ink px-4 text-sm text-paper disabled:opacity-50"
+              >
+                {busy === "accept-plan" ? "Saving…" : "Use this plan"}
+              </button>
+            </div>
+          ) : null}
+          {plan?.alreadyRun ? <p className="mt-4 text-sm">This research plan has already been run.</p> : null}
+          <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+            {configured && !plan?.awaitingReview && !plan?.alreadyRun ? (
               <button
                 type="button"
                 disabled={busy !== null}
@@ -111,6 +176,36 @@ export function ResearchPanel({ claim, plan }: { claim: DeskClaim; plan: Researc
               >
                 {busy === "run" ? "Researching…" : "Begin research"}
               </button>
+            ) : null}
+            <button
+              type="button"
+              disabled={busy !== null}
+              onClick={() => post("/api/research/plan", { claimId: claim.id, action: "change" }, "change-plan")}
+              className="inline-flex h-10 items-center border border-ink px-4 text-sm disabled:opacity-50"
+            >
+              {busy === "change-plan" ? "Rewriting…" : "Change research plan"}
+            </button>
+            {plan?.nextStage === "independent" ? (
+              <button
+                type="button"
+                disabled={busy !== null}
+                onClick={() => post("/api/research/plan", { claimId: claim.id, action: "advance" }, "advance")}
+                className="inline-flex h-10 items-center border border-ink px-4 text-sm disabled:opacity-50"
+              >
+                {busy === "advance" ? "Preparing…" : "Search independent sources"}
+              </button>
+            ) : null}
+            {plan?.nextStage === "context" ? (
+              <button
+                type="button"
+                disabled={busy !== null}
+                onClick={() => post("/api/research/plan", { claimId: claim.id, action: "advance" }, "advance")}
+                className="inline-flex h-10 items-center border border-ink px-4 text-sm disabled:opacity-50"
+              >
+                {busy === "advance" ? "Preparing…" : "Search broader context"}
+              </button>
+            ) : null}
+            {configured && !plan?.awaitingReview ? (
               <button
                 type="button"
                 disabled={busy !== null}
@@ -119,10 +214,11 @@ export function ResearchPanel({ claim, plan }: { claim: DeskClaim; plan: Researc
               >
                 {busy === "second" ? "Asking…" : "Search second provider"}
               </button>
-            </div>
-          ) : (
+            ) : null}
+          </div>
+          {configured ? null : (
             <p className="mt-4 max-w-2xl text-sm leading-relaxed">
-              Begin research is off. Set {plan?.credential ?? "BRAVE_SEARCH_API_KEY"} on the server. No search is sent until that key exists.
+              Begin research is off. Set {plan?.credential ?? "TAVILY_API_KEY"} on the server. No search is sent until that key exists.
             </p>
           )}
         </div>

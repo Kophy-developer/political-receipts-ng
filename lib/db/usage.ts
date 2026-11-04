@@ -1,6 +1,6 @@
 import "server-only";
 import type { UsageView } from "@/lib/desk/types";
-import { schemaMissing, scrubDbMessage, serviceClient } from "@/lib/db/client";
+import { columnMissing, schemaMissing, scrubDbMessage, serviceClient } from "@/lib/db/client";
 import { lagosDayLabel, lagosDayStart, publishedRates, scanLimits, usd } from "@/lib/intel/limits";
 import { billingPeriodStart } from "@/lib/research/choose";
 import { researchBudget, researchLimits } from "@/lib/research/limits";
@@ -63,10 +63,18 @@ export async function recordUsage(input: {
   selectionReason?: string | null;
   fallbackReason?: string | null;
   creditsReported?: number | null;
+  targetTier?: string | null;
+  targetDomains?: string[] | null;
+  resultsReturned?: number | null;
+  inDomainResults?: number | null;
+  outOfDomainResults?: number | null;
+  documentsSelected?: number | null;
+  primarySourcesFound?: number | null;
+  editorAccepted?: number | null;
 }) {
   const db = serviceClient();
-  if (!db) return { ok: false as const };
-  const { error } = await db.from("api_usage").insert({
+  if (!db) return { ok: false as const, id: null };
+  const row = {
     provider: input.provider,
     operation: input.operation,
     requests: input.requests,
@@ -77,8 +85,32 @@ export async function recordUsage(input: {
     selection_reason: input.selectionReason ?? null,
     fallback_reason: input.fallbackReason ?? null,
     credits_reported: input.creditsReported ?? null,
-  });
-  return { ok: !error };
+    target_tier: input.targetTier ?? null,
+    target_domains: input.targetDomains ?? null,
+    results_returned: input.resultsReturned ?? null,
+    in_domain_results: input.inDomainResults ?? null,
+    out_of_domain_results: input.outOfDomainResults ?? null,
+    documents_selected: input.documentsSelected ?? null,
+    primary_sources_found: input.primarySourcesFound ?? null,
+    editor_accepted: input.editorAccepted ?? null,
+  };
+  const inserted = await db.from("api_usage").insert(row).select("id").single();
+  if (inserted.error && columnMissing(inserted.error.message)) {
+    const plain = await db.from("api_usage").insert({
+      provider: row.provider,
+      operation: row.operation,
+      requests: row.requests,
+      units: row.units,
+      input_tokens: row.input_tokens,
+      output_tokens: row.output_tokens,
+      scan_id: row.scan_id,
+      selection_reason: row.selection_reason,
+      fallback_reason: row.fallback_reason,
+      credits_reported: row.credits_reported,
+    }).select("id").single();
+    return { ok: !plain.error, id: (plain.data?.id as string | undefined) ?? null };
+  }
+  return { ok: !inserted.error, id: (inserted.data?.id as string | undefined) ?? null };
 }
 
 const spendNote = `ESTIMATED from recorded post reads at the ${publishedRates.asOf} published rate of ${usd(publishedRates.postReadUsd)} per post. X has not provided a billed amount.`;

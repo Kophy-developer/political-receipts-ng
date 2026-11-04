@@ -35,11 +35,53 @@ export type ResearchQuestion = {
   primary: string;
 };
 
+export type SearchStage = "primary" | "independent" | "context";
+
+export type ResearchProblem = "record" | "allegation" | "attribution" | "general";
+
+export type EvidenceQualityLabel = "PRIMARY RECORD" | "STRONG SECONDARY" | "CONTEXT ONLY" | "INSUFFICIENT";
+
 export type SourceCategory = {
   rank: number;
   name: string;
   notes: string;
   domains: string[];
+};
+
+export type PlannedQuestion = {
+  problem: ResearchProblem;
+  question: string;
+  authority: string;
+};
+
+export type PlannedSearch = {
+  problem: ResearchProblem;
+  question: string;
+  authority: string;
+  domains: string[];
+  query: string;
+  stage: SearchStage;
+  stageLabel: string;
+};
+
+export type StoredResearchPlan = {
+  version: 1;
+  claim: string;
+  stage: SearchStage;
+  cursor: number;
+  awaitingReview: boolean;
+  authority: string;
+  domains: string[];
+  providerId: "tavily" | "brave";
+  questions: PlannedQuestion[];
+  variants: Array<{ problem: ResearchProblem; question: string; query: string }>;
+  searches: PlannedSearch[];
+  direct: {
+    domains: string[];
+    terms: string[];
+    maxEntryPages: number;
+    maxFollowedLinks: number;
+  };
 };
 
 export type ResearchPlan = {
@@ -48,12 +90,28 @@ export type ResearchPlan = {
   pillar: Pillar;
   statementKind: StatementKind;
   claimTypes: ClaimType[];
-  questions: string[];
+  questions: PlannedQuestion[];
+  searches: PlannedSearch[];
   sourceCategories: SourceCategory[];
+  stage: SearchStage;
+  stageLabel: string;
+  authority: string;
+  domains: string[];
   maxSearchOperations: number;
+  maxDocumentOperations: number;
   providerName: string;
+  providerId: "tavily" | "brave";
   providerConfigured: boolean;
   credential: string | null;
+  hash: string;
+  awaitingReview: boolean;
+  alreadyRun: boolean;
+  outcome: "PRIMARY SOURCE FOUND" | "PRIMARY SOURCE NOT FOUND" | null;
+  nextStage: SearchStage | null;
+  quality: { label: EvidenceQualityLabel; reason: string };
+  problems: Array<{ question: string; label: EvidenceQualityLabel; reason: string }>;
+  directNote: string;
+  outside: Array<{ url: string; reason: string }>;
 };
 
 export type RetrievedDocument = {
