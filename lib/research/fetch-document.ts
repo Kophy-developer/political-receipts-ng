@@ -19,6 +19,19 @@ function publishedFrom(html: string) {
   return value.length > 40 ? null : value;
 }
 
+const passageFocus = ["453", "polling unit", "artificial intelligence", "photograph", "biometric", "voter register", "registration centre", "registration center", "fake voter"];
+
+function focusedPassage(text: string) {
+  const lower = text.toLowerCase();
+  let at = -1;
+  for (const needle of passageFocus) {
+    const found = lower.indexOf(needle);
+    if (found >= 0 && (at < 0 || found < at)) at = found;
+  }
+  if (at < 0) return text.slice(0, 900);
+  return text.slice(Math.max(0, at - 180), at + 720);
+}
+
 function htmlPassage(html: string) {
   const stripped = html
     .replace(/<script[\s\S]*?<\/script>/gi, " ")
@@ -28,14 +41,14 @@ function htmlPassage(html: string) {
     .replace(/&amp;/g, "&")
     .replace(/\s+/g, " ")
     .trim();
-  return stripped.slice(0, 700);
+  return focusedPassage(stripped);
 }
 
 function pdfPassage(bytes: Uint8Array) {
   const text = decode(bytes);
   const parts = [...text.matchAll(/\(([^\\)]{12,})\)/g)].map((match) => match[1]).join(" ");
   const clean = parts.replace(/\\[nrt]/g, " ").replace(/\s+/g, " ").trim();
-  return clean.slice(0, 700);
+  return focusedPassage(clean);
 }
 
 export async function fetchDocument(raw: string) {

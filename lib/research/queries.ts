@@ -63,6 +63,12 @@ export function targetForStage(claim: string, categories: SourceCategory[], stag
   return primaryTarget(claim, categories);
 }
 
+export function pollingFigure(claim: string) {
+  const match = claim.match(/\b(\d{2,6})\b/);
+  if (!match || !/polling\s+units?/i.test(claim)) return null;
+  return match[1];
+}
+
 function conceptQueries(claim: string) {
   const lower = claim.toLowerCase();
   const queries: string[] = [];
@@ -82,6 +88,15 @@ function conceptQueries(claim: string) {
 }
 
 export function researchProblems(claim: string, authority: string, pillar: Pillar, types: ClaimType[] = []) {
+  const figure = pollingFigure(claim);
+  if (figure) {
+    return [
+      { problem: "record" as const, question: `Did INEC create or add ${figure} polling units?`, authority },
+      { problem: "record" as const, question: `If ${figure} is a real figure, what exactly does that number represent: new polling units, additional polling units, registration centres, wards, voter-registration locations, constituencies, or another INEC administrative count?`, authority },
+      { problem: "allegation" as const, question: "Is there authoritative evidence that those polling units were created for AI-generated or fake registered voters?", authority },
+      { problem: "allegation" as const, question: "Is there authoritative evidence that AI-generated identities, photographs, or voter records were inserted into the register in connection with these polling units?", authority },
+    ];
+  }
   const name = personNames(claim)[0];
   const title = officeTitle(claim);
   const accused = /\b(accused|accusation|alleged|allegedly)\b/i.test(claim);
@@ -128,11 +143,11 @@ export function queryVariants(claim: string, authority: string, questions: Array
   const short = authorityShort(authority);
   const byProblem = (problem: ResearchProblem) => questions.find((item) => item.problem === problem)?.question || questions[0]?.question || "What does the record say?";
   const variants: Array<{ problem: ResearchProblem; question: string; query: string }> = [];
-  const push = (problem: ResearchProblem, query: string) => {
+  const push = (problem: ResearchProblem, query: string, question?: string) => {
     const text = query.replace(/\s+/g, " ").trim();
     if (text.length < 3) return;
     if (variants.some((item) => item.query.toLowerCase() === text.toLowerCase())) return;
-    variants.push({ problem, question: byProblem(problem), query: text });
+    variants.push({ problem, question: question || byProblem(problem), query: text });
   };
   if (name && title) {
     const compact = title.replace(/\bof\b/gi, "").replace(/\s+/g, " ").trim();
@@ -143,6 +158,13 @@ export function queryVariants(claim: string, authority: string, questions: Array
     push("record", `${name} ${short} ${compact}`);
   } else if (name) {
     push("record", `${name} ${short}`);
+  }
+  const figure = pollingFigure(claim);
+  if (figure) {
+    push("record", `${figure} polling units`, `Did INEC create or add ${figure} polling units?`);
+    push("record", `${figure} registration centres wards constituencies`, `If ${figure} is a real figure, what exactly does that number represent?`);
+    push("allegation", "artificial intelligence voter register generated photographs", "Is there authoritative evidence that those polling units were created for AI-generated or fake registered voters?");
+    push("allegation", "fake voters biometric registration voter photographs", "Is there authoritative evidence that AI-generated identities, photographs, or voter records were inserted into the register in connection with these polling units?");
   }
   const conceptProblem: ResearchProblem = questions.some((item) => item.problem === "allegation") ? "allegation" : "general";
   for (const query of conceptQueries(claim)) push(conceptProblem, query);

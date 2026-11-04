@@ -83,9 +83,9 @@ export async function beginResearch(claimId: string, intent: "auto" | "second" =
   }
   const room = Math.min(plan.searches.length, researchLimits.maxSearchesPerRun, researchLimits.dailySearches - usage.totals.searches);
   const searches = plan.searches.slice(0, room);
-  let provider = choice.provider;
-  let reason = choice.reason;
-  let fallback = choice.fallback;
+  const provider = choice.provider;
+  const reason = choice.reason;
+  const fallback = choice.fallback;
   const opened = await db.from("research_runs").insert({
     claim_id: claimId,
     status: "planned",
@@ -114,8 +114,7 @@ export async function beginResearch(claimId: string, intent: "auto" | "second" =
   const primaryDomains = plan.stage === "primary" ? plan.domains : loaded.categories.find((item) => item.rank === 1)?.domains ?? [];
   const usageIds = new Map<string, string>();
   let retrievals = 0;
-  let switched = false;
-  let offset = 0;
+  const offset = 0;
   const documents: Awaited<ReturnType<typeof executeStage>>["documents"] = [];
   const outside: Array<{ url: string; reason: string }> = [];
   const errors: string[] = [];
@@ -171,28 +170,6 @@ export async function beginResearch(claimId: string, intent: "auto" | "second" =
       outside.push(...result.outside);
       errors.push(...result.errors);
       if (result.outcome) outcome = result.outcome;
-      if (result.stop === "unavailable" && !switched && intent === "auto") {
-        const failedIndex = offset + Math.max(0, result.attempted - 1);
-        const next = chooseProvider({
-          preference: budget.preference,
-          tavilyConfigured: keys.tavily,
-          braveConfigured: keys.brave,
-          tavilyUsed: month.tavily + (provider === "tavily" ? searchCount : 0),
-          braveUsed: month.brave + (provider === "brave" ? searchCount : 0),
-          tavilyCeiling: budget.tavilyCeiling,
-          braveCeiling: budget.braveCeiling,
-          intent: "outage",
-          previous: provider,
-        });
-        if (next.ok) {
-          provider = next.provider;
-          reason = next.reason;
-          fallback = next.fallback;
-          switched = true;
-          offset = failedIndex;
-          continue;
-        }
-      }
       break;
     }
 

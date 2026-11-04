@@ -21,7 +21,7 @@ export function queryTerms(queries: string[]) {
   const terms = new Set<string>();
   for (const query of queries) {
     for (const word of query.toLowerCase().split(/[^a-z0-9]+/)) {
-      if (word.length > 3 && !stop.has(word)) terms.add(word);
+      if ((word.length > 3 || /^\d{3,}$/.test(word)) && !stop.has(word)) terms.add(word);
     }
   }
   return [...terms].slice(0, 12);

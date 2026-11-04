@@ -198,6 +198,26 @@ check("direct retrieval follows only the official link", followed.length === 1 &
 check("a miss is not called a primary find until the official page is in", missed.outcome === "PRIMARY SOURCE FOUND");
 check("social hits were not retrieved on the miss", followed.every((url) => !url.includes("facebook.com")));
 
+const units = composeStoredPlan({
+  claim: "An X post says INEC created 453 polling units for AI-created registered voters.",
+  pillar: "politics",
+  claimTypes: ["election rule/process"],
+  categories: politics,
+  stage: "primary",
+  providerId: "tavily",
+  cursor: 0,
+  maxOperations: 3,
+  awaitingReview: false,
+});
+check("453 plan asks the four factual questions", units.questions.length === 4);
+check("453 plan does not research the insult", units.questions.every((item) => !/criminal/i.test(item.question)));
+check("453 plan stays on INEC", units.domains.length === 1 && units.domains[0] === "inecnigeria.org" && units.authority === "Independent National Electoral Commission");
+check("453 plan schedules three searches", units.searches.length === 3);
+check("453 figure is the first search", units.searches[0]?.query === "453 polling units" && units.searches[0]?.problem === "record");
+check("453 meaning is searched", units.searches.some((item) => item.query === "453 registration centres wards constituencies"));
+check("AI register terms are searched", units.searches.some((item) => item.problem === "allegation" && /artificial intelligence/.test(item.query)));
+check("453 direct terms keep the number", units.direct.terms.includes("453"));
+
 const quality = evidenceQuality({
   authority: "Independent National Electoral Commission",
   primaryDomains: ["inecnigeria.org"],
