@@ -35,6 +35,7 @@ export async function addManualSource(claimId: string, rawUrl: string) {
     organization: page.domain,
     published: page.published,
     passage: page.passage,
+    pageLabel: page.pageLabel,
     tierRank: tier.rank,
     tierName: tier.name,
     notes: "Pasted by the editor. The passage is stored as context until someone accepts a reading of it.",

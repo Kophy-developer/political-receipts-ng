@@ -32,14 +32,7 @@ const claimTypes = new Set<ClaimType>([
   "other verifiable factual claim",
 ]);
 
-export function tierForHost(domain: string, categories: SourceCategory[]) {
-  const host = domain.replace(/^www\./, "").toLowerCase();
-  const ranked = [...categories].sort((left, right) => left.rank - right.rank);
-  for (const category of ranked) {
-    if (category.domains.some((item) => host === item || host.endsWith(`.${item}`))) return category;
-  }
-  return ranked.find((category) => category.rank === 4) ?? { rank: 4, name: "Context", notes: "", domains: [] as string[] };
-}
+export { tierForHost } from "@/lib/research/tiers";
 
 export async function sourceCategories(pillar: Pillar): Promise<SourceCategory[]> {
   const db = serviceClient();
@@ -156,7 +149,7 @@ function present(input: {
     quality,
     problems: problemReadings(input.stored.questions, quality.label),
     directNote: directDomains.length
-      ? `If the constrained search returns no page on ${directDomains.join(", ")}, the desk may open one official entry page and follow one same-host link that matches the claim. It does not crawl the site.`
+      ? `Search results stay on ${directDomains.join(", ")}. A result is not opened unless you choose it. Choosing a result fetches that address directly and does not run another search.`
       : "This stage does not open an official site directly.",
     outside,
   };

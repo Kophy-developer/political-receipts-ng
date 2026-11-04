@@ -15,6 +15,8 @@ type EvidenceRow = {
   editor_notes: string | null;
   review_status?: string | null;
   reliability_notes?: string | null;
+  page_label?: string | null;
+  research_question?: string | null;
   sources:
     | {
         organization: string;
@@ -95,7 +97,7 @@ const richClaimSelect = `
   content_pillar, statement_kind, claim_types, research_questions, attribution_note,
   proposed_verdict, verdict_reasoning, verdict_caveats, verdict_unknown, verdict_confidence, working_notes,
   topics ( name ),
-  evidence ( id, excerpt, stance, editor_notes, review_status, reliability_notes, sources ( organization, title, url, published_label, published_on, category, reliability, tier_rank ) ),
+  evidence ( id, excerpt, stance, editor_notes, review_status, reliability_notes, page_label, research_question, sources ( organization, title, url, published_label, published_on, category, reliability, tier_rank ) ),
   drafts ( id, status )
 `;
 
@@ -148,6 +150,8 @@ function evidenceOf(rows: EvidenceRow[] | null): DeskEvidence[] {
         review: row.review_status === "accepted" || row.review_status === "rejected" ? row.review_status : "proposed",
         tierRank: typeof source.tier_rank === "number" ? source.tier_rank : 4,
         reliabilityNotes: row.reliability_notes ?? null,
+        pageLabel: row.page_label ?? null,
+        researchQuestion: row.research_question ?? null,
       },
     ];
   });

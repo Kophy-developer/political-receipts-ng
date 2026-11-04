@@ -3,9 +3,21 @@ import type { DeskClaim, DeskMode } from "@/lib/desk/types";
 import { PageFrame } from "@/components/shell/page-frame";
 import { ClassificationWord, DemoMark, OriginNote, StatusMark, tierRail } from "@/components/marks";
 import { ResearchPanel } from "@/components/claims/research-panel";
+import { SearchInventory } from "@/components/claims/search-inventory";
+import type { StoredSearchResult } from "@/lib/research/inventory";
 import type { ResearchPlan } from "@/lib/research/types";
 
-export function Dossier({ claim, mode, plan }: { claim: DeskClaim; mode: DeskMode; plan: ResearchPlan | null }) {
+export function Dossier({
+  claim,
+  mode,
+  plan,
+  inventory,
+}: {
+  claim: DeskClaim;
+  mode: DeskMode;
+  plan: ResearchPlan | null;
+  inventory: { results: StoredSearchResult[]; note: string | null };
+}) {
   const initials = claim.handle.replace("@", "").slice(0, 2).toUpperCase();
 
   return (
@@ -89,6 +101,20 @@ export function Dossier({ claim, mode, plan }: { claim: DeskClaim; mode: DeskMod
           </p>
         ) : null}
         <OriginNote mode={mode} />
+        <section className="border border-ink bg-paper">
+          <header className="border-b border-rule px-5 py-4 sm:px-6">
+            <h2 className="font-mono text-[11px] tracking-[0.16em] uppercase">Research record</h2>
+            <p className="mt-2 text-sm leading-relaxed">
+              {inventory.results.length} search results · {inventory.results.filter((item) => item.retrievalStatus === "retrieved").length} documents retrieved · {claim.evidence.filter((item) => item.review === "proposed").length} evidence candidates
+            </p>
+            <p className="mt-2 max-w-3xl text-sm leading-relaxed text-ink-soft">
+              A URL in the search results is not evidence. A retrieved page is not evidence until its passage is filed and you accept a reading of it.
+            </p>
+          </header>
+          <div className="px-5 py-5 sm:px-6">
+            <SearchInventory claimId={claim.id} results={inventory.results} note={inventory.note} />
+          </div>
+        </section>
         <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.2fr)]">
           <section className="border border-rule bg-paper">
             <header className="flex items-center justify-between border-b border-rule px-4 py-3">
@@ -143,6 +169,7 @@ export function Dossier({ claim, mode, plan }: { claim: DeskClaim; mode: DeskMod
           </section>
           <section>
             <h2 className="font-mono text-[11px] tracking-[0.16em] uppercase">Evidence</h2>
+            <p className="mt-2 text-sm leading-relaxed text-ink-soft">Passages filed from opened pages. Search results do not appear here.</p>
             {claim.evidence.length === 0 ? (
               <div className="mt-3 border border-dashed border-rule bg-paper px-5 py-8">
                 <p className="font-serif text-xl">No evidence card yet.</p>
@@ -167,6 +194,8 @@ export function Dossier({ claim, mode, plan }: { claim: DeskClaim; mode: DeskMod
                           {item.category} · {item.published}
                         </p>
                         <p className="mt-3 text-sm leading-relaxed">{item.excerpt}</p>
+                        {item.pageLabel ? <p className="mt-2 font-mono text-[11px] text-ink-soft">{item.pageLabel}</p> : null}
+                        {item.researchQuestion ? <p className="mt-2 text-sm leading-relaxed text-ink-soft">{item.researchQuestion}</p> : null}
                         <p className="mt-2 font-mono text-[10px] tracking-[0.12em] uppercase text-ink-soft">
                           {item.stance} · {item.review} · tier {item.tierRank}
                         </p>

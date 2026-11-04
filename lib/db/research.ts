@@ -3,6 +3,7 @@ import { scrubDbMessage, serviceClient } from "@/lib/db/client";
 import { recordEvent } from "@/lib/db/events";
 import { isUuid } from "@/lib/db/labels";
 import { inferClaimTypes, inferStatementKind, questionsFor } from "@/lib/research/claim-types";
+import { prepareEvidenceDraft } from "@/lib/research/passage";
 import { proposeVerdict, type Verdict } from "@/lib/research/verdict";
 import type { Pillar, ProposedVerdict, StatementKind } from "@/lib/research/types";
 import { sanitizeText } from "@/lib/intel/text";
@@ -288,11 +289,13 @@ export async function fileRetrievedEvidence(input: {
   organization: string;
   published: string | null;
   passage: string;
+  pageLabel?: string | null;
   tierRank: number;
   tierName: string;
   notes: string;
   stance?: "contextualizes" | "attribution_only";
   problem?: string | null;
+  question?: string | null;
   usageId?: string | null;
 }) {
   const db = serviceClient();
@@ -315,19 +318,29 @@ export async function fileRetrievedEvidence(input: {
     .select("id")
     .single();
   if (source.error || !source.data) return { ok: false as const, message: scrubDbMessage(source.error?.message || "source") };
+  const draft = prepareEvidenceDraft({
+    sourceId: source.data.id as string,
+    text: input.passage,
+    pageLabel: input.pageLabel,
+    relationship: input.stance === "attribution_only" ? "attribution_only" : "contextualizes",
+    question: input.question,
+    notes: input.notes,
+  });
   const evidenceRow = {
     claim_id: input.claimId,
-    source_id: source.data.id,
-    excerpt: input.passage.slice(0, 700),
-    stance: input.stance === "attribution_only" ? "attribution_only" : "contextualizes",
-    review_status: "proposed",
-    reliability_notes: input.notes,
+    source_id: draft.sourceId,
+    excerpt: draft.excerpt,
+    stance: draft.relationship,
+    review_status: draft.reviewStatus,
+    reliability_notes: draft.notes,
     origin: "live" as const,
     research_problem: input.problem ?? null,
+    research_question: draft.question,
+    page_label: draft.pageLabel,
     usage_id: input.usageId ?? null,
   };
   let evidence = await db.from("evidence").insert(evidenceRow).select("id").single();
-  if (evidence.error && /research_problem|usage_id|schema cache|PGRST204/i.test(evidence.error.message)) {
+  if (evidence.error && /research_question|page_label|research_problem|usage_id|schema cache|PGRST204/i.test(evidence.error.message)) {
     evidence = await db.from("evidence").insert({
       claim_id: evidenceRow.claim_id,
       source_id: evidenceRow.source_id,

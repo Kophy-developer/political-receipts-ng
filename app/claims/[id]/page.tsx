@@ -6,6 +6,7 @@ import { Dossier } from "@/components/claims/dossier";
 import { EmptyDesk } from "@/components/marks";
 import { PageFrame } from "@/components/shell/page-frame";
 import { getClaim } from "@/lib/db/claims";
+import { loadSearchResults } from "@/lib/db/search-results";
 import { loadPlan } from "@/lib/research/plan";
 import Loading from "@/app/loading";
 
@@ -37,5 +38,13 @@ async function ClaimBody({ params }: { params: Promise<{ id: string }> }) {
   }
   if (!result.claim) notFound();
   const plan = await loadPlan(result.claim.id);
-  return <Dossier claim={result.claim} mode={result.claim.origin === "demo" ? "demo" : "live"} plan={plan} />;
+  const inventory = await loadSearchResults(result.claim.id);
+  return (
+    <Dossier
+      claim={result.claim}
+      mode={result.claim.origin === "demo" ? "demo" : "live"}
+      plan={plan}
+      inventory={{ results: inventory.results, note: inventory.note }}
+    />
+  );
 }

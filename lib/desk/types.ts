@@ -58,6 +58,8 @@ export type DeskEvidence = {
   review: "proposed" | "accepted" | "rejected";
   tierRank: number;
   reliabilityNotes: string | null;
+  pageLabel: string | null;
+  researchQuestion: string | null;
 };
 
 export type DeskClaim = DeskClaimSummary & {

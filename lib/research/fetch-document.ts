@@ -1,4 +1,6 @@
 import "server-only";
+import { extractPdfDocument } from "@/lib/research/pdf-text";
+import { prepareStoredPassage } from "@/lib/research/passage";
 import { assertPublicUrl } from "@/lib/research/ssrf";
 
 const limitBytes = 1_200_000;
@@ -28,8 +30,8 @@ function focusedPassage(text: string) {
     const found = lower.indexOf(needle);
     if (found >= 0 && (at < 0 || found < at)) at = found;
   }
-  if (at < 0) return text.slice(0, 900);
-  return text.slice(Math.max(0, at - 180), at + 720);
+  const window = at < 0 ? text.slice(0, 900) : text.slice(Math.max(0, at - 180), at + 720);
+  return prepareStoredPassage({ text: window, empty: "The page was retrieved. No readable text was extracted, so no passage is stored." }).excerpt;
 }
 
 function htmlPassage(html: string) {
@@ -42,13 +44,6 @@ function htmlPassage(html: string) {
     .replace(/\s+/g, " ")
     .trim();
   return focusedPassage(stripped);
-}
-
-function pdfPassage(bytes: Uint8Array) {
-  const text = decode(bytes);
-  const parts = [...text.matchAll(/\(([^\\)]{12,})\)/g)].map((match) => match[1]).join(" ");
-  const clean = parts.replace(/\\[nrt]/g, " ").replace(/\s+/g, " ").trim();
-  return focusedPassage(clean);
 }
 
 export async function fetchDocument(raw: string) {
@@ -83,7 +78,8 @@ export async function fetchDocument(raw: string) {
     const type = (response.headers.get("content-type") || "").toLowerCase();
     const domain = current.hostname.replace(/^www\./, "");
     if (type.includes("pdf")) {
-      const passage = pdfPassage(bytes);
+      const extracted = extractPdfDocument(bytes);
+      const stored = prepareStoredPassage({ text: extracted.passage, pageLabel: extracted.pageLabel });
       return {
         ok: true as const,
         attempted: true as const,
@@ -91,8 +87,9 @@ export async function fetchDocument(raw: string) {
         domain,
         title: current.pathname.split("/").pop() || domain,
         published: null,
-        passage: passage || "The PDF was retrieved. No readable text was extracted, so no passage is stored.",
-        kind: passage ? "pdf" : "pdf-empty",
+        passage: stored.excerpt,
+        pageLabel: stored.pageLabel,
+        kind: extracted.passage ? "pdf" : "pdf-empty",
       };
     }
     if (type.includes("html") || type.includes("text/plain") || type === "") {
@@ -107,6 +104,7 @@ export async function fetchDocument(raw: string) {
         title: htmlTitle(html) || domain,
         published: publishedFrom(html),
         passage,
+        pageLabel: null,
         kind: "html",
       };
     }

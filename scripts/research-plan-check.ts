@@ -1,6 +1,6 @@
 import { composeStoredPlan, hashOfPlan, runAlreadyCompleted } from "../lib/research/canonical";
 import { executeStage } from "../lib/research/execute";
-import { hostname, selectForRetrieval } from "../lib/research/filter";
+import { selectForRetrieval } from "../lib/research/filter";
 import { officialLinks } from "../lib/research/official";
 import { evidenceQuality } from "../lib/research/quality";
 import { braveSearchQuery, tavilySearchBody } from "../lib/research/search-request";
@@ -138,28 +138,23 @@ check("blog is rejected", selected.rejected.some((item) => item.url.includes("ra
 check("youtube is rejected", selected.rejected.some((item) => item.url.includes("youtube.com")));
 
 async function main() {
-const fetched: string[] = [];
 const seenQueries: string[] = [];
 const run = await executeStage({
   stage: "primary",
   domains: plan.domains,
-  primaryDomains: plan.domains,
+  categories: politics,
   searches: plan.searches,
   search: async (query) => {
     seenQueries.push(query);
     return { ok: true, hits, credits: 1 };
   },
-  retrieve: async (url) => {
-    fetched.push(url);
-    return { ok: true, url, domain: hostname(url) || "", title: "Page", published: null, passage: "A short passage from the page." };
-  },
-  direct: plan.direct,
-  maxDocuments: 2,
 });
 check("execution uses the stored queries", seenQueries.join("|") === plan.searches.map((item) => item.query).join("|"));
-check("only the eligible result is retrieved", fetched.length === 1 && fetched[0].startsWith("https://inecnigeria.org/"));
+check("search does not open a document", run.documentsSelected === 0);
+check("every returned hit is kept in the inventory", run.inventory.length === plan.searches.length * hits.length);
+check("the INEC hit stays unopened", run.inventory.some((item) => item.url.startsWith("https://inecnigeria.org/") && item.retrievalStatus === "not_retrieved" && item.inDomain));
 check("out of scope results are recorded", run.outside.some((item) => item.url.includes("facebook.com")) && run.outside.some((item) => item.url.includes("randomblog.example")));
-check("primary source is recognised", run.outcome === "PRIMARY SOURCE FOUND");
+check("rejected results stay in the inventory", run.inventory.some((item) => item.url.includes("facebook.com") && item.retrievalStatus === "rejected"));
 
 const html = [
   '<a href="https://www.facebook.com/inec">Facebook</a>',
@@ -170,33 +165,19 @@ const html = [
 const links = officialLinks(html, "https://inecnigeria.org/", ["inecnigeria.org"], ["bayode", "voter", "photograph"], 2);
 check("official links stay on the official host", links.length === 1 && links[0] === "https://inecnigeria.org/news/lawrence-bayode-ict");
 
-const inspected: string[] = [];
-const followed: string[] = [];
 const missed = await executeStage({
   stage: "primary",
   domains: ["inecnigeria.org"],
-  primaryDomains: ["inecnigeria.org"],
+  categories: politics,
   searches: [plan.searches[0]],
   search: async () => ({
     ok: true,
     hits: hits.filter((item) => !item.url.includes("inecnigeria.org")),
     credits: null,
   }),
-  retrieve: async (url) => {
-    followed.push(url);
-    return { ok: true, url, domain: hostname(url) || "", title: "Official", published: null, passage: "Official text." };
-  },
-  readHtml: async (url) => {
-    inspected.push(url);
-    return { ok: true, url, html };
-  },
-  direct: { domains: ["inecnigeria.org"], terms: ["bayode"], maxEntryPages: 1, maxFollowedLinks: 1 },
-  maxDocuments: 2,
 });
-check("direct retrieval opens one official entry", inspected.length === 1 && inspected[0] === "https://inecnigeria.org/");
-check("direct retrieval follows only the official link", followed.length === 1 && followed[0].includes("inecnigeria.org/news/lawrence-bayode-ict"));
-check("a miss is not called a primary find until the official page is in", missed.outcome === "PRIMARY SOURCE FOUND");
-check("social hits were not retrieved on the miss", followed.every((url) => !url.includes("facebook.com")));
+check("a miss does not open the official site by itself", missed.documentsSelected === 0 && missed.inventory.every((item) => item.retrievalStatus === "rejected"));
+check("social hits stay in the inventory when they are outside the stage", missed.inventory.some((item) => item.url.includes("facebook.com") && item.retrievalStatus === "rejected"));
 
 const units = composeStoredPlan({
   claim: "An X post says INEC created 453 polling units for AI-created registered voters.",

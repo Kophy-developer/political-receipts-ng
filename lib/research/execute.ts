@@ -1,20 +1,9 @@
-import { hostInDomains, hostname, isSocialHost, partitionHits } from "@/lib/research/filter";
-import { officialEntryUrl, officialLinks } from "@/lib/research/official";
-import type { SearchStage } from "@/lib/research/types";
+import { classifyResult, hostname, hostInDomains } from "@/lib/research/filter";
+import type { SearchResultDraft } from "@/lib/research/inventory";
+import { tierForHost } from "@/lib/research/tiers";
+import type { SearchStage, SourceCategory } from "@/lib/research/types";
 
 export type StageHit = { url: string; title: string; description: string; published: string | null };
-
-export type StageDocument = {
-  url: string;
-  domain: string;
-  title: string;
-  published: string | null;
-  passage: string;
-  question: string;
-  problem: string;
-  query: string;
-  social: boolean;
-};
 
 type SearchAnswer =
   | { ok: true; hits: StageHit[]; credits: number | null }
@@ -38,51 +27,19 @@ export type SearchMetric = {
 export async function executeStage(input: {
   stage: SearchStage;
   domains: string[];
-  primaryDomains: string[];
+  categories: SourceCategory[];
   searches: Array<{ query: string; question: string; problem: string; domains: string[] }>;
   search: (query: string, domains: string[]) => Promise<SearchAnswer>;
-  retrieve: (url: string) => Promise<{ ok: true; url: string; domain: string; title: string; published: string | null; passage: string } | { ok: false; message: string }>;
-  readHtml?: (url: string) => Promise<{ ok: true; url: string; html: string } | { ok: false; message: string }>;
-  direct: { domains: string[]; terms: string[]; maxEntryPages: number; maxFollowedLinks: number } | null;
-  maxDocuments: number;
   onSearch?: (metric: SearchMetric) => Promise<void> | void;
+  onInventory?: (rows: SearchResultDraft[]) => Promise<void> | void;
 }) {
-  const documents: StageDocument[] = [];
+  const inventory: SearchResultDraft[] = [];
   const outside: Array<{ url: string; reason: string }> = [];
   const errors: string[] = [];
-  const seen = new Set<string>();
   let attempted = 0;
   let stop: "unavailable" | "rejected" | null = null;
-  let eligibleHits = 0;
 
-  const take = async (url: string, question: string, problem: string, query: string) => {
-    if (documents.length >= input.maxDocuments || seen.has(url)) return false;
-    seen.add(url);
-    const page = await input.retrieve(url);
-    if (!page.ok) {
-      errors.push(page.message);
-      return false;
-    }
-    const host = page.domain || hostname(page.url) || "";
-    if ((input.stage === "primary" || input.stage === "independent") && (!hostInDomains(host, input.domains) || isSocialHost(host))) {
-      outside.push({ url: page.url, reason: `${host || "That host"} is outside this stage after retrieval.` });
-      return false;
-    }
-    documents.push({
-      url: page.url,
-      domain: host,
-      title: page.title,
-      published: page.published,
-      passage: page.passage,
-      question,
-      problem,
-      query,
-      social: isSocialHost(host),
-    });
-    return true;
-  };
-
-  for (const item of input.searches) {
+  for (const [queryIndex, item] of input.searches.entries()) {
     if (stop) break;
     const domains = item.domains.length ? item.domains : input.domains;
     const result = await input.search(item.query, domains);
@@ -107,17 +64,37 @@ export async function executeStage(input: {
       stop = result.cause === "unavailable" ? "unavailable" : "rejected";
       break;
     }
-    const split = partitionHits(result.hits, input.stage, domains);
-    eligibleHits += split.eligible.length;
-    const room = input.maxDocuments - documents.length;
-    const selected = split.eligible.slice(0, Math.max(0, room));
-    let primarySourcesFound = 0;
-    for (const hit of selected) {
-      const before = documents.length;
-      const filed = await take(hit.url, item.question, item.problem, item.query);
-      if (filed && documents.length > before && hostInDomains(documents[documents.length - 1].domain, input.primaryDomains)) primarySourcesFound += 1;
-    }
-    outside.push(...split.rejected);
+    const rows: SearchResultDraft[] = [];
+    let inDomain = 0;
+    let outOfDomain = 0;
+    result.hits.forEach((hit, index) => {
+      const host = hostname(hit.url) || "";
+      const decision = classifyResult(hit.url, input.stage, domains);
+      const inside = Boolean(host && domains.length && hostInDomains(host, domains));
+      if (inside) inDomain += 1;
+      else outOfDomain += 1;
+      const tier = tierForHost(host, input.categories);
+      const row: SearchResultDraft = {
+        query: item.query,
+        question: item.question,
+        problem: item.problem,
+        queryIndex,
+        resultRank: index + 1,
+        title: hit.title || hit.url,
+        url: hit.url,
+        domain: host,
+        snippet: hit.description || "",
+        published: hit.published,
+        targetTier: tier.name,
+        tierRank: tier.rank,
+        inDomain: inside,
+        retrievalStatus: decision.keep ? "not_retrieved" : "rejected",
+        rejectionReason: decision.keep ? null : decision.reason,
+      };
+      rows.push(row);
+      if (!decision.keep && decision.reason) outside.push({ url: hit.url, reason: decision.reason });
+    });
+    inventory.push(...rows);
     await input.onSearch?.({
       query: item.query,
       domains,
@@ -126,41 +103,21 @@ export async function executeStage(input: {
       message: null,
       credits: result.credits,
       resultsReturned: result.hits.length,
-      inDomain: split.inDomain,
-      outOfDomain: split.outOfDomain,
-      documentsSelected: selected.length,
-      primarySourcesFound,
-      outside: split.rejected,
+      inDomain,
+      outOfDomain,
+      documentsSelected: 0,
+      primarySourcesFound: 0,
+      outside: rows.filter((row) => row.retrievalStatus === "rejected").map((row) => ({ url: row.url, reason: row.rejectionReason || "Outside this stage." })),
     });
+    await input.onInventory?.(rows);
   }
 
-  const inspections: string[] = [];
-  if (!stop && input.stage === "primary" && eligibleHits === 0 && documents.length === 0 && input.readHtml && input.direct && input.direct.maxEntryPages > 0) {
-    const domain = input.direct.domains[0];
-    const entry = domain ? officialEntryUrl(domain) : "";
-    if (entry) {
-      inspections.push(entry);
-      const page = await input.readHtml(entry);
-      if (page.ok && documents.length < input.maxDocuments) {
-        const links = officialLinks(page.html, page.url, input.direct.domains, input.direct.terms, input.direct.maxFollowedLinks);
-        for (const link of links) {
-          if (documents.length >= input.maxDocuments) break;
-          await take(link, input.searches[0]?.question || "What does the official record say?", input.searches[0]?.problem || "record", input.searches[0]?.query || "official record");
-        }
-      } else if (!page.ok) {
-        errors.push(page.message);
-      }
-    }
-  }
-
-  const found = documents.some((item) => !item.social && hostInDomains(item.domain, input.primaryDomains));
   return {
     attempted,
-    documents,
-    outside: outside.slice(0, 8),
+    inventory,
+    outside,
     errors: errors.slice(0, 4),
     stop,
-    inspections,
-    outcome: input.stage === "primary" && attempted > 0 ? (found ? "PRIMARY SOURCE FOUND" as const : "PRIMARY SOURCE NOT FOUND" as const) : null,
+    documentsSelected: 0,
   };
 }

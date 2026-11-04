@@ -9,7 +9,8 @@
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
     "seed:demo": "tsx scripts/seed-demo.ts",
-    "check:research": "tsx scripts/research-plan-check.ts"
+    "check:research": "tsx scripts/research-plan-check.ts",
+    "check:inventory": "tsx scripts/research-inventory-check.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.9.0",

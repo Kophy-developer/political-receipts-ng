@@ -56,7 +56,7 @@ export function ResearchPanel({ claim, plan }: { claim: DeskClaim; plan: Researc
       <header className="border-b border-rule px-5 py-4 sm:px-6">
         <h2 className="font-mono text-[11px] tracking-[0.16em] uppercase">Find evidence</h2>
         <p className="mt-2 max-w-3xl text-sm leading-relaxed text-ink-soft">
-          This is a plan. Nothing is searched until you begin research, and a search stays off until the server has a research key.
+          This is a plan. Begin research sends the searches and keeps every result. It does not open those pages. A result becomes a document only when you choose it, and that fetch is not another search.
         </p>
       </header>
       <div className="grid gap-6 px-5 py-5 sm:px-6 lg:grid-cols-2">

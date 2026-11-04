@@ -1,15 +1,14 @@
 import "server-only";
-import { fileRetrievedEvidence } from "@/lib/db/research";
+import { insertSearchResults, saveSearchRanking } from "@/lib/db/search-results";
 import { recordUsage, researchMonthTotals, usageSince } from "@/lib/db/usage";
 import { columnMissing, serviceClient } from "@/lib/db/client";
 import { lagosDayStart } from "@/lib/intel/limits";
 import { chooseProvider, type ResearchProviderId } from "@/lib/research/choose";
 import { hashOfPlan, runAlreadyCompleted } from "@/lib/research/canonical";
 import { executeStage } from "@/lib/research/execute";
-import { fetchDocument, readOfficialHtml } from "@/lib/research/fetch-document";
-import { hostInDomains, hostname, isSocialHost } from "@/lib/research/filter";
+import { rankSearchResults } from "@/lib/research/inventory";
 import { researchBudget, researchLimits } from "@/lib/research/limits";
-import { loadStoredPlan, sourceCategories, tierForHost } from "@/lib/research/plan";
+import { loadStoredPlan, sourceCategories } from "@/lib/research/plan";
 import { researchKeys, searchWeb } from "@/lib/research/provider";
 import type { SearchMetric } from "@/lib/research/execute";
 
@@ -111,121 +110,86 @@ export async function beginResearch(claimId: string, intent: "auto" | "second" =
   }
 
   const categories = await sourceCategories(loaded.pillar);
-  const primaryDomains = plan.stage === "primary" ? plan.domains : loaded.categories.find((item) => item.rank === 1)?.domains ?? [];
   const usageIds = new Map<string, string>();
-  let retrievals = 0;
-  const offset = 0;
-  const documents: Awaited<ReturnType<typeof executeStage>>["documents"] = [];
   const outside: Array<{ url: string; reason: string }> = [];
   const errors: string[] = [];
-  let outcome: "PRIMARY SOURCE FOUND" | "PRIMARY SOURCE NOT FOUND" | null = null;
   let searchCount = 0;
-
-  const retrieve = async (url: string) => {
-    if (usage.totals.retrievals + retrievals >= researchLimits.dailyRetrievals) {
-      return { ok: false as const, message: "The daily document limit is reached." };
-    }
-    const page = await fetchDocument(url);
-    if (page.attempted) {
-      retrievals += 1;
-      await recordUsage({ provider: "retrieval", operation: "document", requests: 1, units: page.ok ? 1 : 0 });
-    }
-    if (!page.ok) return { ok: false as const, message: page.message };
-    return { ok: true as const, url: page.url, domain: page.domain, title: page.title, published: page.published, passage: page.passage };
-  };
-  const readHtml = async (url: string) => {
-    const host = hostname(url);
-    if (!host || !hostInDomains(host, plan.direct.domains)) return { ok: false as const, message: "That host is outside the official domain." };
-    if (usage.totals.retrievals + retrievals >= researchLimits.dailyRetrievals) {
-      return { ok: false as const, message: "The daily document limit is reached." };
-    }
-    const page = await readOfficialHtml(url);
-    if (page.attempted) {
-      retrievals += 1;
-      await recordUsage({ provider: "retrieval", operation: "official_index", requests: 1, units: page.ok ? 1 : 0 });
-    }
-    if (!page.ok) return { ok: false as const, message: page.message };
-    return { ok: true as const, url: page.url, html: page.html };
-  };
+  let resultCount = 0;
 
   try {
-    while (offset < searches.length) {
-      const result = await executeStage({
-        stage: plan.stage,
-        domains: plan.domains,
-        primaryDomains,
-        searches: searches.slice(offset),
-        search: (query, domains) => searchWeb(provider, query, 5, domains),
-        retrieve,
-        readHtml,
-        direct: plan.direct,
-        maxDocuments: researchLimits.maxDocumentsPerRun - documents.length,
-        onSearch: async (metric) => {
-          searchCount += 1;
-          const recorded = await recordSearch(provider, metric, reason, fallback, plan.stage);
-          if (recorded.id) usageIds.set(metric.query, recorded.id);
-        },
-      });
-      documents.push(...result.documents);
-      outside.push(...result.outside);
-      errors.push(...result.errors);
-      if (result.outcome) outcome = result.outcome;
-      break;
-    }
-
-    for (const document of documents) {
-      const social = document.social || isSocialHost(document.domain);
-      const tier = social ? { rank: 4, name: "Context" } : tierForHost(document.domain, categories);
-      const filed = await fileRetrievedEvidence({
-        claimId,
-        pillar: loaded.pillar,
-        url: document.url,
-        domain: document.domain,
-        title: document.title,
-        organization: document.domain,
-        published: document.published,
-        passage: document.passage,
-        tierRank: tier.rank,
-        tierName: tier.name,
-        problem: document.problem,
-        usageId: usageIds.get(document.query) ?? null,
-        stance: document.problem === "attribution" ? "attribution_only" : "contextualizes",
-        notes: social
-          ? `Retrieved for “${document.question}”. A social page can show circulation. It does not establish the fact.`
-          : `Retrieved for “${document.question}”. The passage is context until an editor accepts a reading. It is not marked as support or contradiction.`,
-      });
-      if (!filed.ok) errors.push(filed.message);
-    }
+    const result = await executeStage({
+      stage: plan.stage,
+      domains: plan.domains,
+      categories,
+      searches,
+      search: (query, domains) => searchWeb(provider, query, 5, domains),
+      onSearch: async (metric) => {
+        searchCount += 1;
+        const recorded = await recordSearch(provider, metric, reason, fallback, plan.stage);
+        if (recorded.id) usageIds.set(metric.query, recorded.id);
+      },
+      onInventory: async (rows) => {
+        resultCount += rows.length;
+        const saved = await insertSearchResults({
+          runId,
+          claimId,
+          provider: providerName(provider),
+          usageId: usageIds.get(rows[0]?.query ?? "") ?? null,
+          rows,
+        });
+        if (!saved.ok) errors.push(saved.message);
+      },
+    });
+    outside.push(...result.outside);
+    errors.push(...result.errors);
+    const ranked = rankSearchResults({
+      claim: plan.claim,
+      questions: plan.questions.map((item) => item.question),
+      results: result.inventory,
+      recommend: researchLimits.maxDocumentsPerRun,
+    });
+    const rankedSave = await saveSearchRanking(runId, ranked);
+    if (!rankedSave.ok) errors.push(rankedSave.message);
+    const recommended = ranked.filter((item) => item.recommended).length;
 
     const finished = {
       status: errors.length ? "stopped" : "completed",
       provider: providerName(provider),
       operations_used: searchCount,
-      documents_retrieved: documents.length,
+      documents_retrieved: 0,
       finished_at: new Date().toISOString(),
-      detail: { errors: errors.slice(0, 4), reason, fallback, hash, stage: plan.stage, outcome, outside: outside.slice(0, 8) },
+      detail: {
+        errors: errors.slice(0, 4),
+        reason,
+        fallback,
+        hash,
+        stage: plan.stage,
+        outcome: null,
+        outside: outside.slice(0, 8),
+        resultsReturned: result.inventory.length,
+        recommended,
+      },
     };
     const updated = await db.from("research_runs").update({ ...finished, plan_hash: hash, stage: plan.stage }).eq("id", runId);
     if (updated.error && columnMissing(updated.error.message)) {
       await db.from("research_runs").update(finished).eq("id", runId);
     }
     await db.from("claims").update({ status: "researching" }).eq("id", claimId).eq("status", "new");
-    const found = outcome === "PRIMARY SOURCE FOUND";
-    const lead = plan.stage === "primary" ? (found ? "Primary source found." : "Primary source not found.") : "This stage is filed.";
+    const lead = `${searchCount} searches filed ${resultCount} results. No document was opened.`;
     return {
       ok: errors.length === 0,
       started: true,
       searches: searchCount,
-      documents: documents.length,
-      message: `${lead} ${errors[0] ?? "Review the passages before any verdict."}`,
+      documents: 0,
+      message: `${lead} ${errors[0] ?? "Choose a document candidate when you want a page retrieved."}`,
     };
   } catch {
     await db.from("research_runs").update({
       status: "failed",
       operations_used: searchCount,
-      documents_retrieved: documents.length,
+      documents_retrieved: 0,
       finished_at: new Date().toISOString(),
     }).eq("id", runId);
-    return { ok: false as const, started: true, message: "Research stopped. Passages already retrieved were kept." };
+    return { ok: false as const, started: true, message: "Research stopped. Search results already stored were kept. No document was opened." };
   }
 }
