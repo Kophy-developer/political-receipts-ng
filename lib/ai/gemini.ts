@@ -1,4 +1,5 @@
 import "server-only";
+import { readOutputBudgets } from "@/lib/ai/budgets";
 import type { AiJsonResult } from "@/lib/ai/types";
 import { geminiModelName } from "@/lib/ai/env";
 
@@ -36,7 +37,7 @@ export async function geminiHealth() {
         contents: [{ role: "user", parts: [{ text: 'Reply with JSON {"ok":true}. This is a connectivity check. Do not mention news, people, or places.' }] }],
         generationConfig: {
           temperature: 0,
-          maxOutputTokens: 32,
+          maxOutputTokens: readOutputBudgets().health,
           responseMimeType: "application/json",
           responseSchema: { type: "OBJECT", required: ["ok"], properties: { ok: { type: "BOOLEAN" } } },
         },
@@ -83,7 +84,7 @@ export async function geminiJson(input: {
         contents: [{ role: "user", parts: [{ text: input.user }] }],
         generationConfig: {
           temperature: 0.8,
-          maxOutputTokens: input.maxOutputTokens ?? 2048,
+          maxOutputTokens: input.maxOutputTokens ?? readOutputBudgets().extraction,
           responseMimeType: "application/json",
           responseSchema: input.schema,
         },
@@ -136,7 +137,7 @@ export function geminiProvider(): GeminiProvider {
             contents: [{ role: "user", parts: [{ text: input.user }] }],
             generationConfig: {
               temperature: 0,
-              maxOutputTokens: 2048,
+              maxOutputTokens: readOutputBudgets().extraction,
               responseMimeType: "application/json",
               responseSchema: {
                 type: "OBJECT",

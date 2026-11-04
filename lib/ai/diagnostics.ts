@@ -10,6 +10,7 @@ export const FAILURE_CLASSES = [
   "RATE_LIMITED",
   "DAILY_LIMIT_REACHED",
   "TOKEN_LIMIT",
+  "OUTPUT_TOKEN_LIMIT",
   "BAD_REQUEST",
   "TIMEOUT",
   "NETWORK_ERROR",
@@ -49,6 +50,7 @@ export type ProviderDiagnostic = {
   endpoint: string;
   model: string;
   shape: ResponseShape | null;
+  tokens: { input: number | null; reasoning: number | null; output: number | null; total: number | null } | null;
 };
 
 const ORIGINAL_NOT_RETAINED = "Original provider error was not retained.";
@@ -104,11 +106,13 @@ export function classifyProviderFailure(input: {
   body?: unknown;
   network?: "timeout" | "network" | null;
   invalidResponse?: boolean;
+  outputLimited?: boolean;
 }) {
   const parts = errorParts(input.body);
   const blob = `${parts.code ?? ""} ${parts.type ?? ""} ${parts.message ?? ""}`.toLowerCase();
   let classification: FailureClass = "UNKNOWN_PROVIDER_ERROR";
-  if (input.network === "timeout" || input.httpStatus === 408 || input.httpStatus === 504) classification = "TIMEOUT";
+  if (input.outputLimited) classification = "OUTPUT_TOKEN_LIMIT";
+  else if (input.network === "timeout" || input.httpStatus === 408 || input.httpStatus === 504) classification = "TIMEOUT";
   else if (input.network === "network") classification = "NETWORK_ERROR";
   else if (input.invalidResponse) classification = "INVALID_RESPONSE";
   else if (input.httpStatus === 401 || input.httpStatus === 403) classification = "AUTHENTICATION_FAILED";
@@ -135,8 +139,11 @@ export function buildDiagnostic(input: {
   model: string;
   network?: "timeout" | "network" | null;
   invalidResponse?: boolean;
+  outputLimited?: boolean;
   message?: string | null;
   shape?: ResponseShape | null;
+  requestId?: string | null;
+  tokens?: ProviderDiagnostic["tokens"];
 }): ProviderDiagnostic {
   const classified = classifyProviderFailure(input);
   const headers = readProviderHeaders(input.headers ?? {});
@@ -146,12 +153,17 @@ export function buildDiagnostic(input: {
     providerCode: classified.providerCode,
     providerType: classified.providerType,
     message: input.message ? sanitizeProviderMessage(input.message) : classified.message,
-    requestId: headers.requestId,
+    requestId: headers.requestId ?? (input.requestId ? shortHeader(input.requestId) : null),
     rateLimit: headers.rateLimit,
     endpoint: input.endpoint,
     model: input.model,
     shape: input.shape ?? null,
+    tokens: input.tokens ?? null,
   };
+}
+
+function shownCount(value: number | null) {
+  return value == null ? "not reported" : String(value);
 }
 
 export function editorMessage(diagnostic: ProviderDiagnostic) {
@@ -170,6 +182,9 @@ export function editorMessage(diagnostic: ProviderDiagnostic) {
     `Model ${diagnostic.model}`,
     diagnostic.shape
       ? `Envelope ${diagnostic.shape.envelope}. Choices ${diagnostic.shape.choiceCount}. Finish ${diagnostic.shape.finishReason ?? "none"}. Content ${diagnostic.shape.contentType}, ${diagnostic.shape.contentLength} characters.${diagnostic.shape.contentPreview ? ` Preview ${diagnostic.shape.contentPreview}` : ""}`
+      : null,
+    diagnostic.tokens
+      ? `Prompt ${shownCount(diagnostic.tokens.input)}. Reasoning ${shownCount(diagnostic.tokens.reasoning)}. Completion ${shownCount(diagnostic.tokens.output)}. Total ${shownCount(diagnostic.tokens.total)}`
       : null,
   ].filter((part) => part && part.trim()).join(". ");
 }

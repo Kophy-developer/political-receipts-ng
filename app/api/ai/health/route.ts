@@ -44,7 +44,7 @@ export async function POST(request: Request) {
     plans: [plan],
     rejectionReason: EDITORIAL_REJECTION,
     accept: (data) => (data && typeof data === "object" && (data as { ok?: unknown }).ok === true ? "success" : "malformed"),
-    call: (item, providerRequest) => callProvider(item, providerRequest, { maxTokens: 64, temperature: 0 }),
+    call: (item, providerRequest) => callProvider(item, providerRequest, { temperature: 0 }),
   });
   const requestId = crypto.randomUUID();
   await persistAttempts(routed.attempts.map((attempt) => ({ ...attempt, requestId, task: "health" as const })));

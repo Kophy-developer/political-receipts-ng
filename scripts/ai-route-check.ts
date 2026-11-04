@@ -70,11 +70,11 @@ function baseEnv(overrides: Partial<AiEnv> = {}): AiEnv {
 }
 
 function ok(data: unknown, extra: Partial<ProviderCallResult> = {}): ProviderCallResult {
-  return { ok: true, data, failureReason: null, diagnostic: null, inputTokens: 11, outputTokens: 22, estimatedCostUsd: 0, ...extra };
+  return { ok: true, data, failureReason: null, diagnostic: null, inputTokens: 11, reasoningTokens: null, outputTokens: 22, totalTokens: 33, estimatedCostUsd: 0, ...extra };
 }
 
 function fail(reason: string): ProviderCallResult {
-  return { ok: false, failureReason: reason, diagnostic: null, inputTokens: null, outputTokens: null, estimatedCostUsd: null };
+  return { ok: false, failureReason: reason, diagnostic: null, inputTokens: null, reasoningTokens: null, outputTokens: null, totalTokens: null, estimatedCostUsd: null };
 }
 
 function clock() {

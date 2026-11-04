@@ -19,6 +19,10 @@ type AttemptRow = {
   failure_reason: string | null;
   diagnostic: ProviderDiagnostic | null;
   completed_at: string;
+  input_tokens: number | null;
+  reasoning_tokens: number | null;
+  output_tokens: number | null;
+  total_tokens: number | null;
 };
 
 function emptyCounts(): Record<ProviderId, number> {
@@ -38,7 +42,9 @@ export async function persistAttempts(rows: StampedAttempt[]) {
     failure_reason: row.failureReason,
     diagnostic: row.diagnostic,
     input_tokens: row.inputTokens,
+    reasoning_tokens: row.reasoningTokens,
     output_tokens: row.outputTokens,
+    total_tokens: row.totalTokens,
     estimated_cost_usd: row.estimatedCostUsd,
     started_at: row.startedAt,
     completed_at: row.completedAt,
@@ -53,20 +59,56 @@ async function rowsSince(startIso: string) {
   if (!db) return { rows: [] as AttemptRow[], blocked: false };
   const selected = await db
     .from("ai_attempts")
-    .select("provider, status, called, failure_reason, diagnostic, completed_at")
+    .select("provider, status, called, failure_reason, diagnostic, completed_at, input_tokens, reasoning_tokens, output_tokens, total_tokens")
     .gte("completed_at", startIso)
     .order("completed_at", { ascending: false });
   if (selected.error && columnMissing(selected.error.message)) {
     const plain = await db
       .from("ai_attempts")
-      .select("provider, status, called, failure_reason, completed_at")
+      .select("provider, status, called, failure_reason, diagnostic, completed_at, input_tokens, output_tokens")
       .gte("completed_at", startIso)
       .order("completed_at", { ascending: false });
+    if (plain.error && columnMissing(plain.error.message)) {
+      const older = await db
+        .from("ai_attempts")
+        .select("provider, status, called, failure_reason, completed_at")
+        .gte("completed_at", startIso)
+        .order("completed_at", { ascending: false });
+      if (older.error) return { rows: [] as AttemptRow[], blocked: !schemaMissing(older.error.message) };
+      return {
+        rows: ((older.data ?? []) as Array<Pick<AttemptRow, "provider" | "status" | "called" | "failure_reason" | "completed_at">>).map((row) => ({
+          ...row,
+          diagnostic: null,
+          input_tokens: null,
+          reasoning_tokens: null,
+          output_tokens: null,
+          total_tokens: null,
+        })),
+        blocked: false,
+      };
+    }
     if (plain.error) return { rows: [] as AttemptRow[], blocked: !schemaMissing(plain.error.message) };
-    return { rows: ((plain.data ?? []) as Array<Omit<AttemptRow, "diagnostic">>).map((row) => ({ ...row, diagnostic: null })), blocked: false };
+    return {
+      rows: ((plain.data ?? []) as Array<Omit<AttemptRow, "reasoning_tokens" | "total_tokens">>).map((row) => ({
+        ...row,
+        reasoning_tokens: null,
+        total_tokens: null,
+      })),
+      blocked: false,
+    };
   }
   if (selected.error) return { rows: [] as AttemptRow[], blocked: !schemaMissing(selected.error.message) };
   return { rows: (selected.data ?? []) as AttemptRow[], blocked: false };
+}
+
+function shownCount(value: number | null) {
+  return value == null ? "not reported" : String(value);
+}
+
+function tokenAccount(row: AttemptRow | null) {
+  if (!row) return null;
+  if ([row.input_tokens, row.reasoning_tokens, row.output_tokens, row.total_tokens].every((value) => value == null)) return null;
+  return `Prompt ${shownCount(row.input_tokens)}. Reasoning ${shownCount(row.reasoning_tokens)}. Completion ${shownCount(row.output_tokens)}. Total ${shownCount(row.total_tokens)}. Reasoning tokens are not visible assistant content. On Groq, completion tokens already include reasoning tokens.`;
 }
 
 export async function providerBoard(): Promise<{ paidUsage: boolean; providers: ProviderCard[] }> {
@@ -79,8 +121,12 @@ export async function providerBoard(): Promise<{ paidUsage: boolean; providers: 
   const lastCalledFailure: Record<ProviderId, string | null> = { groq: null, openrouter: null, gemini: null };
   const lastSkip: Record<ProviderId, string | null> = { groq: null, openrouter: null, gemini: null };
   const latestCalled: Record<ProviderId, AttemptRow | null> = { groq: null, openrouter: null, gemini: null };
+  const providerLimits: Record<ProviderId, string | null> = { groq: null, openrouter: null, gemini: null };
   const lostOriginal: Record<ProviderId, boolean> = { groq: false, openrouter: false, gemini: false };
   for (const row of loaded.rows) {
+    if (row.called && !providerLimits[row.provider] && row.diagnostic?.rateLimit) {
+      providerLimits[row.provider] = Object.entries(row.diagnostic.rateLimit).map(([key, value]) => `${key}=${value}`).join(", ");
+    }
     if (!row.called) {
       if (!lastSkip[row.provider] && row.failure_reason) lastSkip[row.provider] = row.failure_reason;
       continue;
@@ -146,6 +192,9 @@ export async function providerBoard(): Promise<{ paidUsage: boolean; providers: 
             : null,
         }),
         note,
+        dailyAllowance: env.daily[plan.id],
+        providerLimits: providerLimits[plan.id],
+        tokenAccount: tokenAccount(latest),
       };
     }),
   };

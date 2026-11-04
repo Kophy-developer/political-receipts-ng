@@ -3,7 +3,9 @@ import { estimatedCostUsd, type ProviderPlan } from "@/lib/ai/catalog";
 import { buildDiagnostic, editorMessage, type ProviderDiagnostic } from "@/lib/ai/diagnostics";
 import { chatDraftBody, chatHealthBody, geminiBody, geminiEndpoint, groqChatEndpoint, openRouterChatEndpoint } from "@/lib/ai/payload";
 import type { ProviderCallResult, ProviderRequest } from "@/lib/ai/route";
-import { healthObjectOk, readChatGenerated, readGeminiGenerated, responseShape } from "@/lib/ai/structured";
+import { readOutputBudgets } from "@/lib/ai/budgets";
+import { judgeGenerated, readChatGenerated, readGeminiGenerated, responseShape } from "@/lib/ai/structured";
+import { emptyTokenAccount, groqRequestId, readChatUsage, readGeminiUsage, type TokenAccount } from "@/lib/ai/usage";
 
 function timeoutError(error: unknown) {
   if (!error || typeof error !== "object") return false;
@@ -19,22 +21,25 @@ function headerRecord(response: Response) {
   return headers;
 }
 
-function tokenCount(value: unknown) {
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
-}
-
-function chatUsage(body: unknown, provider: ProviderPlan["id"], model: string) {
-  const usage = (body as { usage?: { prompt_tokens?: unknown; completion_tokens?: unknown; cost?: unknown } } | null)?.usage;
-  const reported = usage?.cost;
+function withCost(account: TokenAccount, body: unknown, provider: ProviderPlan["id"], model: string) {
+  const reported = body && typeof body === "object" ? (body as { usage?: { cost?: unknown } }).usage?.cost : null;
   return {
-    inputTokens: tokenCount(usage?.prompt_tokens),
-    outputTokens: tokenCount(usage?.completion_tokens),
+    ...account,
     estimatedCostUsd: typeof reported === "number" && Number.isFinite(reported) ? reported : estimatedCostUsd(provider, model),
   };
 }
 
-function failed(diagnostic: ProviderDiagnostic, usage: Pick<ProviderCallResult, "inputTokens" | "outputTokens" | "estimatedCostUsd">): ProviderCallResult {
+function failed(diagnostic: ProviderDiagnostic, usage: Pick<ProviderCallResult, "inputTokens" | "reasoningTokens" | "outputTokens" | "totalTokens" | "estimatedCostUsd">): ProviderCallResult {
   return { ok: false, failureReason: editorMessage(diagnostic), diagnostic, ...usage };
+}
+
+function tokenFields(account: TokenAccount) {
+  return {
+    input: account.inputTokens,
+    reasoning: account.reasoningTokens,
+    output: account.outputTokens,
+    total: account.totalTokens,
+  };
 }
 
 async function postJson(url: string, headers: Record<string, string>, body: unknown, timeoutMs: number) {
@@ -55,9 +60,9 @@ async function chat(
   maxTokens: number,
   temperature: number,
 ): Promise<ProviderCallResult> {
-  const empty = { inputTokens: null, outputTokens: null, estimatedCostUsd: estimatedCostUsd(plan.id, plan.model) };
+  const empty = { ...emptyTokenAccount, estimatedCostUsd: estimatedCostUsd(plan.id, plan.model) };
   const body = request.mode === "health"
-    ? chatHealthBody(plan.model, request.userPrompt)
+    ? chatHealthBody(plan.model, request.userPrompt, maxTokens)
     : chatDraftBody({ model: plan.model, system: request.systemPrompt, user: request.userPrompt, schema: request.schema, temperature, maxTokens });
   let response: Response;
   try {
@@ -86,7 +91,7 @@ async function chat(
       message: response.ok ? "The response was not JSON." : undefined,
     }), empty);
   }
-  const usage = chatUsage(parsed, plan.id, plan.model);
+  const usage = withCost(readChatUsage(parsed), parsed, plan.id, plan.model);
   const errorPresent = Boolean(parsed && typeof parsed === "object" && "error" in parsed && (parsed as { error?: unknown }).error);
   if (!response.ok || errorPresent) {
     return failed(buildDiagnostic({
@@ -95,18 +100,30 @@ async function chat(
       headers: responseHeaders,
       endpoint: url,
       model: plan.model,
+      requestId: groqRequestId(parsed),
+      tokens: tokenFields(usage),
     }), usage);
   }
   const generated = readChatGenerated(parsed);
-  if (!generated.data || (request.mode === "health" && !healthObjectOk(generated.data))) {
+  const judged = judgeGenerated(request.mode, generated);
+  if (judged !== "ok") {
     return failed(buildDiagnostic({
       httpStatus: response.status,
       headers: responseHeaders,
       endpoint: url,
       model: plan.model,
-      invalidResponse: true,
+      requestId: groqRequestId(parsed),
+      outputLimited: judged === "output_limit",
+      invalidResponse: judged !== "output_limit",
       shape: responseShape(generated),
-      message: generated.data ? "The assistant JSON did not contain ok: true." : "The assistant content was not a JSON object.",
+      tokens: tokenFields(usage),
+      message: judged === "output_limit"
+        ? generated.contentLength === 0
+          ? "The output budget was used up before the assistant returned any content."
+          : "The output budget cut the assistant off. Truncated structured output was not accepted."
+        : judged === "not_ok"
+          ? "The assistant JSON did not contain ok: true."
+          : "The assistant content was not a JSON object.",
     }), usage);
   }
   return { ok: true, data: generated.data, failureReason: null, diagnostic: null, ...usage };
@@ -114,8 +131,8 @@ async function chat(
 
 async function gemini(plan: ProviderPlan, request: ProviderRequest, key: string, maxTokens: number, temperature: number): Promise<ProviderCallResult> {
   const endpoint = geminiEndpoint(plan.model);
-  const empty = { inputTokens: null, outputTokens: null, estimatedCostUsd: null as number | null };
-  const limit = request.mode === "health" ? 32 : maxTokens;
+  const empty = { ...emptyTokenAccount, estimatedCostUsd: null as number | null };
+  const limit = maxTokens;
   const heat = request.mode === "health" ? 0 : temperature;
   let response: Response;
   try {
@@ -148,41 +165,54 @@ async function gemini(plan: ProviderPlan, request: ProviderRequest, key: string,
       message: response.ok ? "The response was not JSON." : "The response was not JSON.",
     }), empty);
   }
-  const meta = (parsed as { usageMetadata?: { promptTokenCount?: unknown; candidatesTokenCount?: unknown } } | null)?.usageMetadata;
-  const usage = {
-    inputTokens: tokenCount(meta?.promptTokenCount),
-    outputTokens: tokenCount(meta?.candidatesTokenCount),
-    estimatedCostUsd: null,
-  };
+  const usage = { ...readGeminiUsage(parsed), estimatedCostUsd: null };
   if (!response.ok) {
-    return failed(buildDiagnostic({ httpStatus: response.status, body: parsed, headers: responseHeaders, endpoint, model: plan.model }), usage);
+    return failed(buildDiagnostic({
+      httpStatus: response.status,
+      body: parsed,
+      headers: responseHeaders,
+      endpoint,
+      model: plan.model,
+      tokens: tokenFields(usage),
+    }), usage);
   }
   const generated = readGeminiGenerated(parsed);
-  if (!generated.data || (request.mode === "health" && !healthObjectOk(generated.data))) {
+  const judged = judgeGenerated(request.mode, generated);
+  if (judged !== "ok") {
     return failed(buildDiagnostic({
       httpStatus: response.status,
       headers: responseHeaders,
       endpoint,
       model: plan.model,
-      invalidResponse: true,
+      outputLimited: judged === "output_limit",
+      invalidResponse: judged !== "output_limit",
       shape: responseShape(generated),
-      message: generated.data ? "The assistant JSON did not contain ok: true." : "The assistant content was not a JSON object.",
+      tokens: tokenFields(usage),
+      message: judged === "output_limit"
+        ? generated.contentLength === 0
+          ? "The output budget was used up before the assistant returned any content."
+          : "The output budget cut the assistant off. Truncated structured output was not accepted."
+        : judged === "not_ok"
+          ? "The assistant JSON did not contain ok: true."
+          : "The assistant content was not a JSON object.",
     }), usage);
   }
   return { ok: true, data: generated.data, failureReason: null, diagnostic: null, ...usage };
 }
 
 export async function callProvider(plan: ProviderPlan, request: ProviderRequest, limits?: { maxTokens?: number; temperature?: number }): Promise<ProviderCallResult> {
-  const maxTokens = limits?.maxTokens ?? 2048;
+  const budgets = readOutputBudgets();
+  const maxTokens = limits?.maxTokens ?? (request.mode === "health" ? budgets.health : budgets.draft);
   const temperature = limits?.temperature ?? 0.8;
+  const missing = { ok: false as const, failureReason: "no credential", diagnostic: null, ...emptyTokenAccount, estimatedCostUsd: null };
   if (plan.id === "groq") {
     const key = process.env.GROQ_API_KEY?.trim();
-    if (!key) return { ok: false, failureReason: "no credential", diagnostic: null, inputTokens: null, outputTokens: null, estimatedCostUsd: null };
+    if (!key) return missing;
     return chat(plan, request, groqChatEndpoint, { "content-type": "application/json", authorization: `Bearer ${key}` }, maxTokens, temperature);
   }
   if (plan.id === "openrouter") {
     const key = process.env.OPENROUTER_API_KEY?.trim();
-    if (!key) return { ok: false, failureReason: "no credential", diagnostic: null, inputTokens: null, outputTokens: null, estimatedCostUsd: null };
+    if (!key) return missing;
     return chat(plan, request, openRouterChatEndpoint, {
       "content-type": "application/json",
       authorization: `Bearer ${key}`,
@@ -191,6 +221,6 @@ export async function callProvider(plan: ProviderPlan, request: ProviderRequest,
     }, maxTokens, temperature);
   }
   const key = process.env.GEMINI_API_KEY?.trim();
-  if (!key) return { ok: false, failureReason: "no credential", diagnostic: null, inputTokens: null, outputTokens: null, estimatedCostUsd: null };
+  if (!key) return missing;
   return gemini(plan, request, key, maxTokens, temperature);
 }

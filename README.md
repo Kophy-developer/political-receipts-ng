@@ -97,7 +97,10 @@ X, Supabase, and the model keys are read only in server modules. Drafts try Groq
 | `AI_PAID_USAGE_ENABLED` | Must be the string `true` before a paid Groq or OpenRouter route is used. Anything else, including an empty value, means off. |
 | `GROQ_API_KEY` | Server-side Groq key. First provider for drafts. Never prefix it with `NEXT_PUBLIC_`. |
 | `GROQ_MODEL` | Optional. When unset, the default is `openai/gpt-oss-20b` from Groq's published free-tier list. Other model ids are skipped while paid usage is off. |
-| `GROQ_DAILY_REQUESTS` | Desk ceiling for Groq. Default 40. |
+| `GROQ_DAILY_REQUESTS` | Desk ceiling for Groq. Default 40. This is not a provider rate-limit header. |
+| `AI_HEALTH_MAX_TOKENS` | Output budget for a connectivity check. Default 1024. The previous health check used 32 and came back empty. |
+| `AI_EXTRACTION_MAX_TOKENS` | Output budget for claim extraction. Default 2048. |
+| `AI_DRAFT_MAX_TOKENS` | Output budget for the four-style draft. Default 4096. Drafts do not use the health budget. |
 | `OPENROUTER_API_KEY` | Server-side OpenRouter key. Second provider for drafts. |
 | `OPENROUTER_MODEL` | Optional. When unset, the default is `openrouter/free`. A model that is not `openrouter/free` and does not end in `:free` is skipped while paid usage is off. |
 | `OPENROUTER_DAILY_REQUESTS` | Desk ceiling for OpenRouter. Default 50, matching the published free-model day cap for accounts under $10 of credits. |

@@ -12,11 +12,11 @@ export function geminiEndpoint(model: string) {
 }
 
 /** Fields Groq's chat completions accept for a connectivity check: model, messages, temperature, max_tokens. */
-export function chatHealthBody(model: string, userPrompt: string) {
+export function chatHealthBody(model: string, userPrompt: string, maxTokens: number) {
   return {
     model,
     temperature: 0,
-    max_tokens: 32,
+    max_tokens: maxTokens,
     messages: [{ role: "user" as const, content: userPrompt }],
   };
 }

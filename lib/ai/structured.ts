@@ -165,6 +165,19 @@ export function healthObjectOk(data: Record<string, unknown> | null) {
   return data?.ok === true;
 }
 
+/** Groq uses "length". Gemini uses "MAX_TOKENS". Both mean the output budget stopped the model. */
+export function generationCutOff(finishReason: string | null) {
+  const finish = (finishReason ?? "").toLowerCase();
+  return finish === "length" || finish === "max_tokens";
+}
+
+export function judgeGenerated(mode: "health" | "generate", generated: GeneratedRead) {
+  if (generationCutOff(generated.finishReason)) return "output_limit" as const;
+  if (!generated.data) return "invalid" as const;
+  if (mode === "health" && !healthObjectOk(generated.data)) return "not_ok" as const;
+  return "ok" as const;
+}
+
 export function responseShape(read: GeneratedRead): ResponseShape {
   return {
     envelope: read.envelope,

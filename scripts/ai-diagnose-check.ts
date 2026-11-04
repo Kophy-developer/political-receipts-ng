@@ -1,3 +1,4 @@
+import { defaultOutputBudgets } from "../lib/ai/budgets";
 import { chatDraftBody, chatHealthBody, geminiBody, groqChatEndpoint } from "../lib/ai/payload";
 import {
   buildDiagnostic,
@@ -53,9 +54,19 @@ check("timeout stays unverified", timedOut.classification === "TIMEOUT" && statu
 const malformed = buildDiagnostic({ httpStatus: 200, endpoint, model, invalidResponse: true, message: "The response was not a JSON object." });
 check("malformed JSON is an invalid response", malformed.classification === "INVALID_RESPONSE" && editorMessage(malformed).includes("not a JSON object"));
 
-const health = chatHealthBody(model, 'Reply with {"ok":true}.');
+const exhausted = buildDiagnostic({
+  httpStatus: 200,
+  endpoint,
+  model,
+  outputLimited: true,
+  message: "The output budget was used up before the assistant returned any content.",
+});
+check("an empty length stop is an output token limit and stays unverified", exhausted.classification === "OUTPUT_TOKEN_LIMIT" && statusForClassification(exhausted.classification) === "UNVERIFIED");
+
+const health = chatHealthBody(model, 'Reply with {"ok":true}.', defaultOutputBudgets.health);
 check("health body is only the chat completion fields Groq documents for this check", JSON.stringify(Object.keys(health)) === JSON.stringify(["model", "temperature", "max_tokens", "messages"]));
 check("health body does not send response_format or a draft schema", !("response_format" in health) && health.messages.length === 1 && health.messages[0]?.content.includes('{"ok":true}'));
+check("health output budget is no longer 32", health.max_tokens === 1024 && health.max_tokens > 32);
 check("health uses the chat completions endpoint", groqChatEndpoint === "https://api.groq.com/openai/v1/chat/completions");
 
 const draft = chatDraftBody({ model, system: "Desk rules", user: "Write the drafts", schema: { type: "object" }, temperature: 0.8, maxTokens: 2048 });

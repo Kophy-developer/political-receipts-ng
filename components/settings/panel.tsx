@@ -342,6 +342,19 @@ function ProviderCardView({ provider }: { provider: ProviderCard }) {
           <dd>{provider.requestsToday}</dd>
         </div>
         <div>
+          <dt className="font-mono text-[10px] tracking-[0.12em] text-ink-soft uppercase">Desk daily allowance</dt>
+          <dd>{provider.dailyAllowance}</dd>
+        </div>
+        <div>
+          <dt className="font-mono text-[10px] tracking-[0.12em] text-ink-soft uppercase">Provider-returned limits</dt>
+          <dd className="break-words">{provider.providerLimits ?? "None returned"}</dd>
+          <dd className="mt-1 text-xs leading-relaxed text-ink-soft">These are the rate-limit headers from the latest attempt that sent them. They are not the desk allowance. A header name does not assign a daily period.</dd>
+        </div>
+        <div>
+          <dt className="font-mono text-[10px] tracking-[0.12em] text-ink-soft uppercase">Latest token account</dt>
+          <dd className="break-words">{provider.tokenAccount ?? "Not reported"}</dd>
+        </div>
+        <div>
           <dt className="font-mono text-[10px] tracking-[0.12em] text-ink-soft uppercase">Successful requests</dt>
           <dd>{provider.successfulRequests}</dd>
         </div>

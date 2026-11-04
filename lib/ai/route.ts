@@ -24,7 +24,9 @@ export type ProviderCallResult = {
   failureReason: string | null;
   diagnostic: ProviderDiagnostic | null;
   inputTokens: number | null;
+  reasoningTokens: number | null;
   outputTokens: number | null;
+  totalTokens: number | null;
   estimatedCostUsd: number | null;
 };
 
@@ -41,7 +43,9 @@ export type AttemptRecord = {
   completedAt: string;
   latencyMs: number;
   inputTokens: number | null;
+  reasoningTokens: number | null;
   outputTokens: number | null;
+  totalTokens: number | null;
   estimatedCostUsd: number | null;
 };
 
@@ -107,7 +111,9 @@ export async function generateStructuredContent(input: {
         completedAt: stamp(completed),
         latencyMs: Math.max(0, completed - started),
         inputTokens: null,
+        reasoningTokens: null,
         outputTokens: null,
+        totalTokens: null,
         estimatedCostUsd: null,
       });
       continue;
@@ -128,7 +134,9 @@ export async function generateStructuredContent(input: {
         failureReason: editorMessage(diagnostic),
         diagnostic,
         inputTokens: null,
+        reasoningTokens: null,
         outputTokens: null,
+        totalTokens: null,
         estimatedCostUsd: estimatedCostUsd(plan.id, plan.model),
       };
     }
@@ -141,7 +149,9 @@ export async function generateStructuredContent(input: {
       completedAt: stamp(completed),
       latencyMs: Math.max(0, completed - started),
       inputTokens: raw.inputTokens,
+      reasoningTokens: raw.reasoningTokens,
       outputTokens: raw.outputTokens,
+      totalTokens: raw.totalTokens,
       estimatedCostUsd: raw.estimatedCostUsd,
       diagnostic: raw.diagnostic,
     };

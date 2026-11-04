@@ -6,8 +6,9 @@ import type { DeskStatus } from "@/lib/ai/diagnostics";
  *
  * Defaults:
  * - Groq `openai/gpt-oss-20b` is listed on Groq's published free-tier rate limits
- *   (about 30 requests per minute and 1,000 per day). This process does not call
- *   Groq to confirm the model is enabled on a key.
+ *   (about 30 requests per minute and 1,000 per day). Live `x-ratelimit-*` headers
+ *   are shown exactly as returned. They are not copied into the desk allowance.
+ *   This process does not call Groq to confirm the model is enabled on a key.
  * - OpenRouter `openrouter/free` is the provider's free router. It is not a paid
  *   model id. A live catalogue check was not made.
  * - Gemini stays on the model already used for extraction.
@@ -84,6 +85,9 @@ export type ProviderCard = {
   lastFailure: string | null;
   status: ProviderStatus;
   note: string | null;
+  dailyAllowance: number;
+  providerLimits: string | null;
+  tokenAccount: string | null;
 };
 
 const modelPattern = /^[A-Za-z0-9._:/-]{1,120}$/;
