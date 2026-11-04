@@ -6,6 +6,7 @@ import { DraftingPanel } from "@/components/claims/drafting-panel";
 import { EditorReview } from "@/components/claims/editor-review";
 import { ResearchPanel } from "@/components/claims/research-panel";
 import { SearchInventory } from "@/components/claims/search-inventory";
+import type { ProviderCard } from "@/lib/ai/catalog";
 import type { StoredDraft } from "@/lib/drafts/rules";
 import type { StoredSearchResult } from "@/lib/research/inventory";
 import type { ResearchPlan } from "@/lib/research/types";
@@ -16,14 +17,14 @@ export function Dossier({
   plan,
   inventory,
   drafts,
-  geminiRemaining,
+  providers,
 }: {
   claim: DeskClaim;
   mode: DeskMode;
   plan: ResearchPlan | null;
   inventory: { results: StoredSearchResult[]; note: string | null };
   drafts: StoredDraft[];
-  geminiRemaining: number;
+  providers: ProviderCard[];
 }) {
   const initials = claim.handle.replace("@", "").slice(0, 2).toUpperCase();
 
@@ -221,7 +222,7 @@ export function Dossier({
           </section>
         </div>
         <EditorReview claim={claim} />
-        <DraftingPanel claim={claim} drafts={drafts} geminiRemaining={geminiRemaining} />
+        <DraftingPanel claim={claim} drafts={drafts} providers={providers} />
         <ResearchPanel claim={claim} plan={plan} />
         <section>
           <h2 className="font-mono text-[11px] tracking-[0.16em] uppercase">Related posts</h2>

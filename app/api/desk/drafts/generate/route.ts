@@ -1,31 +1,19 @@
-import { geminiJson } from "@/lib/ai/gemini";
+import { planDraftProviders } from "@/lib/ai/catalog";
+import { readAiEnv } from "@/lib/ai/runtime";
+import { callProvider } from "@/lib/ai/transport";
+import { calledToday, persistAttempts } from "@/lib/db/ai-attempts";
 import { getClaim } from "@/lib/db/claims";
 import { loadClaimDrafts, saveClaimDraft, selectClaimDraft, storeEditorDraft, storeGeneratedDrafts } from "@/lib/db/drafting";
 import { isUuid } from "@/lib/db/labels";
-import { recordUsage, usageSince } from "@/lib/db/usage";
+import { draftWithProviders } from "@/lib/drafts/chain";
 import { DRAFT_UNAVAILABLE, draftBriefFrom, judgeEditorText, judgeSavedText, type GeneratedStyle } from "@/lib/drafts/rules";
-import { requestDraftSet, requestOneStyle, type DraftModel } from "@/lib/drafts/run";
-import { lagosDayStart, scanLimits } from "@/lib/intel/limits";
 import { draftUnlocked } from "@/lib/research/editor-review";
 import { assertEditorPost } from "@/lib/x/guard";
 
-export const maxDuration = 30;
+export const maxDuration = 60;
 
 const generated = new Set<GeneratedStyle>(["conversational", "punchy", "analytical", "thread"]);
 const running = new Set<string>();
-
-function model(): DraftModel {
-  return async (input) => {
-    const result = await geminiJson(input);
-    return { ok: result.ok, called: result.called, data: result.ok ? result.data : undefined, message: result.ok ? undefined : result.message };
-  };
-}
-
-async function allowance() {
-  const usage = await usageSince(lagosDayStart());
-  if (!usage.ok) return 0;
-  return Math.max(0, scanLimits.dailyGeminiRequests - usage.totals.geminiRequests);
-}
 
 export async function POST(request: Request) {
   const refused = assertEditorPost(request);
@@ -96,31 +84,34 @@ export async function POST(request: Request) {
   }
   running.add(claimId);
   try {
-    const left = await allowance();
     const existing = await loadClaimDrafts(claimId);
     const hashtagAlreadyUsed = existing.some((item) => item.hashtag === "#CheckAm");
-    const result = action === "regenerate"
-      ? await requestOneStyle({
-          allowance: left,
-          brief,
-          style: style as GeneratedStyle,
-          hashtagAlreadyUsed,
-          model: model(),
-        })
-      : await requestDraftSet({ allowance: left, brief, model: model() });
-    if (result.called) {
-      await recordUsage({ provider: "gemini", operation: "draft", requests: 1, units: 1 });
+    const used = await calledToday();
+    const result = await draftWithProviders({
+      requestId: crypto.randomUUID(),
+      task: action === "regenerate" ? "draft_regenerate" : "draft",
+      brief,
+      style: action === "regenerate" ? (style as GeneratedStyle) : undefined,
+      hashtagAlreadyUsed,
+      plans: planDraftProviders(readAiEnv(), used),
+      timeoutMs: 18_000,
+      call: (plan, request) => callProvider(plan, request),
+    });
+    await persistAttempts(result.attempts);
+    if (result.outcome === "unavailable") {
+      return Response.json({ ok: false, unavailable: true, rejected: false, message: DRAFT_UNAVAILABLE, problems: result.problems });
     }
-    if (result.unavailable) {
-      return Response.json({ ok: false, unavailable: true, message: DRAFT_UNAVAILABLE, problems: result.problems });
+    if (result.outcome === "rejected") {
+      return Response.json({ ok: false, unavailable: false, rejected: true, message: result.message, problems: result.problems });
     }
-    if (result.drafts.length) {
-      const stored = await storeGeneratedDrafts(claimId, result.drafts, "gemini");
+    if (result.provider && result.drafts.length) {
+      const stored = await storeGeneratedDrafts(claimId, result.drafts, { provider: result.provider, model: result.model });
       if (!stored.ok) return Response.json({ ok: false, message: stored.message }, { status: 400 });
     }
     return Response.json({
       ok: result.drafts.length > 0,
       unavailable: false,
+      rejected: false,
       message: result.message,
       problems: result.problems,
     });

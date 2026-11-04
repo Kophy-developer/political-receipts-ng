@@ -6,10 +6,9 @@ import { Dossier } from "@/components/claims/dossier";
 import { EmptyDesk } from "@/components/marks";
 import { PageFrame } from "@/components/shell/page-frame";
 import { getClaim } from "@/lib/db/claims";
+import { providerBoard } from "@/lib/db/ai-attempts";
 import { loadClaimDrafts } from "@/lib/db/drafting";
 import { loadSearchResults } from "@/lib/db/search-results";
-import { usageSince } from "@/lib/db/usage";
-import { lagosDayStart, scanLimits } from "@/lib/intel/limits";
 import { loadPlan } from "@/lib/research/plan";
 import Loading from "@/app/loading";
 
@@ -43,8 +42,7 @@ async function ClaimBody({ params }: { params: Promise<{ id: string }> }) {
   const plan = await loadPlan(result.claim.id);
   const inventory = await loadSearchResults(result.claim.id);
   const drafts = await loadClaimDrafts(result.claim.id);
-  const usage = await usageSince(lagosDayStart());
-  const geminiRemaining = usage.ok ? Math.max(0, scanLimits.dailyGeminiRequests - usage.totals.geminiRequests) : 0;
+  const board = await providerBoard();
   return (
     <Dossier
       claim={result.claim}
@@ -52,7 +50,7 @@ async function ClaimBody({ params }: { params: Promise<{ id: string }> }) {
       plan={plan}
       inventory={{ results: inventory.results, note: inventory.note }}
       drafts={drafts}
-      geminiRemaining={geminiRemaining}
+      providers={board.providers}
     />
   );
 }

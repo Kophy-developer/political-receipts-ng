@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { EDITORIAL_REJECTION, type ProviderCard } from "@/lib/ai/catalog";
 import type { DeskClaim } from "@/lib/desk/types";
 import { characterCount, POST_LIMIT } from "@/lib/format";
 import { DRAFT_UNAVAILABLE, draftStyles, type StoredDraft } from "@/lib/drafts/rules";
@@ -10,16 +11,17 @@ import { draftUnlocked } from "@/lib/research/editor-review";
 export function DraftingPanel({
   claim,
   drafts,
-  geminiRemaining,
+  providers,
 }: {
   claim: DeskClaim;
   drafts: StoredDraft[];
-  geminiRemaining: number;
+  providers: ProviderCard[];
 }) {
   const review = claim.editorReview;
   const router = useRouter();
   const [message, setMessage] = useState<string | null>(null);
   const [unavailable, setUnavailable] = useState(false);
+  const [rejected, setRejected] = useState(false);
   const [problems, setProblems] = useState<string[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [manual, setManual] = useState("");
@@ -37,15 +39,17 @@ export function DraftingPanel({
     setBusy(key);
     setMessage(null);
     setProblems([]);
+    setRejected(false);
     try {
       const response = await fetch("/api/desk/drafts/generate", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ claimId: claim.id, ...body }),
       });
-      const payload = (await response.json()) as { ok?: boolean; unavailable?: boolean; message?: string; problems?: Array<{ style: string; reason: string }> };
+      const payload = (await response.json()) as { ok?: boolean; unavailable?: boolean; rejected?: boolean; message?: string; problems?: Array<{ style: string; reason: string }> };
       setUnavailable(payload.unavailable === true);
-      setMessage(payload.message || (payload.ok ? "Saved." : DRAFT_UNAVAILABLE));
+      setRejected(payload.rejected === true);
+      setMessage(payload.rejected ? null : payload.message || (payload.ok ? "Saved." : DRAFT_UNAVAILABLE));
       setProblems((payload.problems ?? []).map((item) => `${item.style}: ${item.reason}`));
       if (payload.ok) {
         setEditing(null);
@@ -53,6 +57,7 @@ export function DraftingPanel({
       }
     } catch {
       setUnavailable(true);
+      setRejected(false);
       setMessage(DRAFT_UNAVAILABLE);
     } finally {
       setBusy(null);
@@ -68,8 +73,15 @@ export function DraftingPanel({
           {claim.editorTake ? "" : " My take is blank."}
         </p>
         <p className="mt-2 max-w-3xl text-sm leading-relaxed text-ink-soft">
-          Recommended hashtag: #CheckAm. #NotTrue is not used. Gemini drafting requests left today: {geminiRemaining}. One click sends at most one request. Saving a draft does not publish it.
+          Recommended hashtag: #CheckAm. #NotTrue is not used. One click asks Groq, then OpenRouter, then Gemini, and stops when a provider returns a draft. A provider is skipped only for a technical failure. Gemini’s allowance does not close this button while another provider is available. Saving a draft does not publish it.
         </p>
+        <ul className="mt-3 space-y-1 text-sm">
+          {providers.map((provider) => (
+            <li key={provider.id}>
+              {provider.label}: {provider.requestsToday} today · {provider.status}
+            </li>
+          ))}
+        </ul>
       </header>
       <div className="space-y-6 px-5 py-5 sm:px-6">
         <div>
@@ -83,6 +95,9 @@ export function DraftingPanel({
           </button>
           {!gate.open ? <p className="mt-2 text-sm">{gate.reason}</p> : null}
         </div>
+        {rejected ? (
+          <p className="border border-ink px-3 py-3 font-mono text-sm tracking-[0.08em]">{EDITORIAL_REJECTION}</p>
+        ) : null}
         {unavailable ? (
           <p className="border border-ink px-3 py-3 font-mono text-sm tracking-[0.08em]">{DRAFT_UNAVAILABLE}</p>
         ) : null}
@@ -117,7 +132,7 @@ export function DraftingPanel({
                     <p className="mt-3 whitespace-pre-wrap text-sm leading-relaxed">{draft.text}</p>
                   )}
                   <p className="mt-2 font-mono text-[11px] text-ink-soft">
-                    Longest post {count} / {POST_LIMIT} · {draft.hashtag ?? "No hashtag in this version"} · {draft.editorModified ? "Edited" : draft.provider === "gemini" ? "Model" : "Manual"}
+                    Longest post {count} / {POST_LIMIT} · {draft.hashtag ?? "No hashtag in this version"} · {draft.editorModified ? "Edited" : draft.provider === "editor" ? "Manual" : draft.provider}
                   </p>
                   <div className="mt-3 flex flex-wrap gap-2">
                     <button

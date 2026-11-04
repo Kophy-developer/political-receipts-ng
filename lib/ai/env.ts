@@ -1,7 +1,8 @@
 import "server-only";
+import { defaultModels } from "@/lib/ai/catalog";
 
 /** Fallback when GEMINI_MODEL is unset. Override it in the server environment. */
-export const defaultGeminiModel = "gemini-3.8-flash";
+export const defaultGeminiModel = defaultModels.gemini;
 
 export function geminiConfigured() {
   return Boolean(process.env.GEMINI_API_KEY?.trim());

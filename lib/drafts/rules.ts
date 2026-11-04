@@ -53,7 +53,7 @@ export type StoredDraft = {
   selected: boolean;
   editorModified: boolean;
   status: string;
-  provider: "gemini" | "editor";
+  provider: "groq" | "openrouter" | "gemini" | "editor";
 };
 
 export type DraftPiece = {
@@ -377,14 +377,14 @@ export function draftSchema(only?: GeneratedStyle) {
   };
 }
 
-export function savedDraftFields(piece: DraftPiece, input: { provider: "gemini" | "editor"; model: string | null; editorModified: boolean }) {
+export function savedDraftFields(piece: DraftPiece, input: { provider: "groq" | "openrouter" | "gemini" | "editor"; model: string | null; editorModified: boolean }) {
   return {
     version: piece.version,
     content: piece.text,
     style: piece.style,
     suggested_hashtag: piece.hashtag,
     character_count: characterCount(piece.text),
-    ai_provider: input.provider === "gemini" ? "gemini" : null,
+    ai_provider: input.provider === "editor" ? null : input.provider,
     ai_model: input.model,
     status: "draft" as const,
     editor_modified: input.editorModified,

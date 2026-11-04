@@ -254,5 +254,5 @@ export function draftUnlocked(input: { recordedAt: string | null; angle: string 
   if (!angleChosen(input.angle, input.angleText)) {
     return { open: false as const, reason: "Select an angle, or write your own, before a draft can be created." };
   }
-  return { open: true as const, reason: "Create draft is open. One click sends at most one Gemini request. Saving a draft does not publish it." };
+  return { open: true as const, reason: "Create draft is open. One click is one editor action. The next provider is tried only after a technical failure. Saving a draft does not publish it." };
 }

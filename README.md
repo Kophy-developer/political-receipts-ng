@@ -84,7 +84,7 @@ Do not commit `.env.local`. `.env.example` is the only env file that belongs in 
 
 ## Environment variables
 
-X, Supabase, and Gemini are read only in server modules. Gemini is used for claim extraction, not for publishing.
+X, Supabase, and the model keys are read only in server modules. Drafts try Groq, then OpenRouter, then Gemini. Paid routes stay off unless `AI_PAID_USAGE_ENABLED=true`. Gemini still extracts claims. None of these keys publish a post.
 
 | Variable | Where it is used |
 | --- | --- |
@@ -94,8 +94,15 @@ X, Supabase, and Gemini are read only in server modules. Gemini is used for clai
 | `X_API_SECRET` | Server-side OAuth 1.0a consumer secret |
 | `X_ACCESS_TOKEN` | Server-side user token for the desk account |
 | `X_ACCESS_TOKEN_SECRET` | Server-side token secret |
-| `GEMINI_API_KEY` | Server-side Gemini key for claim extraction. |
-| `GEMINI_MODEL` | Optional server override. When unset, the default in `lib/ai/env.ts` is used (currently `gemini-3.8-flash`). |
+| `AI_PAID_USAGE_ENABLED` | Must be the string `true` before a paid Groq or OpenRouter route is used. Anything else, including an empty value, means off. |
+| `GROQ_API_KEY` | Server-side Groq key. First provider for drafts. Never prefix it with `NEXT_PUBLIC_`. |
+| `GROQ_MODEL` | Optional. When unset, the default is `openai/gpt-oss-20b` from Groq's published free-tier list. Other model ids are skipped while paid usage is off. |
+| `GROQ_DAILY_REQUESTS` | Desk ceiling for Groq. Default 40. |
+| `OPENROUTER_API_KEY` | Server-side OpenRouter key. Second provider for drafts. |
+| `OPENROUTER_MODEL` | Optional. When unset, the default is `openrouter/free`. A model that is not `openrouter/free` and does not end in `:free` is skipped while paid usage is off. |
+| `OPENROUTER_DAILY_REQUESTS` | Desk ceiling for OpenRouter. Default 50, matching the published free-model day cap for accounts under $10 of credits. |
+| `GEMINI_API_KEY` | Server-side Gemini key for claim extraction, and the third draft provider. |
+| `GEMINI_MODEL` | Optional server override. When unset, the default in `lib/ai/catalog.ts` is used (currently `gemini-3.8-flash`). |
 | `TAVILY_API_KEY` | Server only. Primary research search. Never prefix it with `NEXT_PUBLIC_`. |
 | `BRAVE_API_KEY` | Server only. Secondary research search. `BRAVE_SEARCH_API_KEY` is still read if this is unset. |
 | `RESEARCH_PROVIDER` | `tavily` (default) or `brave`. The desk does not switch providers just because a result was thin. |
@@ -137,7 +144,7 @@ Nothing in the app polls X, opens a stream, or replies to a post. Search runs on
 
 ## Claim extraction
 
-Gemini’s job in this phase is claim extraction, not verdicts and not drafts.
+Gemini still extracts claims. Drafts are a separate path: one editor click may try Groq, then OpenRouter, then Gemini, and it stops at the first provider that returns usable JSON. A wording failure is rejected on the desk. It is not sent to the next provider.
 
 1. Set `GEMINI_API_KEY` on the server. Do not prefix it with `NEXT_PUBLIC_`.
 2. A scan sends only posts that already matched a configured political term. Nigeria by itself is not enough.

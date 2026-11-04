@@ -12,7 +12,8 @@
     "check:research": "tsx scripts/research-plan-check.ts",
     "check:inventory": "tsx scripts/research-inventory-check.ts",
     "check:review": "tsx scripts/editor-review-check.ts",
-    "check:drafts": "tsx scripts/draft-check.ts"
+    "check:drafts": "tsx scripts/draft-check.ts",
+    "check:ai": "tsx scripts/ai-route-check.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.9.0",

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { providerLabels, type ProviderCard, type ProviderId } from "@/lib/ai/catalog";
 import type { SystemHealth, UsageView } from "@/lib/desk/types";
 import { lagosStamp } from "@/lib/format";
 import { editor, xCallbackPath } from "@/lib/system";
@@ -15,7 +16,7 @@ import { SectionHeading } from "@/components/marks";
 const sections = [
   { href: "#system", label: "System" },
   { href: "#x", label: "X Integration" },
-  { href: "#ai", label: "AI Provider" },
+  { href: "#ai", label: "AI Providers" },
   { href: "#usage", label: "Usage" },
   { href: "#sources", label: "Sources" },
   { href: "#rules", label: "Editorial Rules" },
@@ -23,7 +24,6 @@ const sections = [
   { href: "#account", label: "Account" },
 ];
 
-type HealthResult = { ok: boolean; model: string | null; message: string; called: boolean };
 type ReprocessResult = {
   ok: boolean;
   xRequests: number;
@@ -41,30 +41,24 @@ type ReprocessResult = {
   polling: false;
 };
 
-export function SettingsPanel({ flags, health, usage }: { flags: XFlags; health: SystemHealth; usage: UsageView }) {
+export function SettingsPanel({
+  flags,
+  health,
+  usage,
+  providers,
+  paidUsage,
+}: {
+  flags: XFlags;
+  health: SystemHealth;
+  usage: UsageView;
+  providers: ProviderCard[];
+  paidUsage: boolean;
+}) {
   const router = useRouter();
   const [origin, setOrigin] = useState(xProductionOrigin);
-  const [checking, setChecking] = useState(false);
-  const [healthResult, setHealthResult] = useState<HealthResult | null>(null);
-  const [healthError, setHealthError] = useState<string | null>(null);
   const [reprocessing, setReprocessing] = useState(false);
   const [reprocessResult, setReprocessResult] = useState<ReprocessResult | null>(null);
   const [reprocessError, setReprocessError] = useState<string | null>(null);
-
-  async function checkModel() {
-    setChecking(true);
-    setHealthError(null);
-    try {
-      const response = await fetch("/api/intel/gemini", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
-      const body = (await response.json()) as HealthResult;
-      setHealthResult(body);
-      if (!response.ok && !body.message) setHealthError("The model check did not finish.");
-    } catch {
-      setHealthError("The model check did not finish.");
-    } finally {
-      setChecking(false);
-    }
-  }
 
   async function reprocess() {
     setReprocessing(true);
@@ -125,39 +119,19 @@ export function SettingsPanel({ flags, health, usage }: { flags: XFlags; health:
             <Section id="x" kicker="X Integration" title="The account that can post">
               <XDesk flags={flags} />
             </Section>
-            <Section id="ai" kicker="AI Provider" title="Gemini">
-              <p className="text-sm leading-relaxed text-ink-soft">
-                Status: <span className="text-ink">{health.ai}</span>
+            <Section id="ai" kicker="AI Providers" title="Who can draft">
+              <p className="max-w-2xl text-sm leading-relaxed">
+                Drafts try Groq, then OpenRouter, then Gemini. One successful provider stops the chain. A later provider runs only when the earlier one is missing, limited, timed out, or returns unusable JSON. Keys stay on the server and are not shown here.
               </p>
-              <p className="mt-3 max-w-2xl text-sm leading-relaxed">
-                Gemini reads posts a scan already retrieved and returns candidate claims as JSON. The desk drops a claim if a number, quotation, or source is not in the post. The model does not verify, rank candidates, or post. Drafting public copy is still off. The key stays in GEMINI_API_KEY.
-              </p>
-              <div className="mt-4 grid max-w-lg gap-3">
-                <Field label="Provider" value="Gemini" />
-                <Field label="Model" value={health.model ?? "Not configured"} />
-                <label className="block text-sm">
-                  <span className="font-mono text-[10px] tracking-[0.12em] text-ink-soft uppercase">API key</span>
-                  <Input disabled className="mt-1 rounded-none" placeholder="Server environment only" />
-                </label>
+              <p className="mt-3 font-mono text-sm tracking-[0.08em]">AI paid usage: {paidUsage ? "ON" : "OFF"}</p>
+              <div className="mt-4 grid gap-4 lg:grid-cols-3">
+                {providers.map((provider) => (
+                  <ProviderCardView key={provider.id} provider={provider} />
+                ))}
               </div>
               <p className="mt-4 max-w-2xl text-sm leading-relaxed text-ink-soft">
-                The model name comes from the server. Set GEMINI_MODEL there to override the default. The check below only asks whether the model can return a short JSON object. It does not send a post or a political prompt.
+                Gemini still extracts claims from posts a scan already retrieved. That path is separate from drafting. The usage section keeps the earlier Gemini request log. This section does not rewrite it.
               </p>
-              <button
-                type="button"
-                onClick={checkModel}
-                disabled={checking}
-                className="mt-4 inline-flex h-10 items-center border border-ink px-4 text-sm disabled:opacity-50"
-              >
-                {checking ? "Checking…" : "Check model availability"}
-              </button>
-              {healthResult ? (
-                <p className="mt-3 max-w-2xl text-sm">
-                  {healthResult.model ? `${healthResult.model}: ` : ""}
-                  {healthResult.message}
-                </p>
-              ) : null}
-              {healthError ? <p className="mt-3 text-sm text-stamp">{healthError}</p> : null}
             </Section>
             <Section id="usage" kicker="Usage" title="What today has cost">
               <p className="max-w-2xl text-sm leading-relaxed">
@@ -321,12 +295,81 @@ function Health({ label, value }: { label: string; value: string }) {
   );
 }
 
-function Field({ label, value }: { label: string; value: string }) {
+function ProviderCardView({ provider }: { provider: ProviderCard }) {
+  const router = useRouter();
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
+  const button = `TEST ${providerLabels[provider.id as ProviderId].toUpperCase()}`;
+
+  async function testProvider() {
+    setBusy(true);
+    setFailed(false);
+    setResult(null);
+    try {
+      const response = await fetch("/api/ai/health", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ provider: provider.id }),
+      });
+      const body = (await response.json()) as { message?: string };
+      setResult(body.message || "The check did not finish.");
+      setFailed(!response.ok);
+      router.refresh();
+    } catch {
+      setFailed(true);
+      setResult("The check did not finish. No other provider was called.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
-    <label className="block text-sm">
-      <span className="font-mono text-[10px] tracking-[0.12em] text-ink-soft uppercase">{label}</span>
-      <Input disabled value={value} className="mt-1 rounded-none" readOnly />
-    </label>
+    <article className="border border-rule px-3 py-3">
+      <h3 className="font-mono text-[11px] tracking-[0.14em] uppercase">{provider.label}</h3>
+      <dl className="mt-3 space-y-2 text-sm">
+        <div>
+          <dt className="font-mono text-[10px] tracking-[0.12em] text-ink-soft uppercase">Credential</dt>
+          <dd>{provider.credential ? "Available" : "Not available"}</dd>
+        </div>
+        <div>
+          <dt className="font-mono text-[10px] tracking-[0.12em] text-ink-soft uppercase">Model</dt>
+          <dd className="break-all">{provider.model}</dd>
+          <dd className="mt-1 text-xs leading-relaxed text-ink-soft">{provider.modelNote}</dd>
+        </div>
+        <div>
+          <dt className="font-mono text-[10px] tracking-[0.12em] text-ink-soft uppercase">Requests today</dt>
+          <dd>{provider.requestsToday}</dd>
+        </div>
+        <div>
+          <dt className="font-mono text-[10px] tracking-[0.12em] text-ink-soft uppercase">Successful requests</dt>
+          <dd>{provider.successfulRequests}</dd>
+        </div>
+        <div>
+          <dt className="font-mono text-[10px] tracking-[0.12em] text-ink-soft uppercase">Failed requests</dt>
+          <dd>{provider.failedRequests}</dd>
+        </div>
+        <div>
+          <dt className="font-mono text-[10px] tracking-[0.12em] text-ink-soft uppercase">Last failure</dt>
+          <dd>{provider.lastFailure ?? "None"}</dd>
+        </div>
+        <div>
+          <dt className="font-mono text-[10px] tracking-[0.12em] text-ink-soft uppercase">Status</dt>
+          <dd>{provider.status}</dd>
+        </div>
+      </dl>
+      {provider.note ? <p className="mt-3 text-xs leading-relaxed text-ink-soft">{provider.note}</p> : null}
+      <button
+        type="button"
+        onClick={testProvider}
+        disabled={busy}
+        className="mt-4 inline-flex h-10 items-center border border-ink px-3 text-sm disabled:opacity-50"
+      >
+        {busy ? "Testing…" : button}
+      </button>
+      <p className="mt-2 text-xs leading-relaxed text-ink-soft">This check calls only {provider.label} and uses one of today’s requests. It asks for a tiny JSON object. It does not run when this page opens.</p>
+      {result ? <p className={`mt-2 text-sm ${failed ? "text-stamp" : ""}`}>{result}</p> : null}
+    </article>
   );
 }
 
