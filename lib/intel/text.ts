@@ -1,10 +1,82 @@
+export function decodeEntities(input: string) {
+  return input.replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'");
+}
+
 export function sanitizeText(input: string, max = 2000) {
-  return input
+  return decodeEntities(input)
     .replace(/\u0000/g, "")
     .replace(/[\u0001-\u0008\u000B\u000C\u000E-\u001F]/g, "")
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, max);
+}
+
+const genericWords = new Set([
+  "nigeria",
+  "nigerian",
+  "naira",
+  "election",
+  "elections",
+  "2027",
+  "the",
+  "and",
+  "for",
+  "with",
+  "this",
+  "that",
+  "from",
+  "have",
+  "has",
+  "was",
+  "are",
+  "were",
+  "will",
+  "you",
+  "your",
+  "our",
+  "not",
+  "but",
+  "they",
+  "them",
+  "his",
+  "her",
+  "who",
+  "what",
+  "when",
+  "into",
+  "over",
+  "after",
+  "before",
+  "about",
+  "just",
+  "all",
+  "can",
+  "its",
+  "amp",
+  "http",
+  "https",
+]);
+
+export function plainPost(text: string) {
+  return sanitizeText(text)
+    .replace(/https?:\/\/\S+/g, " ")
+    .replace(/@\w+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function stem(word: string) {
+  if (word.length <= 4) return word;
+  return word.replace(/(ing|ed|es|s)$/, "");
+}
+
+export function distinctiveTokens(text: string, skip: Set<string> = new Set()) {
+  return plainPost(text)
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .map(stem)
+    .filter((word) => word.length > 2 && !genericWords.has(word) && !skip.has(word));
 }
 
 export function cleanUsername(value: string | null | undefined) {
@@ -63,13 +135,4 @@ export function groundedSpeaker(speaker: string, post: string, displayName: stri
   if (!name) return null;
   const haystack = `${post} ${displayName ?? ""} ${username ?? ""}`.toLowerCase();
   return haystack.includes(name.toLowerCase()) ? name : null;
-}
-
-export function clusterKey(groupSlug: string, post: { conversationId: string | null; text: string; matchedTerm: string }) {
-  if (post.conversationId && /^\d{1,25}$/.test(post.conversationId)) {
-    return `${groupSlug}:thread:${post.conversationId}`.slice(0, 160);
-  }
-  const numbers = (post.text.match(/\d[\d,.]{0,16}/g) ?? []).slice(0, 3).join("-");
-  const term = (post.matchedTerm || "topic").slice(0, 60);
-  return `${groupSlug}:${term}:${numbers}`.slice(0, 160);
 }

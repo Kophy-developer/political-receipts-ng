@@ -17,7 +17,8 @@ export type DeskAction =
   | "X connection changed"
   | "intelligence scan"
   | "claim dismissed"
-  | "claim opened";
+  | "claim opened"
+  | "posts reprocessed";
 
 function safeDetail(detail: Record<string, unknown>) {
   const out: Record<string, unknown> = {};

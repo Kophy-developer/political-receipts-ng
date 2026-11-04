@@ -1,7 +1,7 @@
 import "server-only";
 import type { UsageView } from "@/lib/desk/types";
 import { schemaMissing, scrubDbMessage, serviceClient } from "@/lib/db/client";
-import { lagosDayLabel, lagosDayStart, scanLimits } from "@/lib/intel/limits";
+import { lagosDayLabel, lagosDayStart, publishedRates, scanLimits, usd } from "@/lib/intel/limits";
 
 export type UsageTotals = {
   xRequests: number;
@@ -68,6 +68,23 @@ export async function recordUsage(input: {
   return { ok: !error };
 }
 
+const spendNote = `ESTIMATED from recorded post reads at the ${publishedRates.asOf} published rate of ${usd(publishedRates.postReadUsd)} per post. X has not provided a billed amount.`;
+
+async function postReadUnits(sinceIso?: string) {
+  const db = serviceClient();
+  if (!db) return null;
+  let query = db.from("api_usage").select("units").eq("provider", "x").eq("operation", "search_recent");
+  if (sinceIso) query = query.gte("occurred_at", sinceIso);
+  const { data, error } = await query;
+  if (error) return null;
+  return (data ?? []).reduce((sum, row) => sum + (typeof row.units === "number" ? row.units : 0), 0);
+}
+
+function spendLabel(units: number | null) {
+  if (units === null) return "Not available";
+  return usd(units * publishedRates.postReadUsd);
+}
+
 function durationLabel(value: number | null) {
   if (value === null || !Number.isFinite(value)) return null;
   if (value < 1000) return `${value} ms`;
@@ -92,6 +109,10 @@ export async function usageView(): Promise<UsageView> {
     perScanRequests: scanLimits.maxXRequestsPerScan,
     lookbackHours: scanLimits.lookbackHours,
     minEngagement: scanLimits.minEngagement,
+    estimatedXSpendToday: "Not available",
+    estimatedXSpendAll: "Not available",
+    spendLabel: "ESTIMATED",
+    spendNote,
   };
   const db = serviceClient();
   if (!db) return base;
@@ -109,5 +130,8 @@ export async function usageView(): Promise<UsageView> {
   ]);
   base.groups = count ?? 0;
   base.lastDuration = durationLabel(typeof last.data?.duration_ms === "number" ? last.data.duration_ms : null);
+  const [todayUnits, allUnits] = await Promise.all([postReadUnits(lagosDayStart()), postReadUnits()]);
+  base.estimatedXSpendToday = spendLabel(todayUnits);
+  base.estimatedXSpendAll = spendLabel(allUnits);
   return base;
 }

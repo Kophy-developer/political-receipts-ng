@@ -23,6 +23,44 @@ function usageFrom(value: unknown) {
   return { inputTokens: input, outputTokens: output };
 }
 
+export async function geminiHealth() {
+  const model = geminiModelName();
+  const key = process.env.GEMINI_API_KEY?.trim();
+  if (!key) return { ok: false as const, model, message: "Gemini is not configured.", called: false, usage: emptyUsage };
+  let response: Response;
+  try {
+    response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-goog-api-key": key },
+      body: JSON.stringify({
+        contents: [{ role: "user", parts: [{ text: 'Reply with JSON {"ok":true}. This is a connectivity check. Do not mention news, people, or places.' }] }],
+        generationConfig: {
+          temperature: 0,
+          maxOutputTokens: 32,
+          responseMimeType: "application/json",
+          responseSchema: { type: "OBJECT", required: ["ok"], properties: { ok: { type: "BOOLEAN" } } },
+        },
+      }),
+      cache: "no-store",
+      signal: AbortSignal.timeout(8_000),
+    });
+  } catch {
+    return { ok: false as const, model, message: "The model did not answer in time.", called: true, usage: emptyUsage };
+  }
+  let body: unknown;
+  try {
+    body = await response.json();
+  } catch {
+    return { ok: false as const, model, message: "The model returned an unreadable response.", called: true, usage: emptyUsage };
+  }
+  const usage = usageFrom((body as { usageMetadata?: unknown })?.usageMetadata);
+  if (!response.ok) {
+    const error = (body as { error?: { message?: string } })?.error?.message;
+    return { ok: false as const, model, message: scrub(error || `The model returned ${response.status}.`), called: true, usage };
+  }
+  return { ok: true as const, model, message: "Available", called: true, usage };
+}
+
 export function geminiProvider(): GeminiProvider {
   const model = geminiModelName();
   return {
@@ -85,7 +123,7 @@ export function geminiProvider(): GeminiProvider {
             },
           }),
           cache: "no-store",
-          signal: AbortSignal.timeout(12_000),
+          signal: AbortSignal.timeout(20_000),
         });
       } catch {
         return { ok: false, provider: "gemini", model, promptVersion: input.promptVersion, message: "The model did not answer in time.", usage: emptyUsage };

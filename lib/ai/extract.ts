@@ -1,6 +1,6 @@
 import type { Relevance } from "@/lib/intel/relevance";
 
-export const promptVersion = "claim-extract-v1";
+export const promptVersion = "claim-extract-v2";
 
 export const extractionSystem = `You extract checkable factual claims from public posts for a non-partisan Nigerian newsroom desk.
 

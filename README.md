@@ -92,7 +92,8 @@ X, Supabase, and Gemini are read only in server modules. Gemini is used for clai
 | `X_API_SECRET` | Server-side OAuth 1.0a consumer secret |
 | `X_ACCESS_TOKEN` | Server-side user token for the desk account |
 | `X_ACCESS_TOKEN_SECRET` | Server-side token secret |
-| `GEMINI_API_KEY` | Server-side Gemini key for claim extraction. Optional `GEMINI_MODEL` overrides `gemini-2.5-flash`. |
+| `GEMINI_API_KEY` | Server-side Gemini key for claim extraction. |
+| `GEMINI_MODEL` | Optional server override. When unset, the default in `lib/ai/env.ts` is used (currently `gemini-3.8-flash`). |
 | `NEXT_PUBLIC_SUPABASE_URL` | Public Supabase project URL |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Public Supabase anon key, safe to expose only because row-level security must restrict it |
 | `SUPABASE_SERVICE_ROLE_KEY` | Server only. Never prefix it with `NEXT_PUBLIC_` and never import it into a client component. |

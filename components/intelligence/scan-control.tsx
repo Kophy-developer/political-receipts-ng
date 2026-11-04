@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { extractionLabel, type ExtractionOutcome } from "@/lib/intel/outcome";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 type Estimate = {
@@ -28,9 +29,15 @@ type Report = {
   postsReturned: number;
   postsStored: number;
   relevantPosts: number;
+  actionablePosts?: number;
+  discussionPosts?: number;
+  noisePosts?: number;
   conversations: number;
   claims: number;
   claimsDropped: number;
+  extraction?: ExtractionOutcome | null;
+  extractionDetail?: string | null;
+  model?: string | null;
   geminiRequests: number;
   inputTokens: number | null;
   outputTokens: number | null;
@@ -128,10 +135,15 @@ export function ScanControl() {
               <div>Posts returned {report.postsReturned}</div>
               <div>Posts stored {report.postsStored}</div>
               <div>Relevant {report.relevantPosts}</div>
+              <div>Actionable {report.actionablePosts ?? 0}</div>
+              <div>Discussion {report.discussionPosts ?? 0}</div>
+              <div>Noise {report.noisePosts ?? 0}</div>
               <div>Conversations {report.conversations}</div>
-              <div>Claims {report.claims}</div>
+              <div>Claims extracted {report.claims}</div>
               <div>Gemini requests {report.geminiRequests}</div>
-              <div>Dropped claims {report.claimsDropped}</div>
+              <div>Rejected by validation {report.claimsDropped}</div>
+              <div className="col-span-2">Extraction {report.extraction ? extractionLabel(report.extraction) : "—"}</div>
+              {report.model ? <div className="col-span-2">Model {report.model}</div> : null}
               <div>Input tokens {report.inputTokens ?? "—"}</div>
               <div>Output tokens {report.outputTokens ?? "—"}</div>
               <div>Duration {report.durationMs} ms</div>

@@ -1,6 +1,6 @@
 import "server-only";
 import { lagosStamp } from "@/lib/format";
-import type { DeskConversation } from "@/lib/desk/types";
+import type { AttentionLabel, DeskClassName, DeskConversation } from "@/lib/desk/types";
 import { schemaMissing, scrubDbMessage, serviceClient } from "@/lib/db/client";
 import { claimStatusLabel } from "@/lib/db/labels";
 
@@ -35,12 +35,19 @@ function numberOrNull(value: unknown) {
 }
 
 const velocities = new Set(["Normal", "Growing", "Rapid", "Breaking"]);
+const attentionLabels = new Set<AttentionLabel>(["Emerging", "Growing", "High attention"]);
+const deskClasses = new Set<DeskClassName>(["actionable", "discussion", "noise"]);
 
 export function toConversation(row: ConversationRow): DeskConversation {
   const velocity = typeof row.engagement?.velocity === "string" && velocities.has(row.engagement.velocity) ? row.engagement.velocity : null;
+  const attention = typeof row.engagement?.attention === "string" && attentionLabels.has(row.engagement.attention as AttentionLabel) ? (row.engagement.attention as AttentionLabel) : null;
+  const deskClass = typeof row.engagement?.deskClass === "string" && deskClasses.has(row.engagement.deskClass as DeskClassName) ? (row.engagement.deskClass as DeskClassName) : null;
   return {
     id: row.id,
-    topic: one(row.topics)?.name || row.title,
+    title: row.title,
+    topic: one(row.topics)?.name || "Unsorted",
+    attention,
+    deskClass,
     summary: row.summary,
     narrative: row.narrative ?? [],
     volume: numberOrNull(row.engagement?.volume),
@@ -66,7 +73,10 @@ export function toConversation(row: ConversationRow): DeskConversation {
 export async function listConversations() {
   const db = serviceClient();
   if (!db) return { ok: false as const, reason: "unconfigured" as const };
-  const { data, error } = await db.from("conversations").select(conversationSelect).order("started_at", { ascending: false });
+  const { data, error } = await db.from("conversations").select(conversationSelect).neq("status", "closed").order("started_at", { ascending: false });
   if (error) return { ok: false as const, reason: schemaMissing(error.message) ? ("schema" as const) : ("unreachable" as const), message: scrubDbMessage(error.message) };
-  return { ok: true as const, conversations: ((data ?? []) as unknown as ConversationRow[]).map(toConversation) };
+  const classOrder: Record<DeskClassName, number> = { actionable: 0, discussion: 1, noise: 2 };
+  const conversations = ((data ?? []) as unknown as ConversationRow[]).map(toConversation);
+  conversations.sort((left, right) => classOrder[left.deskClass ?? "discussion"] - classOrder[right.deskClass ?? "discussion"]);
+  return { ok: true as const, conversations };
 }

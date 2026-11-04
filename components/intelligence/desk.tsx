@@ -3,15 +3,35 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import type { DeskConversation, DeskMode, ResearchCard } from "@/lib/desk/types";
+import type { AttentionLabel, DeskClassName, DeskConversation, DeskMode, ResearchCard } from "@/lib/desk/types";
 import { formatNumber, growthLabel } from "@/lib/format";
-import type { Velocity } from "@/lib/types";
 import { PageFrame } from "@/components/shell/page-frame";
 import { DemoMark, EmptyDesk, OriginNote, SectionHeading, StatusMark, VelocityMark } from "@/components/marks";
 import { ScanControl } from "@/components/intelligence/scan-control";
 import { cn } from "cn";
 
-const filters: Array<Velocity | "All"> = ["All", "Breaking", "Rapid", "Growing", "Normal"];
+const filters = ["All", "Emerging", "Growing", "High attention", "Breaking", "Rapid", "Normal"] as const;
+type BoardFilter = (typeof filters)[number];
+
+function matchesBoard(item: DeskConversation, filter: BoardFilter) {
+  if (filter === "All") return true;
+  if (filter === "Emerging" || filter === "High attention") return item.attention === filter;
+  if (filter === "Growing") return item.attention === "Growing" || item.velocity === "Growing";
+  return item.velocity === filter;
+}
+
+function classLabel(value: DeskClassName | null) {
+  if (value === "actionable") return "Actionable intelligence";
+  if (value === "discussion") return "Political discussion";
+  if (value === "noise") return "Noise";
+  return null;
+}
+
+function growthText(item: DeskConversation) {
+  if (item.growthPct !== null) return growthLabel(item.growthPct);
+  if (item.attention) return "Not calculated";
+  return "Not recorded";
+}
 
 export function IntelligenceDesk({
   conversations,
@@ -28,15 +48,15 @@ export function IntelligenceDesk({
   const router = useRouter();
   const requested = params.get("topic");
   const activeId = conversations.some((item) => item.id === requested) ? requested! : conversations[0]?.id ?? "";
-  const [filter, setFilter] = useState<Velocity | "All">("All");
+  const [filter, setFilter] = useState<BoardFilter>("All");
   const [query, setQuery] = useState("");
   const [queueError, setQueueError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
 
   const visible = useMemo(() => {
     return conversations.filter((item) => {
-      const matchesFilter = filter === "All" || item.velocity === filter;
-      const haystack = `${item.topic} ${item.summary} ${item.entities.join(" ")}`.toLowerCase();
+      const matchesFilter = matchesBoard(item, filter);
+      const haystack = `${item.title} ${item.topic} ${item.summary} ${item.entities.join(" ")}`.toLowerCase();
       return matchesFilter && haystack.includes(query.trim().toLowerCase());
     });
   }, [conversations, filter, query]);
@@ -106,6 +126,7 @@ export function IntelligenceDesk({
                     <span className={cn("px-2 py-0.5 font-mono text-[10px] tracking-[0.14em] uppercase", card.importance === "High" ? "bg-stamp-soft text-stamp" : card.importance === "Medium" ? "bg-amber-soft text-amber" : "bg-slateink-soft text-slateink")}>
                       {card.importance}
                     </span>
+                    {classLabel(card.deskClass) ? <span className="font-mono text-[10px] tracking-[0.14em] text-ink-soft uppercase">{classLabel(card.deskClass)}</span> : null}
                     <span className="font-mono text-[10px] tracking-[0.14em] text-ink-soft uppercase">{card.topic}</span>
                     <StatusMark value={card.status} />
                   </div>
@@ -159,7 +180,7 @@ export function IntelligenceDesk({
           <input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search topic or entity"
+            placeholder="Search discussion or entity"
             aria-label="Search conversations"
             className="h-9 w-full border border-rule bg-paper px-3 text-sm outline-none placeholder:text-ink-soft/70 focus:border-ink sm:max-w-xs"
           />
@@ -189,14 +210,14 @@ export function IntelligenceDesk({
                     <span className={cn("mt-1 hidden w-0.5 shrink-0 self-stretch sm:block", selected ? "bg-stamp" : "bg-transparent")} />
                     <span className="min-w-0 flex-1">
                       <span className="flex flex-wrap items-center gap-2">
-                        <span className="font-serif text-lg leading-tight">{item.topic}</span>
+                        <span className="font-serif text-lg leading-tight">{item.title}</span>
                         {item.origin === "demo" ? <DemoMark /> : null}
-                        {item.velocity ? <VelocityMark value={item.velocity} /> : null}
+                        {item.attention ? <AttentionMark value={item.attention} /> : item.velocity ? <VelocityMark value={item.velocity} /> : null}
                       </span>
                       <span className="mt-1.5 block text-sm leading-relaxed text-ink-soft">{item.summary}</span>
                       <span className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 font-mono text-[11px] text-ink-soft sm:grid-cols-4">
                         <span>{item.volume === null ? "Volume not recorded" : `Vol ${formatNumber(item.volume)}`}</span>
-                        <span>{item.growthPct === null ? "Growth not recorded" : growthLabel(item.growthPct)}</span>
+                        <span>{growthText(item)}</span>
                         <span>{item.firstDetected}</span>
                       </span>
                     </span>
@@ -213,17 +234,18 @@ export function IntelligenceDesk({
             <div className="border-b border-rule px-5 py-4">
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <p className="font-mono text-[10px] tracking-[0.16em] text-ink-soft uppercase">Conversation</p>
-                  <h2 className="mt-1 font-serif text-2xl tracking-[-0.02em]">{active.topic}</h2>
+                  <p className="font-mono text-[10px] tracking-[0.16em] text-ink-soft uppercase">{active.topic}</p>
+                  <h2 className="mt-1 font-serif text-2xl tracking-[-0.02em]">{active.title}</h2>
+                  {classLabel(active.deskClass) ? <p className="mt-2 font-mono text-[10px] tracking-[0.14em] text-ink-soft uppercase">{classLabel(active.deskClass)}</p> : null}
                 </div>
-                {active.velocity ? <VelocityMark value={active.velocity} /> : null}
+                {active.attention ? <AttentionMark value={active.attention} /> : active.velocity ? <VelocityMark value={active.velocity} /> : null}
               </div>
               <p className="mt-3 text-sm leading-relaxed text-ink-soft">{active.velocityNote || "No velocity note is filed."}</p>
             </div>
             <div className="space-y-5 px-5 py-5">
               <dl className="grid grid-cols-2 gap-3 text-sm">
                 <Metric label="Volume" value={active.volume === null ? "Not recorded" : formatNumber(active.volume)} />
-                <Metric label="Growth" value={active.growthPct === null ? "Not recorded" : growthLabel(active.growthPct)} />
+                <Metric label="Growth" value={growthText(active)} />
                 <Metric label="First detected" value={active.firstDetected} />
                 <Metric label="Posts" value={active.postCount === null ? "Not recorded" : formatNumber(active.postCount)} />
                 <Metric label="Record" value={active.origin === "demo" ? "Demonstration" : "Live"} />
@@ -275,6 +297,10 @@ export function IntelligenceDesk({
       </div>
     </PageFrame>
   );
+}
+
+function AttentionMark({ value }: { value: AttentionLabel }) {
+  return <span className="border border-rule px-2 py-0.5 font-mono text-[10px] tracking-[0.14em] text-ink-soft uppercase">{value}</span>;
 }
 
 function Metric({ label, value }: { label: string; value: string }) {

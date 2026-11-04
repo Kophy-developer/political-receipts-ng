@@ -3,7 +3,7 @@ import type { SystemHealth } from "@/lib/desk/types";
 import { schemaMissing } from "@/lib/db/client";
 import { encryptionReady } from "@/lib/db/crypto";
 import { latestConnection } from "@/lib/db/connections";
-import { geminiLabel } from "@/lib/ai/env";
+import { geminiConfigured, geminiLabel, geminiModelName } from "@/lib/ai/env";
 import { credentialFlags } from "@/lib/x/env";
 
 const tables = [
@@ -42,6 +42,7 @@ export async function systemHealth(): Promise<SystemHealth> {
     encryptionKey: encryptionReady(),
     xAccount: { status: "Not verified", username: null, displayName: null, lastVerified: null },
     ai: geminiLabel(),
+    model: geminiConfigured() ? geminiModelName() : null,
     monitoring: "Manual only",
   };
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();

@@ -81,15 +81,20 @@ export function Briefing({ snapshot, gemini = "Not configured" }: { snapshot: De
                     >
                       <div>
                         <div className="flex flex-wrap items-center gap-2">
-                          <h3 className="font-serif text-lg leading-tight">{item.topic}</h3>
+                          <p className="font-mono text-[10px] tracking-[0.14em] text-ink-soft uppercase">{item.topic}</p>
+                          <h3 className="font-serif text-lg leading-tight">{item.title}</h3>
                           {item.origin === "demo" ? <DemoMark /> : null}
-                          {item.velocity ? <VelocityMark value={item.velocity} /> : null}
+                          {item.attention ? <span className="font-mono text-[10px] tracking-[0.14em] text-ink-soft uppercase">{item.attention}</span> : item.velocity ? <VelocityMark value={item.velocity} /> : null}
                         </div>
                         <p className="mt-1.5 max-w-xl text-sm leading-relaxed text-ink-soft">{item.summary}</p>
                       </div>
                       <p className="shrink-0 font-mono text-xs tabular-nums text-ink">
                         {item.volume === null ? "Volume not recorded" : formatNumber(item.volume)}
-                        {item.growthPct === null ? null : <span className="mt-1 block text-right text-ink-soft">{growthLabel(item.growthPct)}</span>}
+                        {item.growthPct === null ? (
+                          item.attention ? <span className="mt-1 block text-right text-ink-soft">Not calculated</span> : null
+                        ) : (
+                          <span className="mt-1 block text-right text-ink-soft">{growthLabel(item.growthPct)}</span>
+                        )}
                       </p>
                     </Link>
                   ))

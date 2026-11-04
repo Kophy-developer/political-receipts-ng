@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import type { SystemHealth, UsageView } from "@/lib/desk/types";
 import { lagosStamp } from "@/lib/format";
@@ -22,8 +23,64 @@ const sections = [
   { href: "#account", label: "Account" },
 ];
 
+type HealthResult = { ok: boolean; model: string | null; message: string; called: boolean };
+type ReprocessResult = {
+  ok: boolean;
+  xRequests: number;
+  posts: number;
+  actionable: number;
+  discussion: number;
+  noise: number;
+  conversations: number;
+  claimsExtracted: number;
+  claimsRejected: number;
+  geminiCalls: number;
+  detail: string;
+  model: string | null;
+  posted: false;
+  polling: false;
+};
+
 export function SettingsPanel({ flags, health, usage }: { flags: XFlags; health: SystemHealth; usage: UsageView }) {
+  const router = useRouter();
   const [origin, setOrigin] = useState(xProductionOrigin);
+  const [checking, setChecking] = useState(false);
+  const [healthResult, setHealthResult] = useState<HealthResult | null>(null);
+  const [healthError, setHealthError] = useState<string | null>(null);
+  const [reprocessing, setReprocessing] = useState(false);
+  const [reprocessResult, setReprocessResult] = useState<ReprocessResult | null>(null);
+  const [reprocessError, setReprocessError] = useState<string | null>(null);
+
+  async function checkModel() {
+    setChecking(true);
+    setHealthError(null);
+    try {
+      const response = await fetch("/api/intel/gemini", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+      const body = (await response.json()) as HealthResult;
+      setHealthResult(body);
+      if (!response.ok && !body.message) setHealthError("The model check did not finish.");
+    } catch {
+      setHealthError("The model check did not finish.");
+    } finally {
+      setChecking(false);
+    }
+  }
+
+  async function reprocess() {
+    setReprocessing(true);
+    setReprocessError(null);
+    try {
+      const response = await fetch("/api/intel/reprocess", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+      const body = (await response.json()) as ReprocessResult;
+      setReprocessResult(body);
+      if (!body.ok && body.detail) setReprocessError(body.detail);
+      router.refresh();
+    } catch {
+      setReprocessError("Reprocessing did not finish. No X request was sent from this page.");
+    } finally {
+      setReprocessing(false);
+    }
+  }
 
   return (
     <PageFrame>
@@ -77,18 +134,37 @@ export function SettingsPanel({ flags, health, usage }: { flags: XFlags; health:
               </p>
               <div className="mt-4 grid max-w-lg gap-3">
                 <Field label="Provider" value="Gemini" />
-                <Field label="Model" value={health.ai === "Claim extraction" ? "gemini-2.5-flash unless GEMINI_MODEL is set" : "Not configured"} />
+                <Field label="Model" value={health.model ?? "Not configured"} />
                 <label className="block text-sm">
                   <span className="font-mono text-[10px] tracking-[0.12em] text-ink-soft uppercase">API key</span>
                   <Input disabled className="mt-1 rounded-none" placeholder="Server environment only" />
                 </label>
               </div>
+              <p className="mt-4 max-w-2xl text-sm leading-relaxed text-ink-soft">
+                The model name comes from the server. Set GEMINI_MODEL there to override the default. The check below only asks whether the model can return a short JSON object. It does not send a post or a political prompt.
+              </p>
+              <button
+                type="button"
+                onClick={checkModel}
+                disabled={checking}
+                className="mt-4 inline-flex h-10 items-center border border-ink px-4 text-sm disabled:opacity-50"
+              >
+                {checking ? "Checking…" : "Check model availability"}
+              </button>
+              {healthResult ? (
+                <p className="mt-3 max-w-2xl text-sm">
+                  {healthResult.model ? `${healthResult.model}: ` : ""}
+                  {healthResult.message}
+                </p>
+              ) : null}
+              {healthError ? <p className="mt-3 text-sm text-stamp">{healthError}</p> : null}
             </Section>
             <Section id="usage" kicker="Usage" title="What today has cost">
               <p className="max-w-2xl text-sm leading-relaxed">
                 Counts are for the Lagos day ({usage.dayLabel}). A scan stops when a daily ceiling is hit. It does not retry a failed paid call.
               </p>
               {usage.installed ? (
+                <>
                 <dl className="mt-4 grid gap-3 sm:grid-cols-2">
                   <Health label="X requests" value={`${usage.xRequests} / ${usage.xRequestLimit}`} />
                   <Health label="Posts retrieved" value={`${usage.posts} / ${usage.postLimit}`} />
@@ -98,7 +174,40 @@ export function SettingsPanel({ flags, health, usage }: { flags: XFlags; health:
                   <Health label="Search groups" value={String(usage.groups)} />
                   <Health label="Per scan" value={`${usage.perScanRequests} request · ${usage.perScanPosts} posts · ${usage.lookbackHours}h`} />
                   <Health label="Minimum engagement" value={String(usage.minEngagement)} />
+                  <Health label={`X spend today (${usage.spendLabel})`} value={usage.estimatedXSpendToday} />
+                  <Health label={`X spend all time (${usage.spendLabel})`} value={usage.estimatedXSpendAll} />
                 </dl>
+                <p className="mt-4 max-w-2xl text-sm leading-relaxed text-ink-soft">{usage.spendNote}</p>
+                <div className="mt-6 max-w-2xl">
+                  <p className="text-sm leading-relaxed">
+                    Reprocess stored posts with the current relevance and clustering rules, then run claim extraction on what is already saved. This does not call X.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={reprocess}
+                    disabled={reprocessing}
+                    className="mt-3 inline-flex h-10 items-center bg-ink px-4 text-sm text-paper disabled:opacity-50"
+                  >
+                    {reprocessing ? "Reprocessing…" : "Reprocess stored posts"}
+                  </button>
+                  {reprocessResult ? (
+                    <dl className="mt-4 grid grid-cols-2 gap-2 border border-rule p-3 font-mono text-[11px]">
+                      <div>X requests {reprocessResult.xRequests}</div>
+                      <div>Posts {reprocessResult.posts}</div>
+                      <div>Actionable {reprocessResult.actionable}</div>
+                      <div>Discussion {reprocessResult.discussion}</div>
+                      <div>Noise {reprocessResult.noise}</div>
+                      <div>Conversations {reprocessResult.conversations}</div>
+                      <div>Claims extracted {reprocessResult.claimsExtracted}</div>
+                      <div>Claims rejected {reprocessResult.claimsRejected}</div>
+                      <div>Gemini calls {reprocessResult.geminiCalls}</div>
+                      <div>Posted {reprocessResult.posted ? "yes" : "no"}</div>
+                      <div className="col-span-2">{reprocessResult.detail}</div>
+                    </dl>
+                  ) : null}
+                  {reprocessError ? <p className="mt-3 text-sm text-stamp">{reprocessError}</p> : null}
+                </div>
+                </>
               ) : (
                 <p className="mt-4 text-sm text-ink-soft">Usage tracking is not installed yet. Apply the intelligence migration. No scan will call X until it is.</p>
               )}

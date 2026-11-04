@@ -75,9 +75,16 @@ export type DeskClaim = DeskClaimSummary & {
   format: FormatDecision;
 };
 
+export type DeskClassName = "actionable" | "discussion" | "noise";
+
+export type AttentionLabel = "Emerging" | "Growing" | "High attention";
+
 export type DeskConversation = {
   id: string;
+  title: string;
   topic: string;
+  attention: AttentionLabel | null;
+  deskClass: DeskClassName | null;
   summary: string;
   narrative: string[];
   volume: number | null;
@@ -168,6 +175,10 @@ export type UsageView = {
   perScanRequests: number;
   lookbackHours: number;
   minEngagement: number;
+  estimatedXSpendToday: string;
+  estimatedXSpendAll: string;
+  spendLabel: "ESTIMATED";
+  spendNote: string;
 };
 
 export type ResearchCard = {
@@ -185,6 +196,7 @@ export type ResearchCard = {
   status: ClaimStatus;
   aiConfidence: ConfidenceLabel | null;
   origin: RecordOrigin;
+  deskClass: DeskClassName | null;
 };
 
 export type DeskSnapshot = {
@@ -217,5 +229,6 @@ export type SystemHealth = {
     lastVerified: string | null;
   };
   ai: "Claim extraction" | "Not configured";
+  model: string | null;
   monitoring: "Manual only";
 };
