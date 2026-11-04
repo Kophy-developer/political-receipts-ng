@@ -1,15 +1,5 @@
-import type { Metadata } from "next";
-import { connection } from "next/server";
-import { geminiLabel } from "@/lib/ai/env";
-import { Briefing } from "@/components/overview/briefing";
-import { loadSnapshot } from "@/lib/db/overview";
+import { redirect } from "next/navigation";
 
-export const metadata: Metadata = {
-  title: "Overview",
-};
-
-export default async function OverviewPage() {
-  await connection();
-  const snapshot = await loadSnapshot();
-  return <Briefing snapshot={snapshot} gemini={geminiLabel()} />;
+export default function Home() {
+  redirect("/desk");
 }
