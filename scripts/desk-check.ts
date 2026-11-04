@@ -42,6 +42,11 @@ const loaded = readFinalPost(saved);
 check("a saved hashtag is the same text after refresh", loaded.text === candidate && loaded.text.endsWith("#CheckAm"));
 check("sources stay out of the final post", !loaded.text.includes("https://") && loaded.sources.length === 2);
 check("the record does not rebuild the hashtag separately", saved.suggested_hashtag === null && saved.content.includes("#CheckAm"));
+const legacy = readFinalPost({
+  content: `${candidate.replace("#CheckAm", "").trim()}\n\nhttps://www.bbc.com/pidgin/articles/c6gelpr1qq29o`,
+  generation_metadata: { source: "editor-draft" },
+});
+check("an earlier normalized save is not treated as the final post", legacy.exact === false && legacy.text === "" && legacy.sources.length === 0);
 
 const preview = previewPosts(candidate);
 check("the candidate preview keeps the hashtag and does not cut the post", preview.posts.length === 1 && preview.posts[0] === candidate.trimEnd() && preview.posts[0]?.includes("#CheckAm"));
@@ -67,6 +72,20 @@ const brief = evidenceBrief([
   { review: "proposed", tier: "Other Source" },
 ]);
 check("review names the accepted reports", brief.independent === 2 && brief.primary === 1 && brief.line.includes("plus"));
+const recorded = evidenceBrief(
+  [
+    { review: "proposed", tier: "Other Source" },
+    { review: "proposed", tier: "Other Source" },
+  ],
+  [
+    { kind: "primary record" },
+    { kind: "primary record" },
+    { kind: "independent reporting" },
+    { kind: "independent reporting" },
+    { kind: "original allegation" },
+  ],
+);
+check("a recorded verdict counts its reports", recorded.independent === 2 && recorded.primary === 2 && recorded.line === "2 accepted independent reports plus 2 accepted primary records");
 check("review waits for every box", reviewComplete({ wording: true, unsupported: true, links: true, exact: false }) === false);
 check("review can be completed", reviewComplete({ wording: true, unsupported: true, links: true, exact: true }));
 

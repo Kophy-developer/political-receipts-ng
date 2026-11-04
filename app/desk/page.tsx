@@ -33,7 +33,8 @@ async function DeskQueue() {
     const finalPost = await loadFinalPost(claim.id);
     const facts = {
       hasConversation: Boolean(claim.postText && claim.postText !== "The original post text has not been filed."),
-      acceptedEvidence: claim.evidence.filter((item) => item.review === "accepted").length,
+      acceptedEvidence: claim.evidence.filter((item) => item.review === "accepted").length
+        || claim.verdictEvidenceUsed.filter((item) => item.kind !== "original allegation").length,
       verdictRecorded: Boolean(claim.verdictRecordedAt),
       angleChosen: Boolean(claim.editorAngle),
       finalText: finalPost?.text ?? "",

@@ -31,6 +31,7 @@ type ClaimCard = {
   verdictRecorded: boolean;
   angleChosen: boolean;
   evidence: Array<{ review: string; tier: string; title: string; organization: string }>;
+  recorded: Array<{ kind: string; label: string }>;
 };
 
 export function StoryWorkspace({
@@ -69,8 +70,9 @@ export function StoryWorkspace({
   const done = new Set(completedStages(showReview || confirming ? "review" : detected));
   const preview = previewPosts(text);
   const gate = publishablePost(savedText || text);
-  const brief = evidenceBrief(claim.evidence);
+  const brief = evidenceBrief(claim.evidence, claim.recorded);
   const accepted = claim.evidence.filter((item) => item.review === "accepted");
+  const recorded = claim.recorded.filter((item) => item.kind !== "original allegation");
 
   async function save() {
     setBusy(true);
@@ -132,8 +134,10 @@ export function StoryWorkspace({
             <details className="mt-3">
               <summary className="cursor-pointer text-xs text-ink-soft">Research details</summary>
               <ul className="mt-2 space-y-1 text-sm">
-                {accepted.map((item) => (
+                {accepted.length > 0 ? accepted.map((item) => (
                   <li key={item.title}>{item.organization}: {item.title}</li>
+                )) : recorded.map((item) => (
+                  <li key={item.label}>{item.label}</li>
                 ))}
               </ul>
             </details>

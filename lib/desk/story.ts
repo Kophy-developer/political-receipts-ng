@@ -53,10 +53,21 @@ export type EvidenceBrief = {
   line: string;
 };
 
-export function evidenceBrief(items: Array<{ review: string; tier: string }>): EvidenceBrief {
+export function evidenceBrief(
+  items: Array<{ review: string; tier: string }>,
+  recorded: Array<{ kind: string }> = [],
+): EvidenceBrief {
   const accepted = items.filter((item) => item.review === "accepted");
-  const independent = accepted.filter((item) => item.tier === "Established News Organization" || item.tier === "Independent Fact Checker").length;
-  const primary = accepted.filter((item) => item.tier === "Primary Government Source" || item.tier === "Official Statistics" || item.tier === "Legislation/Court Record").length;
+  const fromRows = {
+    independent: accepted.filter((item) => item.tier === "Established News Organization" || item.tier === "Independent Fact Checker").length,
+    primary: accepted.filter((item) => item.tier === "Primary Government Source" || item.tier === "Official Statistics" || item.tier === "Legislation/Court Record").length,
+  };
+  const fromVerdict = {
+    independent: recorded.filter((item) => item.kind === "independent reporting").length,
+    primary: recorded.filter((item) => item.kind === "primary record").length,
+  };
+  const independent = Math.max(fromRows.independent, fromVerdict.independent);
+  const primary = Math.max(fromRows.primary, fromVerdict.primary);
   const reports = independent ? `${independent} accepted independent report${independent === 1 ? "" : "s"}` : "";
   const records = primary ? `${primary} accepted primary record${primary === 1 ? "" : "s"}` : "";
   const line = reports && records ? `${reports} plus ${records}` : reports || records || "No accepted evidence is filed yet.";
@@ -86,11 +97,14 @@ export function finalPostRecord(text: string, sources: string[]) {
   };
 }
 
-export function readFinalPost(record: { content: string; generation_metadata?: { sources?: unknown } | null }) {
-  const sources = record.generation_metadata?.sources;
+export function readFinalPost(record: { content: string; generation_metadata?: { sources?: unknown; source?: unknown; exact?: unknown } | null }) {
+  const meta = record.generation_metadata;
+  const exact = meta?.source === "final-post" && meta.exact === true;
+  const sources = meta?.sources;
   return {
-    text: record.content,
-    sources: Array.isArray(sources) ? sources.filter((item): item is string => typeof item === "string") : [],
+    exact,
+    text: exact ? record.content : "",
+    sources: exact && Array.isArray(sources) ? sources.filter((item): item is string => typeof item === "string") : [],
   };
 }
 

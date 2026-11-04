@@ -14,8 +14,9 @@ export async function loadFinalPost(claimId: string) {
     .eq("version", "M")
     .maybeSingle();
   if (error || !data) return null;
-  const read = readFinalPost({ content: data.content, generation_metadata: data.generation_metadata as { sources?: unknown } | null });
-  return { id: data.id as string, ...read };
+  const read = readFinalPost({ content: data.content, generation_metadata: data.generation_metadata as { sources?: unknown; source?: unknown; exact?: unknown } | null });
+  if (!read.exact) return null;
+  return { id: data.id as string, text: read.text, sources: read.sources };
 }
 
 export async function saveFinalPost(input: { claimId: string; text: string; sources: string[] }) {
