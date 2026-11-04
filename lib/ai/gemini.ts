@@ -42,7 +42,7 @@ export async function geminiHealth() {
         },
       }),
       cache: "no-store",
-      signal: AbortSignal.timeout(8_000),
+      signal: AbortSignal.timeout(20_000),
     });
   } catch {
     return { ok: false as const, model, message: "The model did not answer in time.", called: true, usage: emptyUsage };
