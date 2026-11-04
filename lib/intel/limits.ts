@@ -43,5 +43,6 @@ export function lagosDayLabel(now = new Date()) {
 }
 
 export function usd(amount: number) {
+  if (amount > 0 && amount < 0.01) return `$${amount.toFixed(3)}`;
   return `$${amount.toFixed(2)}`;
 }
