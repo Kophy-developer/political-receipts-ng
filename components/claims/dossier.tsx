@@ -2,9 +2,11 @@ import Link from "next/link";
 import type { DeskClaim, DeskMode } from "@/lib/desk/types";
 import { PageFrame } from "@/components/shell/page-frame";
 import { ClassificationWord, DemoMark, OriginNote, StatusMark, tierRail } from "@/components/marks";
+import { DraftingPanel } from "@/components/claims/drafting-panel";
 import { EditorReview } from "@/components/claims/editor-review";
 import { ResearchPanel } from "@/components/claims/research-panel";
 import { SearchInventory } from "@/components/claims/search-inventory";
+import type { StoredDraft } from "@/lib/drafts/rules";
 import type { StoredSearchResult } from "@/lib/research/inventory";
 import type { ResearchPlan } from "@/lib/research/types";
 
@@ -13,11 +15,15 @@ export function Dossier({
   mode,
   plan,
   inventory,
+  drafts,
+  geminiRemaining,
 }: {
   claim: DeskClaim;
   mode: DeskMode;
   plan: ResearchPlan | null;
   inventory: { results: StoredSearchResult[]; note: string | null };
+  drafts: StoredDraft[];
+  geminiRemaining: number;
 }) {
   const initials = claim.handle.replace("@", "").slice(0, 2).toUpperCase();
 
@@ -215,6 +221,7 @@ export function Dossier({
           </section>
         </div>
         <EditorReview claim={claim} />
+        <DraftingPanel claim={claim} drafts={drafts} geminiRemaining={geminiRemaining} />
         <ResearchPanel claim={claim} plan={plan} />
         <section>
           <h2 className="font-mono text-[11px] tracking-[0.16em] uppercase">Related posts</h2>
@@ -278,7 +285,9 @@ export function Dossier({
                   Open draft studio
                 </Link>
               ) : claim.editorReview ? (
-                <p className="text-sm text-ink-soft">No draft has been written. Create draft opens only from Editor review, after a verdict is accepted and an angle is chosen.</p>
+                <p className="text-sm text-ink-soft">
+                  {drafts.length ? `${drafts.length} draft${drafts.length === 1 ? "" : "s"} saved on this claim.` : "No draft has been written yet."} Saving a draft does not publish it. Publishing stays a separate action.
+                </p>
               ) : (
                 <p className="text-sm text-ink-soft">No draft. Research is still open, so the studio will not invent three versions.</p>
               )}

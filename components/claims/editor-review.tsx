@@ -284,14 +284,9 @@ function EditorReviewForm({ claim, review }: { claim: DeskClaim; review: NonNull
           <div>
             <p className="font-mono text-[10px] tracking-[0.12em] text-ink-soft uppercase">Drafting gate</p>
             <p className="mt-2 max-w-3xl text-sm leading-relaxed">{gate.reason}</p>
-            <button
-              type="button"
-              disabled={busy !== null || !gate.open}
-              onClick={() => post({ action: "draft_gate" }, "draft")}
-              className="mt-3 inline-flex h-10 items-center bg-ink px-4 text-sm text-paper disabled:opacity-50"
-            >
-              {busy === "draft" ? "Checking…" : "Create draft"}
-            </button>
+            <a href="#drafting" className="mt-3 inline-block text-sm underline decoration-rule underline-offset-4">
+              Go to Create draft
+            </a>
           </div>
           {message ? <p className="max-w-2xl text-sm">{message}</p> : null}
         </div>

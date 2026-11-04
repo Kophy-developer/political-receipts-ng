@@ -45,7 +45,7 @@ const noAngle = draftUnlocked({ recordedAt: "2026-11-04T18:00:00Z", angle: null,
 check("angle is required", noAngle.open === false);
 const open = draftUnlocked({ recordedAt: "2026-11-04T18:00:00Z", angle: "serious", angleText: null });
 check("accepted verdict and angle open the gate", open.open === true);
-check("open gate still writes no draft", open.reason.includes("does not write the post"));
+check("open gate does not publish", open.reason.includes("does not publish"));
 const own = draftUnlocked({
   recordedAt: "2026-11-04T18:00:00Z",
   angle: "own",

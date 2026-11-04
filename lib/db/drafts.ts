@@ -17,7 +17,7 @@ type DraftRow = {
   status: string;
   editor_modified: boolean;
   origin: "demo" | "live";
-  generation_metadata: { holdReason?: string } | null;
+  generation_metadata: { holdReason?: string; source?: string } | null;
   claims: {
     claim_text: string;
     original_author_username: string | null;
@@ -49,6 +49,7 @@ export async function listDraftDesk() {
   const packages = new Map<string, StudioPackage>();
   for (const row of rows) {
     if (!row.claims) continue;
+    if (row.generation_metadata?.source === "editor-draft") continue;
     const status = claimStatusLabel(row.claims.status);
     if (!claims.has(row.claim_id)) {
       claims.set(row.claim_id, {
