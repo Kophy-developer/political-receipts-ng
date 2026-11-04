@@ -166,7 +166,17 @@ export function DraftingPanel({
             })}
           </div>
         ) : (
-          <p className="text-sm text-ink-soft">No draft is saved yet. Create draft asks for four styles. You can also write one yourself.</p>
+          <div className="text-sm leading-relaxed text-ink-soft">
+            <p>No draft is saved yet. Create draft asks for four styles in one request. You can also write one yourself.</p>
+            <ul className="mt-3 space-y-2">
+              {draftStyles.map((style) => (
+                <li key={style.id}>
+                  <span className="font-mono text-[10px] tracking-[0.12em] text-ink uppercase">{style.label}. </span>
+                  {style.brief}
+                </li>
+              ))}
+            </ul>
+          </div>
         )}
         {gate.open ? (
           <form
