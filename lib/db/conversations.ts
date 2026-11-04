@@ -59,6 +59,7 @@ export function toConversation(row: ConversationRow): DeskConversation {
     })),
     deskNote: row.desk_note,
     origin: row.origin,
+    postCount: numberOrNull(row.engagement?.postCount),
   };
 }
 

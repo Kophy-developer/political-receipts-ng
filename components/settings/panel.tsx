@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import type { SystemHealth } from "@/lib/desk/types";
+import type { SystemHealth, UsageView } from "@/lib/desk/types";
 import { lagosStamp } from "@/lib/format";
 import { editor, xCallbackPath } from "@/lib/system";
 import { xProductionOrigin } from "@/lib/x/public";
@@ -15,13 +15,14 @@ const sections = [
   { href: "#system", label: "System" },
   { href: "#x", label: "X Integration" },
   { href: "#ai", label: "AI Provider" },
+  { href: "#usage", label: "Usage" },
   { href: "#sources", label: "Sources" },
   { href: "#rules", label: "Editorial Rules" },
   { href: "#publishing", label: "Publishing" },
   { href: "#account", label: "Account" },
 ];
 
-export function SettingsPanel({ flags, health }: { flags: XFlags; health: SystemHealth }) {
+export function SettingsPanel({ flags, health, usage }: { flags: XFlags; health: SystemHealth; usage: UsageView }) {
   const [origin, setOrigin] = useState(xProductionOrigin);
 
   return (
@@ -58,27 +59,49 @@ export function SettingsPanel({ flags, health }: { flags: XFlags; health: System
                 <Health label="Monitoring" value={health.monitoring} />
               </dl>
               <p className="mt-4 max-w-2xl text-sm leading-relaxed text-ink-soft">
-                No secret is shown here. A stored X connection means ciphertext is in the database, not that this page can read the token. Gemini is not integrated. Automated monitoring has not started.
+                No secret is shown here. A stored X connection means ciphertext is in the database, not that this page can read the token. Gemini extracts claims only when a scan asks it to. Nothing polls X.
               </p>
+              {health.missingTables.length > 0 ? (
+                <p className="mt-3 max-w-2xl text-sm">Still to install: {health.missingTables.join(", ")}.</p>
+              ) : null}
             </Section>
             <Section id="x" kicker="X Integration" title="The account that can post">
               <XDesk flags={flags} />
             </Section>
             <Section id="ai" kicker="AI Provider" title="Gemini">
               <p className="text-sm leading-relaxed text-ink-soft">
-                Status: <span className="text-ink">Not integrated</span>
+                Status: <span className="text-ink">{health.ai}</span>
               </p>
               <p className="mt-3 max-w-2xl text-sm leading-relaxed">
-                When a model is added, it will draft on the server from the evidence pack. It will not approve, and it will not post. The key belongs in GEMINI_API_KEY on the server.
+                Gemini reads posts a scan already retrieved and returns candidate claims as JSON. The desk drops a claim if a number, quotation, or source is not in the post. The model does not verify, rank candidates, or post. Drafting public copy is still off. The key stays in GEMINI_API_KEY.
               </p>
               <div className="mt-4 grid max-w-lg gap-3">
                 <Field label="Provider" value="Gemini" />
-                <Field label="Model placeholder" value="Not configured" />
+                <Field label="Model" value={health.ai === "Claim extraction" ? "gemini-2.5-flash unless GEMINI_MODEL is set" : "Not configured"} />
                 <label className="block text-sm">
                   <span className="font-mono text-[10px] tracking-[0.12em] text-ink-soft uppercase">API key</span>
                   <Input disabled className="mt-1 rounded-none" placeholder="Server environment only" />
                 </label>
               </div>
+            </Section>
+            <Section id="usage" kicker="Usage" title="What today has cost">
+              <p className="max-w-2xl text-sm leading-relaxed">
+                Counts are for the Lagos day ({usage.dayLabel}). A scan stops when a daily ceiling is hit. It does not retry a failed paid call.
+              </p>
+              {usage.installed ? (
+                <dl className="mt-4 grid gap-3 sm:grid-cols-2">
+                  <Health label="X requests" value={`${usage.xRequests} / ${usage.xRequestLimit}`} />
+                  <Health label="Posts retrieved" value={`${usage.posts} / ${usage.postLimit}`} />
+                  <Health label="Gemini requests" value={`${usage.geminiRequests} / ${usage.geminiLimit}`} />
+                  <Health label="Gemini tokens" value={`${usage.inputTokens ?? 0} in · ${usage.outputTokens ?? 0} out`} />
+                  <Health label="Last scan" value={usage.lastDuration ?? "No scan yet"} />
+                  <Health label="Search groups" value={String(usage.groups)} />
+                  <Health label="Per scan" value={`${usage.perScanRequests} request · ${usage.perScanPosts} posts · ${usage.lookbackHours}h`} />
+                  <Health label="Minimum engagement" value={String(usage.minEngagement)} />
+                </dl>
+              ) : (
+                <p className="mt-4 text-sm text-ink-soft">Usage tracking is not installed yet. Apply the intelligence migration. No scan will call X until it is.</p>
+              )}
             </Section>
             <Section id="sources" kicker="Sources" title="The citation policy">
               <p className="max-w-2xl text-sm leading-relaxed">

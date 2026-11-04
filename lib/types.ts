@@ -6,7 +6,8 @@ export type ClaimStatus =
   | "Verified"
   | "Contradicted"
   | "Needs Context"
-  | "Unverified";
+  | "Unverified"
+  | "Dismissed";
 
 export type Classification =
   | "VERIFIED"

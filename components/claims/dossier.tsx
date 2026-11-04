@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { DeskClaim, DeskMode } from "@/lib/desk/types";
 import { PageFrame } from "@/components/shell/page-frame";
 import { ClassificationWord, DemoMark, OriginNote, StatusMark, tierRail } from "@/components/marks";
+import { FindEvidence } from "@/components/intelligence/find-evidence";
 
 export function Dossier({ claim, mode }: { claim: DeskClaim; mode: DeskMode }) {
   const initials = claim.handle.replace("@", "").slice(0, 2).toUpperCase();
@@ -22,7 +23,7 @@ export function Dossier({ claim, mode }: { claim: DeskClaim; mode: DeskMode }) {
             <p className="font-mono text-[11px] tracking-[0.18em] text-stamp uppercase">{claim.topic}</p>
             <StatusMark value={claim.status} />
           </div>
-          <p className="mt-4 font-mono text-[11px] tracking-[0.16em] text-ink-soft uppercase">Claim</p>
+          <p className="mt-4 font-mono text-[11px] tracking-[0.16em] text-ink-soft uppercase">The claim</p>
           <h1 className="mt-2 border-l-2 border-stamp pl-4 font-serif text-[1.85rem] leading-[1.2] tracking-[-0.025em] sm:text-[2.35rem]">
             {claim.claim}
           </h1>
@@ -45,7 +46,33 @@ export function Dossier({ claim, mode }: { claim: DeskClaim; mode: DeskMode }) {
               <dd className="mt-1">{claim.confidence ?? "Not scored"}</dd>
             </div>
           </dl>
+          <dl className="mt-3 grid gap-3 text-sm sm:grid-cols-3">
+            <div>
+              <dt className="font-mono text-[10px] tracking-[0.12em] text-ink-soft uppercase">Importance</dt>
+              <dd className="mt-1">{claim.importance ?? "Not ranked"}</dd>
+            </div>
+            <div>
+              <dt className="font-mono text-[10px] tracking-[0.12em] text-ink-soft uppercase">AI confidence</dt>
+              <dd className="mt-1">{claim.aiConfidence ?? "Not stated"}</dd>
+            </div>
+            <div>
+              <dt className="font-mono text-[10px] tracking-[0.12em] text-ink-soft uppercase">Editorial format</dt>
+              <dd className="mt-1">{claim.format.current}</dd>
+            </div>
+          </dl>
         </header>
+        <section className="grid gap-4 lg:grid-cols-2">
+          <Brief label="Who said it" body={`${claim.speaker} (${claim.handle}). ${claim.role}.`} />
+          <Brief label="Where it came from" body={claim.postUrl ? claim.postUrl : "No public post URL is filed."} />
+          <Brief label="Why it matters" body={claim.importanceReason || "This claim has not been ranked. A rank, when present, uses reach and checkability, not who it helps."} />
+          <Brief label="What we need to verify" body={claim.evidenceNeeded || claim.verifiability || "No verification note is filed yet."} />
+        </section>
+        {claim.entities.length > 0 ? (
+          <p className="text-sm">
+            <span className="font-mono text-[10px] tracking-[0.12em] text-ink-soft uppercase">Entities </span>
+            {claim.entities.join(" · ")}
+          </p>
+        ) : null}
         <OriginNote mode={mode} />
         <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.2fr)]">
           <section className="border border-rule bg-paper">
@@ -107,6 +134,7 @@ export function Dossier({ claim, mode }: { claim: DeskClaim; mode: DeskMode }) {
                 <p className="mt-2 text-sm leading-relaxed text-ink-soft">
                   The claim is on the queue. The desk does not invent a source to fill the gap, and it does not draft a verdict from the post alone.
                 </p>
+                <FindEvidence />
               </div>
             ) : (
               <div className="mt-3 space-y-3">
@@ -133,8 +161,27 @@ export function Dossier({ claim, mode }: { claim: DeskClaim; mode: DeskMode }) {
                 ))}
               </div>
             )}
+            {claim.evidence.length > 0 ? <FindEvidence /> : null}
           </section>
         </div>
+        <section>
+          <h2 className="font-mono text-[11px] tracking-[0.16em] uppercase">Related posts</h2>
+          {claim.relatedPosts.length === 0 ? (
+            <p className="mt-2 text-sm text-ink-soft">No related post is filed on this conversation yet.</p>
+          ) : (
+            <ul className="mt-3 space-y-2">
+              {claim.relatedPosts.map((post) => (
+                <li key={post.id} className="border border-rule bg-paper px-4 py-3">
+                  <p className="font-mono text-[11px] text-ink-soft">@{post.username ?? "account"} · {post.postedAt}</p>
+                  <p className="mt-2 text-sm leading-relaxed">{post.text}</p>
+                  <a href={post.url} target="_blank" rel="noreferrer" className="mt-2 inline-block text-sm underline decoration-rule underline-offset-4">
+                    Open original post
+                  </a>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
         <section className="border border-ink bg-paper">
           <header className="border-b border-rule px-5 py-4 sm:px-6">
             <h2 className="font-mono text-[11px] tracking-[0.16em] uppercase">Fact check</h2>
@@ -155,10 +202,15 @@ export function Dossier({ claim, mode }: { claim: DeskClaim; mode: DeskMode }) {
             <p className="mt-4 max-w-3xl text-sm leading-relaxed text-ink-soft">
               {claim.notes || "The status is the editor’s classification. There is no numerical truth score."}
             </p>
-            <p className="mt-4 max-w-3xl text-sm leading-relaxed">
-              <span className="font-mono text-[11px] tracking-[0.12em] text-ink-soft uppercase">Suggested format </span>
-              {claim.hashtag ?? "None"}
-            </p>
+            <div className="mt-4 max-w-3xl space-y-2 text-sm leading-relaxed">
+              <p>
+                <span className="font-mono text-[11px] tracking-[0.12em] text-ink-soft uppercase">Format now </span>
+                {claim.format.current}
+              </p>
+              <p>#CheckAm is a fact-check. #ShowYourWorking is for a calculation the evidence can show. Neither is chosen by the model.</p>
+              <p>{claim.format.notTrueReason}</p>
+              {claim.hashtag ? <p>Editor’s stored tag: {claim.hashtag}</p> : null}
+            </div>
             <div className="mt-5">
               {claim.draftReady ? (
                 <Link
@@ -175,6 +227,15 @@ export function Dossier({ claim, mode }: { claim: DeskClaim; mode: DeskMode }) {
         </section>
       </div>
     </PageFrame>
+  );
+}
+
+function Brief({ label, body }: { label: string; body: string }) {
+  return (
+    <div className="border border-rule bg-paper px-4 py-4">
+      <h2 className="font-mono text-[11px] tracking-[0.16em] uppercase">{label}</h2>
+      <p className="mt-2 break-words text-sm leading-relaxed">{body}</p>
+    </div>
   );
 }
 

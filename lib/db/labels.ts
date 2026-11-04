@@ -8,6 +8,7 @@ const statusFromDb: Record<string, ClaimStatus> = {
   contradicted: "Contradicted",
   needs_context: "Needs Context",
   unverified: "Unverified",
+  dismissed: "Dismissed",
 };
 
 const statusToDb: Record<ClaimStatus, string> = {
@@ -17,6 +18,7 @@ const statusToDb: Record<ClaimStatus, string> = {
   Contradicted: "contradicted",
   "Needs Context": "needs_context",
   Unverified: "unverified",
+  Dismissed: "dismissed",
 };
 
 const confidenceFromDb: Record<string, ConfidenceLabel> = {

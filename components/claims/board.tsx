@@ -16,6 +16,7 @@ const filters: Array<ClaimStatus | "All"> = [
   "Contradicted",
   "Needs Context",
   "Unverified",
+  "Dismissed",
 ];
 
 export function ClaimsBoard({ claims, mode }: { claims: DeskClaimSummary[]; mode: DeskMode }) {

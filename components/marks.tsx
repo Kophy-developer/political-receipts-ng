@@ -17,6 +17,7 @@ const statusTone: Record<ClaimStatus, string> = {
   Contradicted: "bg-stamp-soft text-stamp",
   "Needs Context": "bg-amber-soft text-amber",
   Unverified: "bg-slateink-soft text-slateink",
+  Dismissed: "bg-slateink-soft text-slateink",
 };
 
 const classTone: Record<Classification, string> = {

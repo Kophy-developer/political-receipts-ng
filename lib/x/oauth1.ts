@@ -37,6 +37,17 @@ function authorizationHeader(method: string, endpoint: string) {
   return `OAuth ${header}`;
 }
 
+export async function xUserGet(path: string, params: Record<string, string>) {
+  const target = new URL(path);
+  const query = Object.keys(params)
+    .filter((key) => params[key] !== "")
+    .sort()
+    .map((key) => `${encode(key)}=${encode(params[key])}`)
+    .join("&");
+  const url = `${target.origin}${target.pathname}${query ? `?${query}` : ""}`;
+  return xUserRequest("GET", url);
+}
+
 export async function xUserRequest(method: "GET" | "POST", url: string, body?: string) {
   const authorization = authorizationHeader(method, url);
   if (!authorization) {

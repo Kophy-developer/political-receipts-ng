@@ -3,22 +3,35 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import type { DeskConversation, DeskMode } from "@/lib/desk/types";
+import type { DeskConversation, DeskMode, ResearchCard } from "@/lib/desk/types";
 import { formatNumber, growthLabel } from "@/lib/format";
 import type { Velocity } from "@/lib/types";
 import { PageFrame } from "@/components/shell/page-frame";
 import { DemoMark, EmptyDesk, OriginNote, SectionHeading, StatusMark, VelocityMark } from "@/components/marks";
+import { ScanControl } from "@/components/intelligence/scan-control";
 import { cn } from "cn";
 
 const filters: Array<Velocity | "All"> = ["All", "Breaking", "Rapid", "Growing", "Normal"];
 
-export function IntelligenceDesk({ conversations, mode }: { conversations: DeskConversation[]; mode: DeskMode }) {
+export function IntelligenceDesk({
+  conversations,
+  mode,
+  queue,
+  queueInstalled,
+}: {
+  conversations: DeskConversation[];
+  mode: DeskMode;
+  queue: ResearchCard[];
+  queueInstalled: boolean;
+}) {
   const params = useSearchParams();
   const router = useRouter();
   const requested = params.get("topic");
   const activeId = conversations.some((item) => item.id === requested) ? requested! : conversations[0]?.id ?? "";
   const [filter, setFilter] = useState<Velocity | "All">("All");
   const [query, setQuery] = useState("");
+  const [queueError, setQueueError] = useState<string | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
 
   const visible = useMemo(() => {
     return conversations.filter((item) => {
@@ -34,15 +47,99 @@ export function IntelligenceDesk({ conversations, mode }: { conversations: DeskC
     router.replace(`/intelligence?topic=${id}`, { scroll: false });
   }
 
+  async function act(id: string, action: "dismiss" | "investigate") {
+    setBusyId(id);
+    setQueueError(null);
+    try {
+      const response = await fetch("/api/intel/claim", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id, action }),
+      });
+      const body = (await response.json()) as { ok?: boolean; message?: string };
+      if (!response.ok || !body.ok) setQueueError(body.message || "The desk could not update that claim.");
+      if (action === "investigate") router.push(`/claims/${id}`);
+      else router.refresh();
+    } catch {
+      setQueueError("The desk could not update that claim.");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   return (
     <PageFrame>
       <div className="desk-in flex flex-col gap-6">
         <SectionHeading
           kicker="Live intelligence"
           title="What is moving"
-          dek="Conversations filed in the database. Automated monitoring has not started, so an empty board is the honest state."
+          dek="A scan runs only when you start it. One search, then it stops. An empty board means nothing has been filed."
         />
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <p className="max-w-xl text-sm leading-relaxed text-ink-soft">
+            The button prices the next search before anything is sent. It does not post, reply, or leave a watcher running.
+          </p>
+          <ScanControl />
+        </div>
         <OriginNote mode={mode} />
+        <section className="flex flex-col gap-3">
+          <div>
+            <p className="font-mono text-[11px] tracking-[0.16em] text-stamp uppercase">Claims needing research</p>
+            <p className="mt-1 max-w-2xl text-sm text-ink-soft">Checkable sentences from a scan. Dismiss keeps the post. Investigate opens the dossier. Nothing here is a verdict.</p>
+          </div>
+          {queueError ? <p className="text-sm text-stamp">{queueError}</p> : null}
+          {!queueInstalled ? (
+            <div className="border border-dashed border-rule bg-paper px-5 py-6">
+              <p className="font-serif text-xl">The research queue is not installed yet.</p>
+              <p className="mt-2 text-sm text-ink-soft">Apply the intelligence migration before a scan. The button will refuse to call X until those tables exist.</p>
+            </div>
+          ) : queue.length === 0 ? (
+            <div className="border border-dashed border-rule bg-paper px-5 py-6">
+              <p className="font-serif text-xl">No claims are waiting.</p>
+              <p className="mt-2 text-sm text-ink-soft">A scan files a card only when a post contains a sentence a record could check.</p>
+            </div>
+          ) : (
+            <div className="grid gap-3">
+              {queue.map((card) => (
+                <article key={card.id} className="border border-rule bg-paper p-4">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className={cn("px-2 py-0.5 font-mono text-[10px] tracking-[0.14em] uppercase", card.importance === "High" ? "bg-stamp-soft text-stamp" : card.importance === "Medium" ? "bg-amber-soft text-amber" : "bg-slateink-soft text-slateink")}>
+                      {card.importance}
+                    </span>
+                    <span className="font-mono text-[10px] tracking-[0.14em] text-ink-soft uppercase">{card.topic}</span>
+                    <StatusMark value={card.status} />
+                  </div>
+                  <h2 className="mt-3 font-serif text-xl leading-snug">{card.claim}</h2>
+                  <p className="mt-2 text-sm text-ink-soft">
+                    {card.speaker} <span className="font-mono text-xs">{card.handle}</span>
+                  </p>
+                  <dl className="mt-3 grid grid-cols-2 gap-2 font-mono text-[11px] text-ink-soft sm:grid-cols-4">
+                    <div>Posts {card.conversationSize}</div>
+                    <div>Engagement {formatNumber(card.engagement)}</div>
+                    <div>AI confidence {card.aiConfidence ?? "Not stated"}</div>
+                    <div>{card.entities.length ? card.entities.slice(0, 3).join(", ") : "No entity filed"}</div>
+                  </dl>
+                  <p className="mt-3 text-sm leading-relaxed">{card.importanceReason}</p>
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    <button type="button" disabled={busyId === card.id} onClick={() => act(card.id, "investigate")} className="inline-flex h-9 items-center bg-ink px-3 text-sm text-paper disabled:opacity-50">
+                      Investigate
+                    </button>
+                    <button type="button" disabled={busyId === card.id} onClick={() => act(card.id, "dismiss")} className="inline-flex h-9 items-center border border-rule px-3 text-sm disabled:opacity-50">
+                      Dismiss
+                    </button>
+                    {card.postUrl ? (
+                      <a href={card.postUrl} target="_blank" rel="noreferrer" className="inline-flex h-9 items-center px-3 text-sm underline decoration-rule underline-offset-4">
+                        Open original post
+                      </a>
+                    ) : (
+                      <span className="inline-flex h-9 items-center px-3 text-sm text-ink-soft">No public post URL</span>
+                    )}
+                  </div>
+                </article>
+              ))}
+            </div>
+          )}
+        </section>
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex flex-wrap gap-1.5">
             {filters.map((item) => (
@@ -70,7 +167,7 @@ export function IntelligenceDesk({ conversations, mode }: { conversations: DeskC
         <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(320px,420px)]">
           <div className="border border-rule bg-paper">
             {conversations.length === 0 ? (
-              <EmptyDesk title="No conversations filed" body="Nothing is being watched automatically. A conversation appears here when it is written to the database." />
+              <EmptyDesk title="No conversations filed" body="Nothing is watched automatically. A conversation appears here after a scan files one." />
             ) : visible.length === 0 ? (
               <div className="px-6 py-16 text-center">
                 <p className="font-serif text-2xl">Nothing on this slice.</p>
@@ -128,6 +225,7 @@ export function IntelligenceDesk({ conversations, mode }: { conversations: DeskC
                 <Metric label="Volume" value={active.volume === null ? "Not recorded" : formatNumber(active.volume)} />
                 <Metric label="Growth" value={active.growthPct === null ? "Not recorded" : growthLabel(active.growthPct)} />
                 <Metric label="First detected" value={active.firstDetected} />
+                <Metric label="Posts" value={active.postCount === null ? "Not recorded" : formatNumber(active.postCount)} />
                 <Metric label="Record" value={active.origin === "demo" ? "Demonstration" : "Live"} />
               </dl>
               {active.narrative.map((paragraph) => (

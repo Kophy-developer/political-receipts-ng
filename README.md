@@ -4,12 +4,12 @@ Politics. Claims. Receipts.
 
 Political Receipts NG is a Nigerian political intelligence and fact-checking desk. It watches political conversation, opens the sentences that can be checked, lays the evidence beside the claim, and prepares posts a human editor can approve.
 
-This version stores the desk in Supabase. Gemini is not integrated. X is called only when an editor tests the connection or confirms a finished draft. Nothing publishes on its own, and automated monitoring has not started.
+This version stores the desk in Supabase. An editor can run one bounded X search from Live Intelligence. Gemini, when `GEMINI_API_KEY` is set, extracts claims from those posts and does not post. Nothing publishes on its own, and nothing polls X.
 
 ## What this version does
 
 - Briefs the desk: volume, growth, and a queue of open claims.
-- Shows a live-intelligence board for Nigerian political topics, with a detail pane for each conversation.
+- Shows a live-intelligence board and a research queue. **Run intelligence scan** prices one recent-search page, then stops. It does not post or leave a watcher running.
 - Opens a dossier for every detected claim: the original post placeholder, evidence cards, and a fact-check that is not allowed to sound more certain than the pack.
 - Drafts three versions of a researched claim. A is straight. B is conversational. C is a hook that still has to stay inside the evidence.
 - Requires a pre-publication checklist before approval is offered.
@@ -28,12 +28,15 @@ components/           Desk shell and the editorial screens
 lib/                  Sample investigations, drafts, archive, source policy
 ```
 
-The interface is a Next.js App Router application. Pages that can be static are static. Filters and draft edits stay in the browser. The only calls to X are an explicit connection check and a confirmed publish, both from server routes. The sample investigations live in `lib/`.
+The interface is a Next.js App Router application. Pages that can be static are static. Filters and draft edits stay in the browser. X is called from the server for a connection check, a confirmed publish, or one manual search. The sample investigations live in `lib/`.
 
 | Route | Purpose |
 | --- | --- |
 | `/` | Morning briefing and system status |
-| `/intelligence` | Conversation board and detail |
+| `/intelligence` | Manual scan, research queue, and conversation board |
+| `/api/intel/estimate` | Prices the next scan. It does not call X. |
+| `/api/intel/scan` | One editor-triggered search, then claim extraction. It does not post. |
+| `/api/intel/claim` | Investigate or dismiss a queued claim. |
 | `/claims` | Detected claims |
 | `/claims/[id]` | Dossier: claim, post, evidence, fact-check |
 | `/drafts` | Three versions, checklist, approval gate |
@@ -79,7 +82,7 @@ Do not commit `.env.local`. `.env.example` is the only env file that belongs in 
 
 ## Environment variables
 
-Gemini and Supabase are still unused. The X variables are read only in server modules.
+X, Supabase, and Gemini are read only in server modules. Gemini is used for claim extraction, not for publishing.
 
 | Variable | Where it is used |
 | --- | --- |
@@ -89,7 +92,7 @@ Gemini and Supabase are still unused. The X variables are read only in server mo
 | `X_API_SECRET` | Server-side OAuth 1.0a consumer secret |
 | `X_ACCESS_TOKEN` | Server-side user token for the desk account |
 | `X_ACCESS_TOKEN_SECRET` | Server-side token secret |
-| `GEMINI_API_KEY` | Server-side Gemini key for draft preparation |
+| `GEMINI_API_KEY` | Server-side Gemini key for claim extraction. Optional `GEMINI_MODEL` overrides `gemini-2.5-flash`. |
 | `NEXT_PUBLIC_SUPABASE_URL` | Public Supabase project URL |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Public Supabase anon key, safe to expose only because row-level security must restrict it |
 | `SUPABASE_SERVICE_ROLE_KEY` | Server only. Never prefix it with `NEXT_PUBLIC_` and never import it into a client component. |
@@ -121,16 +124,20 @@ Two server-side paths exist. Neither one runs on a timer.
 
 The publish id and URL stay in the browser session that sent the post. Refreshing clears them. That is intentional until an audit table exists.
 
-Nothing in the app polls X, searches X, or opens a stream. Gemini is still not connected.
+Nothing in the app polls X, opens a stream, or replies to a post. Search runs only from **Run intelligence scan**, one request of at most 10 posts, with a daily ceiling. The publish route is unchanged: a person still confirms the exact text.
 
-## Future Gemini integration
+## Claim extraction
 
-Gemini, when added, prepares drafts from the evidence pack. It does not choose the classification above the evidence, and it does not approve.
+Gemini’s job in this phase is claim extraction, not verdicts and not drafts.
 
-1. Set `GEMINI_API_KEY` in the server environment.
-2. Call the model from a server route or server action. Do not expose the key with a `NEXT_PUBLIC_` prefix.
-3. Return three versions into the draft studio. The editor still edits, checks the list, and approves.
-4. If the model’s wording is stronger than the sources, the editor’s job is to cut it. The product rule does not move.
+1. Set `GEMINI_API_KEY` on the server. Do not prefix it with `NEXT_PUBLIC_`.
+2. A scan sends only posts that already matched a configured political term. Nigeria by itself is not enough.
+3. The model must return JSON. The server drops a claim when a number, quotation, or URL is not in the source post.
+4. Importance is High, Medium, or Low from reach, account count, and whether a record could check the sentence. It is not a candidate score.
+5. `#NotTrue` stays unavailable until collected evidence contradicts the claim at high confidence. Incomplete evidence stays Unverified or Needs Context.
+6. Find evidence explains that source retrieval is the next stage. It does not ask the model to invent a source.
+
+Search terms live in `search_groups`. Limits live in `lib/intel/limits.ts`. Usage for the Lagos day is under Settings → Usage.
 
 ## Database
 

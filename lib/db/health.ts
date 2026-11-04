@@ -3,6 +3,7 @@ import type { SystemHealth } from "@/lib/desk/types";
 import { schemaMissing } from "@/lib/db/client";
 import { encryptionReady } from "@/lib/db/crypto";
 import { latestConnection } from "@/lib/db/connections";
+import { geminiLabel } from "@/lib/ai/env";
 import { credentialFlags } from "@/lib/x/env";
 
 const tables = [
@@ -20,6 +21,11 @@ const tables = [
   "published_posts",
   "post_metrics",
   "system_events",
+  "search_groups",
+  "x_posts",
+  "scan_runs",
+  "api_usage",
+  "ai_analyses",
 ];
 
 export async function systemHealth(): Promise<SystemHealth> {
@@ -35,8 +41,8 @@ export async function systemHealth(): Promise<SystemHealth> {
     xOauth1: flags.oauth1,
     encryptionKey: encryptionReady(),
     xAccount: { status: "Not verified", username: null, displayName: null, lastVerified: null },
-    ai: "Not integrated",
-    monitoring: "Not started",
+    ai: geminiLabel(),
+    monitoring: "Manual only",
   };
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();

@@ -6,6 +6,24 @@ export type DeskMode = "unconfigured" | "unreachable" | "empty" | "demo" | "live
 
 export type ConfidenceLabel = "Low" | "Moderate" | "High";
 
+export type ImportanceLabel = "High" | "Medium" | "Low";
+
+export type FormatName = "Unverified" | "Needs Context" | "#CheckAm" | "#ShowYourWorking" | "#NotTrue";
+
+export type FormatDecision = {
+  current: FormatName;
+  notTrueAvailable: boolean;
+  notTrueReason: string;
+};
+
+export type RelatedPost = {
+  id: string;
+  username: string | null;
+  text: string;
+  url: string;
+  postedAt: string;
+};
+
 export type EvidenceStance = "supports" | "contradicts" | "contextualizes";
 
 export type DeskClaimSummary = {
@@ -20,6 +38,9 @@ export type DeskClaimSummary = {
   virality: string | null;
   evidenceCount: number;
   origin: RecordOrigin;
+  importance: ImportanceLabel | null;
+  entities: string[];
+  conversationSize: number | null;
 };
 
 export type DeskEvidence = {
@@ -46,6 +67,12 @@ export type DeskClaim = DeskClaimSummary & {
   engagement: { replies: string; reposts: string; likes: string; views: string } | null;
   evidence: DeskEvidence[];
   draftReady: boolean;
+  importanceReason: string | null;
+  verifiability: string | null;
+  evidenceNeeded: string | null;
+  aiConfidence: ConfidenceLabel | null;
+  relatedPosts: RelatedPost[];
+  format: FormatDecision;
 };
 
 export type DeskConversation = {
@@ -62,6 +89,7 @@ export type DeskConversation = {
   relatedClaims: Array<{ id: string; claim: string; status: ClaimStatus }>;
   deskNote: string | null;
   origin: RecordOrigin;
+  postCount: number | null;
 };
 
 export type StudioVersion = {
@@ -123,6 +151,42 @@ export type FiledSource = {
   origin: RecordOrigin;
 };
 
+export type UsageView = {
+  installed: boolean;
+  dayLabel: string;
+  xRequests: number;
+  xRequestLimit: number;
+  posts: number;
+  postLimit: number;
+  geminiRequests: number;
+  geminiLimit: number;
+  inputTokens: number | null;
+  outputTokens: number | null;
+  lastDuration: string | null;
+  groups: number;
+  perScanPosts: number;
+  perScanRequests: number;
+  lookbackHours: number;
+  minEngagement: number;
+};
+
+export type ResearchCard = {
+  id: string;
+  claim: string;
+  speaker: string;
+  handle: string;
+  postUrl: string | null;
+  topic: string;
+  entities: string[];
+  conversationSize: number;
+  engagement: number;
+  importance: ImportanceLabel;
+  importanceReason: string;
+  status: ClaimStatus;
+  aiConfidence: ConfidenceLabel | null;
+  origin: RecordOrigin;
+};
+
 export type DeskSnapshot = {
   mode: DeskMode;
   counts: {
@@ -152,6 +216,6 @@ export type SystemHealth = {
     displayName: string | null;
     lastVerified: string | null;
   };
-  ai: "Not integrated";
-  monitoring: "Not started";
+  ai: "Claim extraction" | "Not configured";
+  monitoring: "Manual only";
 };

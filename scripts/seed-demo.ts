@@ -26,6 +26,7 @@ const statusMap: Record<ClaimStatus, string> = {
   Contradicted: "contradicted",
   "Needs Context": "needs_context",
   Unverified: "unverified",
+  Dismissed: "dismissed",
 };
 
 function slug(value: string) {

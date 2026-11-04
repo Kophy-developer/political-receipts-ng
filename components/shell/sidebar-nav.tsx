@@ -8,7 +8,7 @@ import { cn } from "cn";
 import { ReceiptMark } from "@/components/shell/mark";
 import { DeskClock } from "@/components/shell/desk-clock";
 
-export function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
+export function SidebarNav({ onNavigate, gemini = "Not configured" }: { onNavigate?: () => void; gemini?: string }) {
   const pathname = usePathname();
 
   return (
@@ -72,7 +72,7 @@ export function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
           </li>
           <li className="flex items-center justify-between">
             <span>Gemini</span>
-            <span className="text-white/55">Not integrated</span>
+            <span className="text-white/55">{gemini}</span>
           </li>
         </ul>
         <DeskClock tone="ink" />

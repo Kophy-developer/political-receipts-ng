@@ -5,7 +5,7 @@ import { DeskClock } from "@/components/shell/desk-clock";
 import { PageFrame } from "@/components/shell/page-frame";
 import { DemoMark, EmptyDesk, OriginNote, StatusMark, VelocityMark } from "@/components/marks";
 
-export function Briefing({ snapshot }: { snapshot: DeskSnapshot }) {
+export function Briefing({ snapshot, gemini = "Not configured" }: { snapshot: DeskSnapshot; gemini?: string }) {
   const blocked = snapshot.mode === "unconfigured" || snapshot.mode === "unreachable";
   const kpis = [
     { label: "Claims filed", value: blocked ? "—" : formatNumber(snapshot.counts.claims), note: "Rows in the claims table" },
@@ -29,9 +29,9 @@ export function Briefing({ snapshot }: { snapshot: DeskSnapshot }) {
           <div className="flex flex-col items-start gap-3 lg:items-end">
             <DeskClock />
             <div className="flex flex-wrap gap-2">
-              <StatusChip label="Monitoring" value="Not started" />
+              <StatusChip label="Monitoring" value="Manual only" />
               <StatusChip label="X" value="Not verified" />
-              <StatusChip label="Gemini" value="Not integrated" />
+              <StatusChip label="Gemini" value={gemini} />
             </div>
           </div>
         </header>

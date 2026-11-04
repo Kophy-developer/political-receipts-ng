@@ -27,3 +27,7 @@ export function scrubDbMessage(message: string) {
 export function schemaMissing(message: string) {
   return /schema cache|does not exist|could not find the table|42P01|PGRST205/i.test(message);
 }
+
+export function columnMissing(message: string) {
+  return /PGRST204|could not find the '.+' column/i.test(message);
+}

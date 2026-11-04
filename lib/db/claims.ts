@@ -1,9 +1,12 @@
 import "server-only";
 import { lagosStamp } from "@/lib/format";
 import type { DeskClaim, DeskClaimSummary, DeskEvidence } from "@/lib/desk/types";
-import { schemaMissing, scrubDbMessage, serviceClient } from "@/lib/db/client";
+import type { FormatDecision, ImportanceLabel, RelatedPost } from "@/lib/desk/types";
+import { columnMissing, schemaMissing, scrubDbMessage, serviceClient } from "@/lib/db/client";
 import { recordEvent } from "@/lib/db/events";
 import { claimStatusLabel, classificationFor, confidenceLabel, sourceTier, stanceLabel } from "@/lib/db/labels";
+import { editorialFormat } from "@/lib/intel/formats";
+import { publicPostUrl } from "@/lib/intel/text";
 
 type EvidenceRow = {
   id: string;
@@ -47,6 +50,14 @@ type ClaimRow = {
   editor_notes: string | null;
   suggested_hashtag: string | null;
   origin: "demo" | "live";
+  conversation_id?: string | null;
+  original_post_id?: string | null;
+  importance?: string | null;
+  importance_reason?: string | null;
+  verifiability_reason?: string | null;
+  evidence_needed?: string | null;
+  ai_confidence?: string | null;
+  mentioned_entities?: string[] | null;
   topics: { name: string } | { name: string }[] | null;
   evidence: EvidenceRow[] | null;
   drafts: { id: string; status: string }[] | null;
@@ -54,12 +65,22 @@ type ClaimRow = {
 
 const claimSelect = `
   id, claim_text, original_author, original_author_username, original_author_role,
-  original_post_text, original_post_url, detected_at, engagement, status,
+  original_post_text, original_post_url, original_post_id, conversation_id, detected_at, engagement, status,
   verification_confidence, editor_notes, suggested_hashtag, origin,
   topics ( name ),
   evidence ( id, excerpt, stance, editor_notes, sources ( organization, title, url, published_label, published_on, category, reliability ) ),
   drafts ( id, status )
 `;
+
+const richClaimSelect = `${claimSelect}, importance, importance_reason, verifiability_reason, evidence_needed, ai_confidence, mentioned_entities`;
+
+const importanceLabel: Record<string, ImportanceLabel> = { high: "High", medium: "Medium", low: "Low" };
+
+const emptyFormat: FormatDecision = {
+  current: "Unverified",
+  notTrueAvailable: false,
+  notTrueReason: "Not available. #NotTrue waits for collected evidence that contradicts the claim at high confidence.",
+};
 
 function textEngagement(value: Record<string, unknown> | null) {
   if (!value) return null;
@@ -119,6 +140,9 @@ function summary(row: ClaimRow): DeskClaimSummary {
     virality,
     evidenceCount: row.evidence?.length ?? 0,
     origin: row.origin,
+    importance: row.importance ? importanceLabel[row.importance] ?? null : null,
+    entities: (row.mentioned_entities ?? []).filter((entity) => typeof entity === "string"),
+    conversationSize: typeof row.engagement?.conversationPosts === "number" ? row.engagement.conversationPosts : null,
   };
 }
 
@@ -136,25 +160,81 @@ export function toClaim(row: ClaimRow): DeskClaim {
     engagement: textEngagement(row.engagement),
     evidence: evidenceOf(row.evidence),
     draftReady: drafts.some((draft) => draft.status === "ready" || draft.status === "edited"),
+    importanceReason: row.importance_reason ?? null,
+    verifiability: row.verifiability_reason ?? null,
+    evidenceNeeded: row.evidence_needed ?? null,
+    aiConfidence: confidenceLabel(row.ai_confidence ?? null),
+    relatedPosts: [],
+    format: editorialFormat({
+      status: base.status,
+      confidence: base.confidence,
+      hashtag: row.suggested_hashtag,
+      evidence: evidenceOf(row.evidence),
+    }),
   };
 }
 
-export async function listClaims() {
+function claimFailure(message: string) {
+  return { ok: false as const, reason: schemaMissing(message) ? ("schema" as const) : ("unreachable" as const), message: scrubDbMessage(message) };
+}
+
+async function selectClaims(filter: { id?: string }) {
   const db = serviceClient();
   if (!db) return { ok: false as const, reason: "unconfigured" as const };
-  const { data, error } = await db.from("claims").select(claimSelect).order("detected_at", { ascending: false });
-  if (error) return { ok: false as const, reason: schemaMissing(error.message) ? ("schema" as const) : ("unreachable" as const), message: scrubDbMessage(error.message) };
-  const claims = ((data ?? []) as unknown as ClaimRow[]).map(toClaim);
+  const primary = filter.id
+    ? await db.from("claims").select(richClaimSelect).eq("id", filter.id).maybeSingle()
+    : await db.from("claims").select(richClaimSelect).order("detected_at", { ascending: false });
+  if (primary.error && columnMissing(primary.error.message)) {
+    const fallback = filter.id
+      ? await db.from("claims").select(claimSelect).eq("id", filter.id).maybeSingle()
+      : await db.from("claims").select(claimSelect).order("detected_at", { ascending: false });
+    if (fallback.error) return claimFailure(fallback.error.message);
+    return { ok: true as const, data: fallback.data };
+  }
+  if (primary.error) return claimFailure(primary.error.message);
+  return { ok: true as const, data: primary.data };
+}
+
+async function relatedPosts(conversationId: string | null, postId: string | null): Promise<RelatedPost[]> {
+  const db = serviceClient();
+  if (!db) return [];
+  let query = db.from("x_posts").select("x_post_id, username, text, posted_at").limit(8);
+  if (conversationId) query = query.eq("conversation_id", conversationId);
+  else if (postId) query = query.eq("x_post_id", postId);
+  else return [];
+  const { data, error } = await query;
+  if (error || !data) return [];
+  return data.flatMap((row) => {
+    const url = publicPostUrl(row.x_post_id, row.username);
+    if (!url) return [];
+    return [
+      {
+        id: row.x_post_id as string,
+        username: row.username,
+        text: row.text as string,
+        url,
+        postedAt: lagosStamp(row.posted_at),
+      },
+    ];
+  });
+}
+
+export async function listClaims() {
+  const result = await selectClaims({});
+  if (!result.ok) return result;
+  const claims = ((result.data ?? []) as unknown as ClaimRow[]).map(toClaim);
   return { ok: true as const, claims };
 }
 
 export async function getClaim(id: string) {
-  const db = serviceClient();
-  if (!db) return { ok: false as const, reason: "unconfigured" as const };
-  const { data, error } = await db.from("claims").select(claimSelect).eq("id", id).maybeSingle();
-  if (error) return { ok: false as const, reason: schemaMissing(error.message) ? ("schema" as const) : ("unreachable" as const) };
-  if (!data) return { ok: true as const, claim: null };
-  return { ok: true as const, claim: toClaim(data as unknown as ClaimRow) };
+  const result = await selectClaims({ id });
+  if (!result.ok) return { ok: false as const, reason: result.reason };
+  if (!result.data) return { ok: true as const, claim: null };
+  const row = result.data as unknown as ClaimRow;
+  const claim = toClaim(row);
+  claim.relatedPosts = await relatedPosts(row.conversation_id ?? null, row.original_post_id ?? null);
+  if (claim.format.current === "Unverified" && claim.evidence.length === 0) claim.format = emptyFormat;
+  return { ok: true as const, claim };
 }
 
 export async function createClaim(input: {

@@ -1,3 +1,4 @@
+import { geminiLabel } from "@/lib/ai/env";
 import { MobileBar } from "@/components/shell/mobile-bar";
 import { Sidebar } from "@/components/shell/sidebar";
 
@@ -12,7 +13,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </a>
       <Sidebar />
       <div className="min-w-0 flex-1">
-        <MobileBar />
+        <MobileBar gemini={geminiLabel()} />
         <main id="desk">{children}</main>
       </div>
     </div>
