@@ -13,6 +13,8 @@ type EvidenceRow = {
   excerpt: string;
   stance: string;
   editor_notes: string | null;
+  review_status?: string | null;
+  reliability_notes?: string | null;
   sources:
     | {
         organization: string;
@@ -22,6 +24,7 @@ type EvidenceRow = {
         published_on: string | null;
         category: string;
         reliability: string;
+        tier_rank?: number | null;
       }
     | {
         organization: string;
@@ -31,6 +34,7 @@ type EvidenceRow = {
         published_on: string | null;
         category: string;
         reliability: string;
+        tier_rank?: number | null;
       }[]
     | null;
 };
@@ -58,6 +62,17 @@ type ClaimRow = {
   evidence_needed?: string | null;
   ai_confidence?: string | null;
   mentioned_entities?: string[] | null;
+  content_pillar?: string | null;
+  statement_kind?: string | null;
+  claim_types?: string[] | null;
+  research_questions?: string[] | null;
+  attribution_note?: string | null;
+  proposed_verdict?: string | null;
+  verdict_reasoning?: string | null;
+  verdict_caveats?: string | null;
+  verdict_unknown?: string | null;
+  verdict_confidence?: string | null;
+  working_notes?: string | null;
   topics: { name: string } | { name: string }[] | null;
   evidence: EvidenceRow[] | null;
   drafts: { id: string; status: string }[] | null;
@@ -72,7 +87,17 @@ const claimSelect = `
   drafts ( id, status )
 `;
 
-const richClaimSelect = `${claimSelect}, importance, importance_reason, verifiability_reason, evidence_needed, ai_confidence, mentioned_entities`;
+const richClaimSelect = `
+  id, claim_text, original_author, original_author_username, original_author_role,
+  original_post_text, original_post_url, original_post_id, conversation_id, detected_at, engagement, status,
+  verification_confidence, editor_notes, suggested_hashtag, origin,
+  importance, importance_reason, verifiability_reason, evidence_needed, ai_confidence, mentioned_entities,
+  content_pillar, statement_kind, claim_types, research_questions, attribution_note,
+  proposed_verdict, verdict_reasoning, verdict_caveats, verdict_unknown, verdict_confidence, working_notes,
+  topics ( name ),
+  evidence ( id, excerpt, stance, editor_notes, review_status, reliability_notes, sources ( organization, title, url, published_label, published_on, category, reliability, tier_rank ) ),
+  drafts ( id, status )
+`;
 
 const importanceLabel: Record<string, ImportanceLabel> = { high: "High", medium: "Medium", low: "Low" };
 
@@ -120,6 +145,9 @@ function evidenceOf(rows: EvidenceRow[] | null): DeskEvidence[] {
         reliability: source.reliability,
         stance: stanceLabel(row.stance),
         notes: row.editor_notes,
+        review: row.review_status === "accepted" || row.review_status === "rejected" ? row.review_status : "proposed",
+        tierRank: typeof source.tier_rank === "number" ? source.tier_rank : 4,
+        reliabilityNotes: row.reliability_notes ?? null,
       },
     ];
   });
@@ -170,7 +198,20 @@ export function toClaim(row: ClaimRow): DeskClaim {
       confidence: base.confidence,
       hashtag: row.suggested_hashtag,
       evidence: evidenceOf(row.evidence),
+      statementKind: row.statement_kind === "fact" || row.statement_kind === "analysis" || row.statement_kind === "opinion" ? row.statement_kind : null,
+      workingNotes: row.working_notes ?? null,
     }),
+    pillar: row.content_pillar === "politics" || row.content_pillar === "football" || row.content_pillar === "finance" ? row.content_pillar : null,
+    statementKind: row.statement_kind === "fact" || row.statement_kind === "analysis" || row.statement_kind === "opinion" ? row.statement_kind : null,
+    claimTypes: row.claim_types ?? [],
+    questions: row.research_questions ?? [],
+    attribution: row.attribution_note ?? null,
+    proposedVerdict: row.proposed_verdict ?? null,
+    verdictReasoning: row.verdict_reasoning ?? null,
+    verdictCaveats: row.verdict_caveats ?? null,
+    verdictUnknown: row.verdict_unknown ?? null,
+    verdictConfidence: confidenceLabel(row.verdict_confidence ?? null),
+    workingNotes: row.working_notes ?? null,
   };
 }
 

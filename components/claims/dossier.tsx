@@ -2,9 +2,10 @@ import Link from "next/link";
 import type { DeskClaim, DeskMode } from "@/lib/desk/types";
 import { PageFrame } from "@/components/shell/page-frame";
 import { ClassificationWord, DemoMark, OriginNote, StatusMark, tierRail } from "@/components/marks";
-import { FindEvidence } from "@/components/intelligence/find-evidence";
+import { ResearchPanel } from "@/components/claims/research-panel";
+import type { ResearchPlan } from "@/lib/research/types";
 
-export function Dossier({ claim, mode }: { claim: DeskClaim; mode: DeskMode }) {
+export function Dossier({ claim, mode, plan }: { claim: DeskClaim; mode: DeskMode; plan: ResearchPlan | null }) {
   const initials = claim.handle.replace("@", "").slice(0, 2).toUpperCase();
 
   return (
@@ -58,6 +59,20 @@ export function Dossier({ claim, mode }: { claim: DeskClaim; mode: DeskMode }) {
             <div>
               <dt className="font-mono text-[10px] tracking-[0.12em] text-ink-soft uppercase">Editorial format</dt>
               <dd className="mt-1">{claim.format.current}</dd>
+            </div>
+          </dl>
+          <dl className="mt-3 grid gap-3 text-sm sm:grid-cols-3">
+            <div>
+              <dt className="font-mono text-[10px] tracking-[0.12em] text-ink-soft uppercase">Pillar</dt>
+              <dd className="mt-1">{claim.pillar === "football" ? "Manchester United" : claim.pillar === "finance" ? "Finance" : claim.pillar === "politics" ? "Politics" : "Not filed"}</dd>
+            </div>
+            <div>
+              <dt className="font-mono text-[10px] tracking-[0.12em] text-ink-soft uppercase">Statement</dt>
+              <dd className="mt-1">{claim.statementKind ?? "Not classified"}</dd>
+            </div>
+            <div>
+              <dt className="font-mono text-[10px] tracking-[0.12em] text-ink-soft uppercase">Proposed verdict</dt>
+              <dd className="mt-1">{claim.proposedVerdict ?? "Not proposed"}</dd>
             </div>
           </dl>
         </header>
@@ -134,7 +149,6 @@ export function Dossier({ claim, mode }: { claim: DeskClaim; mode: DeskMode }) {
                 <p className="mt-2 text-sm leading-relaxed text-ink-soft">
                   The claim is on the queue. The desk does not invent a source to fill the gap, and it does not draft a verdict from the post alone.
                 </p>
-                <FindEvidence />
               </div>
             ) : (
               <div className="mt-3 space-y-3">
@@ -153,7 +167,14 @@ export function Dossier({ claim, mode }: { claim: DeskClaim; mode: DeskMode }) {
                           {item.category} · {item.published}
                         </p>
                         <p className="mt-3 text-sm leading-relaxed">{item.excerpt}</p>
-                        <p className="mt-2 font-mono text-[10px] tracking-[0.12em] uppercase text-ink-soft">{item.stance}</p>
+                        <p className="mt-2 font-mono text-[10px] tracking-[0.12em] uppercase text-ink-soft">
+                          {item.stance} · {item.review} · tier {item.tierRank}
+                        </p>
+                        {item.url ? (
+                          <a href={item.url} target="_blank" rel="noreferrer" className="mt-3 inline-block text-sm underline decoration-rule underline-offset-4">
+                            Open source
+                          </a>
+                        ) : null}
                         <p className="mt-3 break-all font-mono text-[11px] text-ink-soft">{item.url ?? "No public URL filed"}</p>
                       </div>
                     </div>
@@ -161,9 +182,9 @@ export function Dossier({ claim, mode }: { claim: DeskClaim; mode: DeskMode }) {
                 ))}
               </div>
             )}
-            {claim.evidence.length > 0 ? <FindEvidence /> : null}
           </section>
         </div>
+        <ResearchPanel claim={claim} plan={plan} />
         <section>
           <h2 className="font-mono text-[11px] tracking-[0.16em] uppercase">Related posts</h2>
           {claim.relatedPosts.length === 0 ? (
@@ -186,10 +207,11 @@ export function Dossier({ claim, mode }: { claim: DeskClaim; mode: DeskMode }) {
           <header className="border-b border-rule px-5 py-4 sm:px-6">
             <h2 className="font-mono text-[11px] tracking-[0.16em] uppercase">Fact check</h2>
           </header>
-          <div className="grid gap-6 px-5 py-5 sm:px-6 lg:grid-cols-3">
+          <div className="grid gap-6 px-5 py-5 sm:px-6 lg:grid-cols-2 xl:grid-cols-4">
             <FactColumn title="Supports" items={claim.evidence.filter((item) => item.stance === "supports").map((item) => item.excerpt)} empty="Nothing filed as support." />
             <FactColumn title="Contradicts" items={claim.evidence.filter((item) => item.stance === "contradicts").map((item) => item.excerpt)} empty="Nothing filed as a contradiction." />
             <FactColumn title="Context" items={claim.evidence.filter((item) => item.stance === "contextualizes").map((item) => item.excerpt)} empty="No contextual note is filed." />
+            <FactColumn title="Attribution" items={claim.evidence.filter((item) => item.stance === "attribution_only").map((item) => item.excerpt)} empty="Nothing filed on whether the words were published." />
           </div>
           <div className="border-t border-rule px-5 py-6 sm:px-6">
             {claim.classification ? (

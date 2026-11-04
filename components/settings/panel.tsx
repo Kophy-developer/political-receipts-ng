@@ -176,8 +176,20 @@ export function SettingsPanel({ flags, health, usage }: { flags: XFlags; health:
                   <Health label="Minimum engagement" value={String(usage.minEngagement)} />
                   <Health label={`X spend today (${usage.spendLabel})`} value={usage.estimatedXSpendToday} />
                   <Health label={`X spend all time (${usage.spendLabel})`} value={usage.estimatedXSpendAll} />
+                  <Health label="Research searches" value={`${usage.searches} / ${usage.searchLimit}`} />
+                  <Health label="Documents retrieved" value={`${usage.retrievals} / ${usage.retrievalLimit}`} />
+                  <Health label="Search provider" value={usage.searchProvider} />
                 </dl>
                 <p className="mt-4 max-w-2xl text-sm leading-relaxed text-ink-soft">{usage.spendNote}</p>
+                {usage.searchCredential ? (
+                  <p className="mt-3 max-w-2xl text-sm leading-relaxed">
+                    Research search is off until {usage.searchCredential} is set on the server. No search is sent without it, and the key is not shown here.
+                  </p>
+                ) : (
+                  <p className="mt-3 max-w-2xl text-sm leading-relaxed text-ink-soft">
+                    {usage.searchProvider} is configured. A search still waits for Begin research on a claim.
+                  </p>
+                )}
                 <div className="mt-6 max-w-2xl">
                   <p className="text-sm leading-relaxed">
                     Reprocess stored posts with the current relevance and clustering rules, then run claim extraction on what is already saved. This does not call X.
@@ -224,7 +236,8 @@ export function SettingsPanel({ flags, health, usage }: { flags: XFlags; health:
               <ul className="max-w-2xl space-y-3 text-sm leading-relaxed">
                 <li>#CheckAm is the default for a fact-check.</li>
                 <li>#ShowYourWorking is for a post whose value is the method and the denominator.</li>
-                <li>#NotTrue is used only when strong evidence clearly contradicts the claim.</li>
+                <li>#NotTrue is used only when accepted evidence contradicts a factual claim at high confidence. An opinion does not qualify.</li>
+                <li>Politics, Manchester United, and finance share one voice. Their source lists do not.</li>
                 <li>Verified, Needs Context, and Unverified are allowed to stay less certain than a cleaner headline.</li>
                 <li>No political party is a trusted source.</li>
                 <li>A human editor approves every post. The model, when it exists, prepares. It does not publish.</li>

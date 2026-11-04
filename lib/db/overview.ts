@@ -5,6 +5,7 @@ import { listClaims } from "@/lib/db/claims";
 import { listConversations } from "@/lib/db/conversations";
 import { classificationFor, claimStatusLabel } from "@/lib/db/labels";
 import { lagosStamp } from "@/lib/format";
+import { rollingMix } from "@/lib/db/research";
 
 type PostRow = {
   id: string;
@@ -118,6 +119,7 @@ export async function loadSnapshot(): Promise<DeskSnapshot> {
     queue: claims.slice(0, 5),
     ready: ready.slice(0, 5),
     latest,
+    mix: await rollingMix(),
   };
 }
 

@@ -7,6 +7,7 @@ import type { ExtractionOutcome } from "@/lib/intel/outcome";
 import type { WorkingPost } from "@/lib/intel/posts";
 import { rankClaim } from "@/lib/intel/rank";
 import { engagementOf, publicPostUrl } from "@/lib/intel/text";
+import { inferClaimTypes, inferStatementKind, questionsFor } from "@/lib/research/claim-types";
 
 export async function fileDiscussions(input: {
   posts: WorkingPost[];
@@ -87,6 +88,8 @@ export async function fileDiscussions(input: {
           ...names.map((entity) => entity.name).filter((name) => claim.post.text.toLowerCase().includes(name.toLowerCase())),
         ]),
       ).slice(0, 8);
+      const kind = inferStatementKind("politics", claim.claim);
+      const types = inferClaimTypes(claim.claim, "politics");
       const id = await saveClaim({
         conversation_id: saved.id,
         topic_id: topicId,
@@ -116,6 +119,10 @@ export async function fileDiscussions(input: {
         mentioned_entities: mentionedNames,
         desk_class: claim.post.deskClass,
         origin: "live",
+        content_pillar: "politics",
+        statement_kind: kind,
+        claim_types: types,
+        research_questions: questionsFor(types, "politics").map((item) => item.question),
       });
       if (id) claims += 1;
     }

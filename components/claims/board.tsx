@@ -6,6 +6,7 @@ import type { DeskClaimSummary, DeskMode } from "@/lib/desk/types";
 import type { ClaimStatus } from "@/lib/types";
 import { PageFrame } from "@/components/shell/page-frame";
 import { DemoMark, EmptyDesk, OriginNote, SectionHeading, StatusMark } from "@/components/marks";
+import { NewClaim } from "@/components/claims/new-claim";
 import { cn } from "cn";
 
 const filters: Array<ClaimStatus | "All"> = [
@@ -40,6 +41,7 @@ export function ClaimsBoard({ claims, mode }: { claims: DeskClaimSummary[]; mode
           dek="Each row is a claim filed in the database. A status is a stage of work, not a dare to publish."
         />
         <OriginNote mode={mode} />
+        <NewClaim />
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex flex-wrap gap-1.5">
             {filters.map((item) => (

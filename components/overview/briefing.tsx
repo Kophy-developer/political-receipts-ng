@@ -21,9 +21,9 @@ export function Briefing({ snapshot, gemini = "Not configured" }: { snapshot: De
           <div className="max-w-3xl">
             <p className="font-mono text-[11px] tracking-[0.22em] text-stamp">PRNG · EDITORIAL DESK</p>
             <h1 className="mt-3 font-serif text-[2.6rem] leading-[0.98] tracking-[-0.03em] text-ink sm:text-5xl">Political Receipts NG</h1>
-            <p className="mt-3 font-serif text-xl italic text-ink-soft sm:text-2xl">Nigeria Political Intelligence</p>
+            <p className="mt-3 font-serif text-xl italic text-ink-soft sm:text-2xl">Politics, finance, and Manchester United</p>
             <p className="mt-4 max-w-xl text-[15px] leading-relaxed text-ink-soft">
-              Politics. Claims. Receipts. Counts on this page come from the database. Nothing here is a fabricated monitoring total.
+              One person, three interests. Curious, willing to be sharp, and able to say when the record is missing. Counts on this page come from the database.
             </p>
           </div>
           <div className="flex flex-col items-start gap-3 lg:items-end">
@@ -37,6 +37,7 @@ export function Briefing({ snapshot, gemini = "Not configured" }: { snapshot: De
         </header>
         <div className="-mt-6 h-px w-16 bg-stamp" />
         <OriginNote mode={snapshot.mode} />
+        <Mix mix={snapshot.mix} />
         <section aria-label="Desk figures">
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             {kpis.map((kpi) => (
@@ -180,6 +181,38 @@ export function Briefing({ snapshot, gemini = "Not configured" }: { snapshot: De
         </section>
       </div>
     </PageFrame>
+  );
+}
+
+function Mix({ mix }: { mix: DeskSnapshot["mix"] }) {
+  return (
+    <section aria-label="Content mix" className="border border-rule bg-paper px-4 py-4">
+      <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+        <h2 className="font-serif text-2xl tracking-[-0.02em]">Rolling mix</h2>
+        <p className="font-mono text-[10px] tracking-[0.14em] text-ink-soft uppercase">
+          {mix.installed ? `Last ${mix.counted} live claims` : "Mix not installed"}
+        </p>
+      </div>
+      <p className="mt-2 max-w-2xl text-sm leading-relaxed text-ink-soft">
+        The marks at 60, 20, and 20 are a target over time. A busy political week can sit well above that line. The desk does not force the split.
+      </p>
+      <div className="mt-4 grid gap-4">
+        {mix.items.map((item) => (
+          <div key={item.pillar}>
+            <div className="flex items-baseline justify-between gap-3 text-sm">
+              <p>{item.label}</p>
+              <p className="font-mono text-[11px] text-ink-soft">
+                {item.count} · {item.share}% · target {item.target}%
+              </p>
+            </div>
+            <div className="relative mt-2 h-2 bg-[#efe8dc]">
+              <div className="h-2 bg-ink" style={{ width: `${Math.min(100, item.share)}%` }} />
+              <span className="absolute top-[-3px] h-3.5 w-px bg-stamp" style={{ left: `${item.target}%` }} />
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }
 

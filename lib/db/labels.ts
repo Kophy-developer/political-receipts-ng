@@ -62,7 +62,7 @@ export function sourceTier(category: string): SourceTier {
 }
 
 export function stanceLabel(value: string): EvidenceStance {
-  if (value === "supports" || value === "contradicts" || value === "contextualizes") return value;
+  if (value === "supports" || value === "contradicts" || value === "contextualizes" || value === "attribution_only") return value;
   return "contextualizes";
 }
 

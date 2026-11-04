@@ -340,6 +340,7 @@ async function persistPosts(posts: WorkingPost[], scanId: string) {
     relevance: post.relevance,
     relevance_reason: post.reason,
     desk_class: post.deskClass,
+    content_pillar: "politics",
     scan_id: scanId,
   }));
   const saved = await savePosts(rows);

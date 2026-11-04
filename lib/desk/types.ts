@@ -24,7 +24,7 @@ export type RelatedPost = {
   postedAt: string;
 };
 
-export type EvidenceStance = "supports" | "contradicts" | "contextualizes";
+export type EvidenceStance = "supports" | "contradicts" | "contextualizes" | "attribution_only";
 
 export type DeskClaimSummary = {
   id: string;
@@ -55,6 +55,9 @@ export type DeskEvidence = {
   reliability: string;
   stance: EvidenceStance;
   notes: string | null;
+  review: "proposed" | "accepted" | "rejected";
+  tierRank: number;
+  reliabilityNotes: string | null;
 };
 
 export type DeskClaim = DeskClaimSummary & {
@@ -73,6 +76,17 @@ export type DeskClaim = DeskClaimSummary & {
   aiConfidence: ConfidenceLabel | null;
   relatedPosts: RelatedPost[];
   format: FormatDecision;
+  pillar: "politics" | "football" | "finance" | null;
+  statementKind: "fact" | "analysis" | "opinion" | null;
+  claimTypes: string[];
+  questions: string[];
+  attribution: string | null;
+  proposedVerdict: string | null;
+  verdictReasoning: string | null;
+  verdictCaveats: string | null;
+  verdictUnknown: string | null;
+  verdictConfidence: ConfidenceLabel | null;
+  workingNotes: string | null;
 };
 
 export type DeskClassName = "actionable" | "discussion" | "noise";
@@ -179,6 +193,12 @@ export type UsageView = {
   estimatedXSpendAll: string;
   spendLabel: "ESTIMATED";
   spendNote: string;
+  searches: number;
+  searchLimit: number;
+  retrievals: number;
+  retrievalLimit: number;
+  searchProvider: string;
+  searchCredential: string | null;
 };
 
 export type ResearchCard = {
@@ -211,6 +231,11 @@ export type DeskSnapshot = {
   queue: DeskClaimSummary[];
   ready: Array<{ claimId: string; claim: string; origin: RecordOrigin }>;
   latest: DeskPost[];
+  mix: {
+    installed: boolean;
+    counted: number;
+    items: Array<{ pillar: "politics" | "football" | "finance"; label: string; count: number; share: number; target: number }>;
+  };
 };
 
 export type SystemHealth = {

@@ -18,7 +18,13 @@ export type DeskAction =
   | "intelligence scan"
   | "claim dismissed"
   | "claim opened"
-  | "posts reprocessed";
+  | "posts reprocessed"
+  | "evidence accepted"
+  | "evidence rejected"
+  | "evidence revised"
+  | "verdict revised"
+  | "verdict recorded"
+  | "more research requested";
 
 function safeDetail(detail: Record<string, unknown>) {
   const out: Record<string, unknown> = {};

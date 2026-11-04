@@ -4,7 +4,9 @@ Politics. Claims. Receipts.
 
 Political Receipts NG is a Nigerian political intelligence and fact-checking desk. It watches political conversation, opens the sentences that can be checked, lays the evidence beside the claim, and prepares posts a human editor can approve.
 
-This version stores the desk in Supabase. An editor can run one bounded X search from Live Intelligence. Gemini, when `GEMINI_API_KEY` is set, extracts claims from those posts and does not post. Nothing publishes on its own, and nothing polls X.
+This version stores the desk in Supabase. An editor can run one bounded X search from Live Intelligence. Gemini, when `GEMINI_API_KEY` is set, extracts claims from those posts and does not post. Evidence for a claim is collected separately, through Brave Search when `BRAVE_SEARCH_API_KEY` is set, or by pasting a URL. Nothing publishes on its own, and nothing polls X.
+
+The account is one person with three interests, tracked over the last 30 live claims: politics about 60 percent, Manchester United about 20 percent, finance about 20 percent. That is a rolling target, not a daily quota. X search groups stay political.
 
 ## What this version does
 
@@ -94,6 +96,7 @@ X, Supabase, and Gemini are read only in server modules. Gemini is used for clai
 | `X_ACCESS_TOKEN_SECRET` | Server-side token secret |
 | `GEMINI_API_KEY` | Server-side Gemini key for claim extraction. |
 | `GEMINI_MODEL` | Optional server override. When unset, the default in `lib/ai/env.ts` is used (currently `gemini-3.8-flash`). |
+| `BRAVE_SEARCH_API_KEY` | Server only. Brave Search API token. Research search does not run when it is unset. Never prefix it with `NEXT_PUBLIC_`. |
 | `NEXT_PUBLIC_SUPABASE_URL` | Public Supabase project URL |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Public Supabase anon key, safe to expose only because row-level security must restrict it |
 | `SUPABASE_SERVICE_ROLE_KEY` | Server only. Never prefix it with `NEXT_PUBLIC_` and never import it into a client component. |
@@ -136,9 +139,9 @@ Gemini’s job in this phase is claim extraction, not verdicts and not drafts.
 3. The model must return JSON. The server drops a claim when a number, quotation, or URL is not in the source post.
 4. Importance is High, Medium, or Low from reach, account count, and whether a record could check the sentence. It is not a candidate score.
 5. `#NotTrue` stays unavailable until collected evidence contradicts the claim at high confidence. Incomplete evidence stays Unverified or Needs Context.
-6. Find evidence explains that source retrieval is the next stage. It does not ask the model to invent a source.
+6. Find evidence shows the claim type, the questions, and the source tiers for that pillar, then waits. Begin research calls Brave only after the editor clicks it and only when `BRAVE_SEARCH_API_KEY` is set. A pasted URL is fetched by the server, with private addresses refused. Gemini is not asked to browse, and it is not retried on its own.
 
-Search terms live in `search_groups`. Limits live in `lib/intel/limits.ts`. Usage for the Lagos day is under Settings → Usage.
+Search terms live in `search_groups`. They stay on Nigerian politics. Football and finance have their own source tiers and are not added to the X rotation. Research limits live in `lib/research/limits.ts`. Usage for the Lagos day, including search and document retrieval, is under Settings → Usage.
 
 ## Database
 

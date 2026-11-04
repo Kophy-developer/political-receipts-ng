@@ -2,6 +2,8 @@ import "server-only";
 import type { UsageView } from "@/lib/desk/types";
 import { schemaMissing, scrubDbMessage, serviceClient } from "@/lib/db/client";
 import { lagosDayLabel, lagosDayStart, publishedRates, scanLimits, usd } from "@/lib/intel/limits";
+import { researchLimits } from "@/lib/research/limits";
+import { searchProvider } from "@/lib/research/provider";
 
 export type UsageTotals = {
   xRequests: number;
@@ -9,9 +11,11 @@ export type UsageTotals = {
   geminiRequests: number;
   inputTokens: number;
   outputTokens: number;
+  searches: number;
+  retrievals: number;
 };
 
-const emptyTotals: UsageTotals = { xRequests: 0, posts: 0, geminiRequests: 0, inputTokens: 0, outputTokens: 0 };
+const emptyTotals: UsageTotals = { xRequests: 0, posts: 0, geminiRequests: 0, inputTokens: 0, outputTokens: 0, searches: 0, retrievals: 0 };
 
 export async function usageSince(startIso: string) {
   const db = serviceClient();
@@ -41,12 +45,14 @@ export async function usageSince(startIso: string) {
       totals.inputTokens += typeof row.input_tokens === "number" ? row.input_tokens : 0;
       totals.outputTokens += typeof row.output_tokens === "number" ? row.output_tokens : 0;
     }
+    if (row.provider === "search") totals.searches += requests;
+    if (row.provider === "retrieval") totals.retrievals += requests;
   }
   return { ok: true as const, totals };
 }
 
 export async function recordUsage(input: {
-  provider: "x" | "gemini";
+  provider: "x" | "gemini" | "search" | "retrieval";
   operation: string;
   requests: number;
   units: number;
@@ -113,6 +119,12 @@ export async function usageView(): Promise<UsageView> {
     estimatedXSpendAll: "Not available",
     spendLabel: "ESTIMATED",
     spendNote,
+    searches: 0,
+    searchLimit: researchLimits.dailySearches,
+    retrievals: 0,
+    retrievalLimit: researchLimits.dailyRetrievals,
+    searchProvider: "Brave Search",
+    searchCredential: "BRAVE_SEARCH_API_KEY",
   };
   const db = serviceClient();
   if (!db) return base;
@@ -133,5 +145,10 @@ export async function usageView(): Promise<UsageView> {
   const [todayUnits, allUnits] = await Promise.all([postReadUnits(lagosDayStart()), postReadUnits()]);
   base.estimatedXSpendToday = spendLabel(todayUnits);
   base.estimatedXSpendAll = spendLabel(allUnits);
+  base.searches = usage.totals.searches;
+  base.retrievals = usage.totals.retrievals;
+  const provider = searchProvider();
+  base.searchProvider = provider.name;
+  base.searchCredential = provider.credential;
   return base;
 }

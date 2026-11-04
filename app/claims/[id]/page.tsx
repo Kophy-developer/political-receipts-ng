@@ -6,6 +6,7 @@ import { Dossier } from "@/components/claims/dossier";
 import { EmptyDesk } from "@/components/marks";
 import { PageFrame } from "@/components/shell/page-frame";
 import { getClaim } from "@/lib/db/claims";
+import { loadPlan } from "@/lib/research/plan";
 import Loading from "@/app/loading";
 
 export const metadata: Metadata = {
@@ -35,5 +36,6 @@ async function ClaimBody({ params }: { params: Promise<{ id: string }> }) {
     );
   }
   if (!result.claim) notFound();
-  return <Dossier claim={result.claim} mode={result.claim.origin === "demo" ? "demo" : "live"} />;
+  const plan = await loadPlan(result.claim.id);
+  return <Dossier claim={result.claim} mode={result.claim.origin === "demo" ? "demo" : "live"} plan={plan} />;
 }
