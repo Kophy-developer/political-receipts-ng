@@ -26,6 +26,7 @@ export function DraftingPanel({
   const [busy, setBusy] = useState<string | null>(null);
   const [manual, setManual] = useState("");
   const [edits, setEdits] = useState<Record<string, string>>({});
+  const [sources, setSources] = useState<Record<string, string>>({});
   const [editing, setEditing] = useState<string | null>(null);
   const gate = draftUnlocked({
     recordedAt: claim.verdictRecordedAt,
@@ -128,7 +129,21 @@ export function DraftingPanel({
                       rows={8}
                       className="mt-3 w-full border border-rule bg-paper px-3 py-2 text-sm outline-none focus:border-ink"
                     />
-                  ) : (
+                  ) : null}
+                  {editing === draft.id ? (
+                    <label className="mt-3 block text-sm">
+                      <span className="font-mono text-[10px] tracking-[0.12em] text-ink-soft uppercase">Source links, optional</span>
+                      <textarea
+                        value={sources[draft.id] ?? ""}
+                        onChange={(event) => setSources((current) => ({ ...current, [draft.id]: event.target.value }))}
+                        rows={3}
+                        placeholder="One https link per line. Saved as a follow-up post. The model does not insert these."
+                        className="mt-1 w-full border border-rule bg-paper px-3 py-2 text-sm outline-none focus:border-ink"
+                      />
+                    </label>
+                  ) : null}
+                  {editing === draft.id ? <p className="mt-2 text-xs leading-relaxed text-ink-soft">Saving keeps the first AI wording for voice notes. It does not train a model, and it does not publish.</p> : null}
+                  {editing === draft.id ? null : (
                     <p className="mt-3 whitespace-pre-wrap text-sm leading-relaxed">{draft.text}</p>
                   )}
                   <p className="mt-2 font-mono text-[11px] text-ink-soft">
@@ -147,7 +162,7 @@ export function DraftingPanel({
                       <button
                         type="button"
                         disabled={busy !== null}
-                        onClick={() => post({ action: "save", draftId: draft.id, content: text }, draft.id)}
+                        onClick={() => post({ action: "save", draftId: draft.id, content: text, sources: sources[draft.id] ?? "" }, draft.id)}
                         className="inline-flex h-9 items-center bg-ink px-3 text-sm text-paper disabled:opacity-50"
                       >
                         {busy === draft.id ? "Saving…" : "Save draft"}
@@ -182,7 +197,7 @@ export function DraftingPanel({
           </div>
         ) : (
           <div className="text-sm leading-relaxed text-ink-soft">
-            <p>No draft is saved yet. Create draft asks for four styles in one request. You can also write one yourself.</p>
+            <p>No draft is saved yet. Create draft asks for the angle in conversational, punchy, and analytical form. A thread is written only when the point needs one. You can also write one yourself.</p>
             <ul className="mt-3 space-y-2">
               {draftStyles.map((style) => (
                 <li key={style.id}>

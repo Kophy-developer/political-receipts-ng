@@ -363,13 +363,20 @@ function ProviderCardView({ provider }: { provider: ProviderCard }) {
           <dd>{provider.failedRequests}</dd>
         </div>
         <div>
-          <dt className="font-mono text-[10px] tracking-[0.12em] text-ink-soft uppercase">Last failure</dt>
-          <dd className="break-words">{provider.lastFailure ?? "None"}</dd>
+          <dt className="font-mono text-[10px] tracking-[0.12em] text-ink-soft uppercase">Latest result</dt>
+          <dd className={`break-words ${provider.latestKind === "failure" ? "text-stamp" : ""}`}>{provider.latestResult ?? "No test yet"}</dd>
         </div>
         <div>
           <dt className="font-mono text-[10px] tracking-[0.12em] text-ink-soft uppercase">Status</dt>
           <dd>{provider.status}</dd>
         </div>
+        {provider.earlierFailure ? (
+          <div>
+            <dt className="font-mono text-[10px] tracking-[0.12em] text-ink-soft uppercase">Earlier failure</dt>
+            <dd className="break-words text-xs leading-relaxed text-ink-soft">{provider.earlierFailure}</dd>
+            <dd className="mt-1 text-xs leading-relaxed text-ink-soft">This is history. It is not the latest test.</dd>
+          </div>
+        ) : null}
       </dl>
       {provider.note ? <p className="mt-3 text-xs leading-relaxed text-ink-soft">{provider.note}</p> : null}
       <button

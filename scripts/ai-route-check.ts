@@ -137,6 +137,14 @@ async function main() {
   check("one request carries every style", JSON.stringify(groqSuccess.requests[0]?.schema).includes("conversational") && JSON.stringify(groqSuccess.requests[0]?.schema).includes("thread"));
   check("the prompt keeps the verdict and the evidence", (groqSuccess.requests[0]?.userPrompt.includes("NEEDS CONTEXT") ?? false) && (groqSuccess.requests[0]?.userPrompt.includes("https://www.bbc.com/pidgin/articles/c6gelpr1qq29o") ?? false));
   check("groq success records tokens and the free estimate", groqSuccess.result.attempts[0]?.status === "success" && groqSuccess.result.attempts[0]?.inputTokens === 11 && groqSuccess.result.attempts[0]?.estimatedCostUsd === 0);
+  check("the draft schema does not require a thread", !JSON.stringify((groqSuccess.requests[0]?.schema as { required?: string[] } | undefined)?.required).includes("thread"));
+
+  const threadSkipped = await run(baseEnv(), zero, {
+    groq: () => Promise.resolve(ok({ ...good, thread: { needed: false, reason: "The point fits in two posts." } })),
+    openrouter: () => Promise.resolve(ok(good)),
+  });
+  check("a declined thread does not call the next provider", threadSkipped.seen.join(",") === "groq" && threadSkipped.result.outcome === "saved");
+  check("a declined thread is named and the other styles remain", threadSkipped.result.drafts.length === 3 && threadSkipped.result.message.includes("THREAD_NOT_NEEDED"));
 
   const rateLimited = await run(baseEnv(), zero, {
     groq: () => Promise.resolve(fail("rate limited")),

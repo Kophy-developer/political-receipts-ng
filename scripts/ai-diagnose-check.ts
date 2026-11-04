@@ -5,6 +5,7 @@ import {
   editorMessage,
   retainedFailure,
   sanitizeProviderMessage,
+  providerReadout,
   shownProviderStatus,
   statusForClassification,
 } from "../lib/ai/diagnostics";
@@ -95,6 +96,20 @@ check("the stored groq failure is unverified", shownProviderStatus({
   limit: 40,
   latest: { status: "failure", reason: "unavailable", diagnostic: null },
 }) === "UNVERIFIED");
+
+const succeeded = providerReadout({
+  latest: { status: "success", task: "health", completedAt: "2026-11-04T20:05:00.000Z", reason: "INVALID_RESPONSE. HTTP 200." },
+  earlierFailure: "INVALID_RESPONSE. HTTP 200. The assistant content was not a JSON object.",
+});
+check("a successful health check is the latest result", succeeded.latestKind === "success" && succeeded.latestResult?.includes("Latest health check succeeded") && succeeded.latestResult.includes("CT") && !succeeded.latestResult.includes("INVALID_RESPONSE"));
+check("an older failure stays history", succeeded.earlierFailure?.includes("INVALID_RESPONSE") === true);
+check("a failed latest result is not dressed up as success", providerReadout({
+  latest: { status: "failure", task: "health", completedAt: "2026-11-04T19:36:00.000Z", reason: "INVALID_RESPONSE. HTTP 200." },
+  earlierFailure: "older",
+}).latestKind === "failure" && providerReadout({
+  latest: { status: "failure", task: "health", completedAt: "2026-11-04T19:36:00.000Z", reason: "INVALID_RESPONSE. HTTP 200." },
+  earlierFailure: "older",
+}).earlierFailure === null);
 
 check("a successful tiny response can be available", shownProviderStatus({
   credential: true,

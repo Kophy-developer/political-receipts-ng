@@ -214,6 +214,32 @@ export function retainedFailure(reason: string | null, diagnostic: ProviderDiagn
   return null;
 }
 
+export function providerReadout(input: {
+  latest: { status: "success" | "failure" | "rejected"; task: string; completedAt: string; reason: string | null } | null;
+  earlierFailure: string | null;
+}) {
+  if (!input.latest) return { latestResult: null as string | null, latestKind: "none" as const, earlierFailure: null as string | null };
+  const when = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Chicago",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(input.latest.completedAt));
+  const task = input.latest.task === "health" ? "health check" : input.latest.task === "draft_regenerate" ? "regenerate" : "draft";
+  if (input.latest.status === "success") {
+    return { latestResult: `Latest ${task} succeeded at ${when} CT.`, latestKind: "success" as const, earlierFailure: input.earlierFailure };
+  }
+  if (input.latest.status === "rejected") {
+    return {
+      latestResult: `Latest ${task} was answered at ${when} CT. The editorial validator rejected the wording.`,
+      latestKind: "success" as const,
+      earlierFailure: input.earlierFailure,
+    };
+  }
+  return { latestResult: input.latest.reason, latestKind: "failure" as const, earlierFailure: null };
+}
+
 export function shownProviderStatus(input: {
   credential: boolean;
   callable: boolean;

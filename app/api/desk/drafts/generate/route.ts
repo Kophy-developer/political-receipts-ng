@@ -6,7 +6,7 @@ import { getClaim } from "@/lib/db/claims";
 import { loadClaimDrafts, saveClaimDraft, selectClaimDraft, storeEditorDraft, storeGeneratedDrafts } from "@/lib/db/drafting";
 import { isUuid } from "@/lib/db/labels";
 import { draftWithProviders } from "@/lib/drafts/chain";
-import { DRAFT_UNAVAILABLE, draftBriefFrom, judgeEditorText, judgeSavedText, type GeneratedStyle } from "@/lib/drafts/rules";
+import { appendSourcePost, DRAFT_UNAVAILABLE, draftBriefFrom, judgeEditorText, judgeSavedText, type GeneratedStyle } from "@/lib/drafts/rules";
 import { draftUnlocked } from "@/lib/research/editor-review";
 import { assertEditorPost } from "@/lib/x/guard";
 
@@ -18,7 +18,7 @@ const running = new Set<string>();
 export async function POST(request: Request) {
   const refused = assertEditorPost(request);
   if (refused) return Response.json({ ok: false, message: refused }, { status: 403, headers: { "cache-control": "no-store" } });
-  let body: { claimId?: unknown; action?: unknown; style?: unknown; draftId?: unknown; content?: unknown };
+  let body: { claimId?: unknown; action?: unknown; style?: unknown; draftId?: unknown; content?: unknown; sources?: unknown };
   try {
     body = await request.json();
   } catch {
@@ -51,9 +51,12 @@ export async function POST(request: Request) {
     const hashtagAlreadyUsed = existing.some((item) => item.hashtag === "#CheckAm" && item.id !== draftId);
     if (action === "save") {
       if (!current) return Response.json({ ok: false, message: "Choose a draft to save." }, { status: 400 });
-      const judged = judgeSavedText(current.style, content, hashtagAlreadyUsed);
+      const sources = typeof body.sources === "string" ? body.sources : "";
+      const attached = appendSourcePost(content, sources);
+      if (!attached.ok) return Response.json({ ok: false, message: attached.reason }, { status: 400 });
+      const judged = judgeSavedText(current.style, attached.text, hashtagAlreadyUsed);
       if (!judged.ok) return Response.json({ ok: false, message: judged.reason }, { status: 400 });
-      const saved = await saveClaimDraft({ claimId, draftId, piece: judged.draft });
+      const saved = await saveClaimDraft({ claimId, draftId, piece: judged.draft, angle: brief.angleTitle, verdict: brief.verdict });
       if (!saved.ok) return Response.json({ ok: false, message: saved.message }, { status: 400 });
       return Response.json({ ok: true, message: "Draft saved. It was not published." });
     }
@@ -109,7 +112,7 @@ export async function POST(request: Request) {
       if (!stored.ok) return Response.json({ ok: false, message: stored.message }, { status: 400 });
     }
     return Response.json({
-      ok: result.drafts.length > 0,
+      ok: result.outcome === "saved",
       unavailable: false,
       rejected: false,
       message: result.message,

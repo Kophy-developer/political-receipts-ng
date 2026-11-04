@@ -1,10 +1,15 @@
 import { readFileSync } from "node:fs";
 import { characterCount } from "../lib/format";
 import {
+  appendSourcePost,
+  DRAFT_PROMPT_VERSION,
   DRAFT_UNAVAILABLE,
   draftPrompt,
+  draftSchema,
   judgeEditorText,
   judgeModelDrafts,
+  judgeSavedText,
+  nextVoiceNote,
   savedDraftFields,
   tooSimilar,
   type DraftBrief,
@@ -93,6 +98,59 @@ check("prompt forbids calling 453 false", prompt.system.includes("453 is false")
 check("prompt forbids #NotTrue", prompt.system.includes("#NotTrue"));
 check("prompt recommends #CheckAm", prompt.system.includes("#CheckAm"));
 check("prompt asks for four approaches", prompt.user.includes("Conversational") && prompt.user.includes("Punchy") && prompt.user.includes("Analytical") && prompt.user.includes("Thread"));
+check("prompt leads with the angle", prompt.system.includes("selected angle") && prompt.user.startsWith("Selected angle:"));
+check("prompt refuses a bibliography and a register total", prompt.system.includes("bibliography") && prompt.system.includes("176,846") && prompt.system.includes("Do not put URLs"));
+check("prompt allows two posts and a declined thread", prompt.system.includes("blank line") && prompt.system.includes("thread.needed to false"));
+check("prompt version moved to draft-v2", prompt.promptVersion === DRAFT_PROMPT_VERSION && DRAFT_PROMPT_VERSION === "draft-v2");
+const fullSchema = draftSchema();
+check("full schema does not require a thread", "required" in fullSchema && !fullSchema.required.includes("thread"));
+
+const twoPost = judgeModelDrafts({
+  ...payload,
+  conversational: { text: `${conversational}\n\nI went looking for the 453 figure and could not establish it. The photographs already make the story serious, and INEC responded.`, hashtag: "" },
+});
+check("conversational can be two posts", twoPost.drafts.find((draft) => draft.style === "conversational")?.parts.length === 2);
+
+const declined = judgeModelDrafts({ ...payload, thread: { needed: false, reason: "The point fits without a sequence." } });
+check("THREAD_NOT_NEEDED keeps the other styles", declined.drafts.length === 3 && declined.problems.some((item) => item.style === "thread" && item.reason.startsWith("THREAD_NOT_NEEDED. The point fits without a sequence.")));
+
+const stub = judgeModelDrafts({ ...payload, thread: { opening, posts: ["Too short."] } });
+check("a stub thread is not relabeled as unnecessary", stub.problems.some((item) => item.style === "thread" && item.reason.startsWith("A thread post is under 40 characters.")) && stub.problems.every((item) => !item.reason.startsWith("THREAD_NOT_NEEDED")));
+
+check("a register total is not allowed to close the 453 question", blocked("INEC has 176,846 polling units, no extra 453. Suspected AI photographs were reported in the preliminary voter register, and INEC responded."));
+check("punchy stays one post", judgeModelDrafts({ ...payload, punchy: { posts: [punchy, punchy] } }).problems.some((item) => item.style === "punchy" && item.reason === "Punchy stays one post."));
+
+const sourced = appendSourcePost(conversational, "https://www.bbc.com/pidgin/articles/c6gelpr1qq29o");
+const sourcedDraft = sourced.ok ? judgeSavedText("conversational", sourced.text, false) : null;
+check("an editor can attach one source as a follow-up", sourced.ok === true && sourcedDraft?.ok === true && sourcedDraft.draft.parts.length === 2 && sourcedDraft.draft.parts[1]?.startsWith("https://"));
+check("a loose source note is refused", appendSourcePost(conversational, "BBC and Daily Trust").ok === false);
+
+const voice = nextVoiceNote({
+  existingVoice: null,
+  existingText: conversational,
+  existingProvider: "groq",
+  existingModel: "openai/gpt-oss-20b",
+  style: "conversational",
+  finalText: "The photographs were the story. I could not establish the 453 figure, and INEC had already responded.",
+  angle: "The real story is already serious",
+  verdict: "NEEDS CONTEXT",
+  editedAt: "2026-11-04T20:10:00.000Z",
+});
+const revised = voice
+  ? nextVoiceNote({
+      existingVoice: voice,
+      existingText: voice.finalText,
+      existingProvider: "groq",
+      existingModel: "openai/gpt-oss-20b",
+      style: "conversational",
+      finalText: "Second edit. The 453 figure still is not established, and INEC responded to the photographs.",
+      angle: "A different angle",
+      verdict: "VERIFIED",
+      editedAt: "2026-11-04T20:20:00.000Z",
+    })
+  : null;
+check("an edit keeps the original Groq draft", voice?.originalText === conversational && voice.provider === "groq" && voice.model === "openai/gpt-oss-20b" && voice.angle === "The real story is already serious" && voice.verdict === "NEEDS CONTEXT");
+check("a later edit does not replace the original", revised?.originalText === conversational && revised.finalText.startsWith("Second edit") && revised.angle === "The real story is already serious" && revised.editedAt === "2026-11-04T20:20:00.000Z");
 
 async function main() {
 let calls = 0;

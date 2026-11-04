@@ -6,6 +6,7 @@ import {
   draftSchema,
   draftStyles,
   judgeModelDrafts,
+  threadDecision,
   type DraftBrief,
   type DraftPiece,
   type DraftProblem,
@@ -36,6 +37,10 @@ function styleObject(value: unknown) {
 export function acceptDraftPayload(data: unknown, style?: GeneratedStyle, hashtagAlreadyUsed = false) {
   if (!data || typeof data !== "object") return "malformed" as const;
   const record = data as Record<string, unknown>;
+  if (style === "thread") {
+    const decision = threadDecision(record);
+    if (decision.kind === "skip") return "success" as const;
+  }
   if (style) {
     const present = style === "thread" ? typeof record.opening === "string" || Array.isArray(record.posts) : typeof record.text === "string";
     if (!present) return "malformed" as const;
@@ -102,9 +107,15 @@ export async function draftWithProviders(input: {
   const judged = judgeModelDrafts(wrapped, hashtagAlreadyUsed);
   const drafts = input.style ? judged.drafts.filter((draft) => draft.style === input.style) : judged.drafts;
   if (drafts.length === 0) {
+    const note = judged.problems.find((item) => item.reason.startsWith("THREAD_NOT_NEEDED"));
+    const onlyThatChoice = judged.problems.every((item) => item.reason.startsWith("THREAD_NOT_NEEDED"));
+    if (note && onlyThatChoice) {
+      return { ...empty, outcome: "saved", problems: judged.problems, message: `${note.reason} Nothing was published.` };
+    }
     return { ...empty, outcome: "rejected", problems: judged.problems, message: EDITORIAL_REJECTION };
   }
-  const missing = judged.problems.length ? " Some styles were not saved." : "";
+  const notes = judged.problems.map((item) => (item.reason.startsWith("THREAD_NOT_NEEDED") ? item.reason : `${item.style}: ${item.reason}`));
+  const missing = notes.length ? ` ${notes.join(" ")}` : "";
   const message = input.style
     ? `${drafts[0]?.label ?? "The style"} was regenerated. Nothing was published.`
     : `Drafts are saved on the claim.${missing} Nothing was published.`;

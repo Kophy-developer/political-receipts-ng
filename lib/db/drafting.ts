@@ -2,7 +2,7 @@ import "server-only";
 import { contentHash } from "@/lib/desk/hash";
 import { scrubDbMessage, serviceClient } from "@/lib/db/client";
 import { recordEvent } from "@/lib/db/events";
-import { savedDraftFields, styleMeta, type DraftPiece, type StoredDraft } from "@/lib/drafts/rules";
+import { nextVoiceNote, savedDraftFields, styleMeta, type DraftPiece, type StoredDraft, type VoiceNote } from "@/lib/drafts/rules";
 
 export type { StoredDraft };
 
@@ -100,10 +100,47 @@ export async function storeEditorDraft(claimId: string, piece: DraftPiece) {
   return saved;
 }
 
-export async function saveClaimDraft(input: { claimId: string; draftId: string; piece: DraftPiece }) {
+function voiceFrom(value: unknown): VoiceNote | null {
+  if (!value || typeof value !== "object") return null;
+  const note = value as Partial<VoiceNote>;
+  if (typeof note.originalText !== "string" || typeof note.finalText !== "string" || typeof note.style !== "string" || typeof note.editedAt !== "string") return null;
+  if (note.provider !== "groq" && note.provider !== "openrouter" && note.provider !== "gemini") return null;
+  return {
+    originalText: note.originalText,
+    finalText: note.finalText,
+    provider: note.provider,
+    model: typeof note.model === "string" ? note.model : null,
+    style: note.style,
+    angle: typeof note.angle === "string" ? note.angle : null,
+    verdict: typeof note.verdict === "string" ? note.verdict : null,
+    editedAt: note.editedAt,
+  };
+}
+
+export async function saveClaimDraft(input: { claimId: string; draftId: string; piece: DraftPiece; angle: string | null; verdict: string | null }) {
   const db = serviceClient();
   if (!db) return { ok: false as const, message: "The database is not configured." };
+  const current = await db
+    .from("drafts")
+    .select("content, style, ai_provider, ai_model, generation_metadata")
+    .eq("id", input.draftId)
+    .eq("claim_id", input.claimId)
+    .maybeSingle();
+  if (current.error || !current.data) return { ok: false as const, message: "Choose a draft to save." };
+  const prior = (current.data.generation_metadata ?? {}) as { provider?: unknown; voice?: unknown; source?: unknown };
   const fields = savedDraftFields(input.piece, { provider: "editor", model: null, editorModified: true });
+  const existingProvider = typeof prior.provider === "string" ? prior.provider : current.data.ai_provider;
+  const voice = nextVoiceNote({
+    existingVoice: voiceFrom(prior.voice),
+    existingText: current.data.content,
+    existingProvider: typeof existingProvider === "string" ? existingProvider : null,
+    existingModel: typeof current.data.ai_model === "string" ? current.data.ai_model : null,
+    style: current.data.style,
+    finalText: input.piece.text,
+    angle: input.angle,
+    verdict: input.verdict,
+    editedAt: new Date().toISOString(),
+  });
   const { data, error } = await db
     .from("drafts")
     .update({
@@ -113,7 +150,15 @@ export async function saveClaimDraft(input: { claimId: string; draftId: string; 
       suggested_hashtag: fields.suggested_hashtag,
       editor_modified: true,
       status: "draft",
-      generation_metadata: fields.generation_metadata,
+      generation_metadata: {
+        ...prior,
+        source: "editor-draft",
+        holdReason: fields.generation_metadata.holdReason,
+        parts: input.piece.parts,
+        hashtag: input.piece.hashtag,
+        provider: existingProvider ?? prior.provider ?? "editor",
+        voice,
+      },
     })
     .eq("id", input.draftId)
     .eq("claim_id", input.claimId)

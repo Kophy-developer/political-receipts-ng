@@ -2,32 +2,32 @@ import { characterCount, POST_LIMIT } from "@/lib/format";
 import type { EditorReviewPacket } from "@/lib/research/editor-review";
 
 export const DRAFT_UNAVAILABLE = "DRAFT GENERATION UNAVAILABLE";
-export const DRAFT_PROMPT_VERSION = "draft-v1";
+export const DRAFT_PROMPT_VERSION = "draft-v2";
 
 export const draftStyles = [
   {
     id: "conversational",
     version: "A",
     label: "Conversational",
-    brief: "Natural X post. Direct and human.",
+    brief: "The observation, in one post or two. A second post is for the point, not for a source list.",
   },
   {
     id: "punchy",
     version: "B",
     label: "Punchy",
-    brief: "Stronger opening and shorter sentences. It should stop a scroll without becoming clickbait.",
+    brief: "One short post. The observation, then stop.",
   },
   {
     id: "analytical",
     version: "C",
     label: "Analytical",
-    brief: "A little more explanation and reasoning. It still sounds personal.",
+    brief: "A little more of the reasoning, still as a person talking. One post, or two if the thought needs the room.",
   },
   {
     id: "thread",
     version: "D",
     label: "Thread",
-    brief: "A short opening post, then a compact thread, when the evidence cannot responsibly fit into one post.",
+    brief: "Only when the story actually needs a sequence. Otherwise the model says the thread is not needed.",
   },
 ] as const;
 
@@ -97,6 +97,10 @@ const forbiddenBody = [
   [/\bfinal certified register contained\b/i, "The drafts may not put the irregularities in the final certified register."],
   [/\bfinal register contained\b/i, "The drafts may not put the irregularities in the final register."],
   [/\bcriminal organisation\b/i, "The insult about INEC is outside this verdict."],
+  [/\bno extra 453\b/i, "Do not treat a register total as proof that a 453-unit batch does not exist."],
+  [/\b176,?846\b/i, "Do not cite 176,846 as if it disproves a 453-unit batch."],
+  [/\b453\b[^.]{0,90}\b(do not|don't|doesn't|does not) exist\b/i, "The research did not establish 453. It did not prove that a 453-unit batch does not exist."],
+  [/\b(do not|don't|doesn't|does not) exist\b[^.]{0,90}\b453\b/i, "The research did not establish 453. It did not prove that a 453-unit batch does not exist."],
 ] as const;
 
 export function styleMeta(style: string) {
@@ -127,21 +131,54 @@ function onTopic(text: string) {
   return /photograph|ai-generated|453|voter register|polling unit/i.test(text);
 }
 
+export function isSourcePost(part: string) {
+  const lines = part.split(/\n/).map((line) => line.trim()).filter(Boolean);
+  return lines.length > 0 && lines.every((line) => /^https:\/\/\S+$/.test(line));
+}
+
+function splitSource(parts: string[]) {
+  if (parts.length < 2) return { body: parts, source: null as string | null };
+  const last = parts[parts.length - 1] ?? "";
+  if (!isSourcePost(last)) return { body: parts, source: null };
+  return { body: parts.slice(0, -1), source: last };
+}
+
+export function appendSourcePost(text: string, raw: string) {
+  const links = raw.split(/\n/).map((line) => line.trim()).filter(Boolean);
+  if (links.length === 0) return { ok: true as const, text };
+  if (links.length > 4) return { ok: false as const, reason: "Attach at most four source links." };
+  if (links.some((link) => !/^https:\/\/\S+$/.test(link))) return { ok: false as const, reason: "Source links have to be https URLs, one per line." };
+  const post = links.join("\n");
+  if (characterCount(post) > POST_LIMIT) return { ok: false as const, reason: "Those links do not fit in one follow-up post." };
+  return { ok: true as const, text: `${cleanDraftText(text)}\n\n${post}` };
+}
+
 export function validateParts(style: DraftStyle, parts: string[]) {
   const cleaned = parts.map((part) => cleanDraftText(part)).filter(Boolean);
   if (cleaned.length === 0) return { ok: false as const, reason: "The draft is empty." };
-  if (style === "thread" && (cleaned.length < 2 || cleaned.length > 5)) {
+  const { body, source } = splitSource(cleaned);
+  if (body.length === 0) return { ok: false as const, reason: "The draft is empty." };
+  if (source && characterCount(source) > POST_LIMIT) {
+    return { ok: false as const, reason: `The source post is ${characterCount(source)} characters. The limit is ${POST_LIMIT}.` };
+  }
+  if (style === "thread" && (body.length < 2 || body.length > (source ? 4 : 5))) {
     return { ok: false as const, reason: "A thread needs an opening post and at least one follow-up, and no more than four follow-ups." };
   }
-  if (style !== "thread" && style !== "manual" && cleaned.length !== 1) {
-    return { ok: false as const, reason: "This style is one post." };
+  if (style === "punchy" && body.length !== 1) return { ok: false as const, reason: "Punchy stays one post." };
+  if ((style === "conversational" || style === "analytical") && (body.length < 1 || body.length > 2)) {
+    return { ok: false as const, reason: "This style is one post, or two when the point needs the room." };
   }
-  for (const part of cleaned) {
+  for (const part of body) {
     const count = characterCount(part);
     if (count > POST_LIMIT) return { ok: false as const, reason: `One post is ${count} characters. The limit is ${POST_LIMIT}.` };
-    if (count < 40) return { ok: false as const, reason: "That post is too thin to carry the point." };
+    if (count < 40) {
+      const reason = style === "thread"
+        ? "A thread post is under 40 characters. That stub was not saved. A thread that is not needed should be marked THREAD_NOT_NEEDED instead."
+        : "That post is too thin to carry the point.";
+      return { ok: false as const, reason };
+    }
   }
-  const text = cleaned.join("\n\n");
+  const text = body.join("\n\n");
   const blocked = problemFor(text);
   if (blocked) return { ok: false as const, reason: blocked };
   if (!onTopic(text)) return { ok: false as const, reason: "The draft does not stay on the photographs or the 453 claim." };
@@ -151,7 +188,7 @@ export function validateParts(style: DraftStyle, parts: string[]) {
   if ((style === "conversational" || style === "analytical" || style === "thread") && !/453/.test(text)) {
     return { ok: false as const, reason: "This style still needs the 453 claim, as something the evidence did not establish." };
   }
-  return { ok: true as const, parts: cleaned, text };
+  return { ok: true as const, parts: cleaned, text: cleaned.join("\n\n") };
 }
 
 function tokens(text: string) {
@@ -184,6 +221,66 @@ function hashtagWanted(value: unknown, text: string) {
   return "no" as const;
 }
 
+export function threadDecision(raw: unknown) {
+  if (raw == null) return { kind: "skip" as const, reason: "The model did not include a thread." };
+  if (typeof raw !== "object") return { kind: "missing" as const };
+  const item = raw as { needed?: unknown; reason?: unknown; opening?: unknown; posts?: unknown; text?: unknown };
+  if (item.needed === false) {
+    const reason = typeof item.reason === "string" && item.reason.trim()
+      ? item.reason.trim().replace(/\s+/g, " ").slice(0, 180)
+      : "The model marked the thread as unnecessary.";
+    return { kind: "skip" as const, reason };
+  }
+  const hasWriting = typeof item.opening === "string" || Array.isArray(item.posts) || typeof item.text === "string";
+  if (!hasWriting) return { kind: "skip" as const, reason: "The model did not write a thread." };
+  return { kind: "write" as const };
+}
+
+export type VoiceNote = {
+  originalText: string;
+  finalText: string;
+  provider: "groq" | "openrouter" | "gemini";
+  model: string | null;
+  style: string;
+  angle: string | null;
+  verdict: string | null;
+  editedAt: string;
+};
+
+function aiProvider(value: string | null): VoiceNote["provider"] | null {
+  if (value === "groq" || value === "openrouter" || value === "gemini") return value;
+  return null;
+}
+
+/** Keeps the first model wording beside the editor's later version. Nothing here trains a model. */
+export function nextVoiceNote(input: {
+  existingVoice: VoiceNote | null;
+  existingText: string;
+  existingProvider: string | null;
+  existingModel: string | null;
+  style: string;
+  finalText: string;
+  angle: string | null;
+  verdict: string | null;
+  editedAt: string;
+}): VoiceNote | null {
+  if (input.existingVoice) {
+    return { ...input.existingVoice, finalText: input.finalText, editedAt: input.editedAt };
+  }
+  const provider = aiProvider(input.existingProvider);
+  if (!provider) return null;
+  return {
+    originalText: input.existingText,
+    finalText: input.finalText,
+    provider,
+    model: input.existingModel,
+    style: input.style,
+    angle: input.angle,
+    verdict: input.verdict,
+    editedAt: input.editedAt,
+  };
+}
+
 function pieceFrom(style: DraftStyle, parts: string[], hashtag: "#CheckAm" | null): DraftPiece {
   const meta = styleMeta(style);
   return {
@@ -206,6 +303,13 @@ export function judgeModelDrafts(data: unknown, hashtagAlreadyUsed = false): { d
   let used = hashtagAlreadyUsed;
   for (const style of draftStyles) {
     const raw = record[style.id];
+    if (style.id === "thread") {
+      const decision = threadDecision(raw);
+      if (decision.kind === "skip") {
+        problems.push({ style: style.id, reason: `THREAD_NOT_NEEDED. ${decision.reason}` });
+        continue;
+      }
+    }
     if (!raw || typeof raw !== "object") {
       problems.push({ style: style.id, reason: "The model did not return this style." });
       continue;
@@ -213,9 +317,11 @@ export function judgeModelDrafts(data: unknown, hashtagAlreadyUsed = false): { d
     const item = raw as { text?: unknown; opening?: unknown; posts?: unknown; hashtag?: unknown };
     const parts = style.id === "thread"
       ? [item.opening, ...(Array.isArray(item.posts) ? item.posts : [])].filter((part): part is string => typeof part === "string")
-      : typeof item.text === "string"
-        ? [item.text]
-        : [];
+      : Array.isArray(item.posts) && item.posts.every((part) => typeof part === "string")
+        ? item.posts
+        : typeof item.text === "string"
+          ? item.text.split(/\n\s*\n/).map((part) => part.trim()).filter(Boolean)
+          : [];
     const joined = parts.join("\n\n");
     const wanted = hashtagWanted(item.hashtag, joined);
     if (wanted === "blocked") {
@@ -316,31 +422,34 @@ export function draftPrompt(brief: DraftBrief, only?: GeneratedStyle) {
     .map((source) => `${source.kind.toUpperCase()} — ${source.label}: ${source.note} ${source.url}`)
     .join("\n");
   const system = [
-    "You write draft posts for a Nigerian editor who has already checked a claim.",
-    "Sound like a person who saw something concerning, checked it, and has something useful to say.",
-    "Do not sound like a press release, a newspaper article, a formal fact-check, an AI summary, or a government statement.",
-    "Simple English. A natural Nigerian voice is welcome. Do not force Pidgin or slang.",
-    "Do not begin with: Our investigation found. According to our research. We conducted. Fact check:",
-    "The examples of tone are not mandatory wording: I went looking for the 453. Here's the part that bothers me. This story is already serious enough without adding things we can't prove.",
-    "You may say: credible reporting describes suspected AI-generated photographs in the preliminary voter register; INEC responded to the irregularities; we could not establish the 453-polling-unit claim from the evidence reviewed.",
-    "You must not say: 453 is false; INEC never created 453 polling units; the account lied; AI-generated voters definitely voted; the final certified register contained those irregularities.",
-    "Do not call INEC a criminal organisation. That insult is not part of the verdict.",
-    "Recommend #CheckAm. Put it on at most one version. Never use #NotTrue.",
-    "Each post, including each thread post, must be 280 characters or fewer.",
-    "The four styles must be genuinely different approaches, not paraphrases of one another.",
+    "You draft a post the editor might publish on X, as their own thought.",
+    "Hierarchy: the selected angle, then the natural argument, then only the evidence that holds that argument up, then the landing. Do not list findings, then sources, then a verdict.",
+    "Answer what is interesting to say. Do not answer what the research file contained.",
+    "Sound like a person on X. Fragments are fine. Rhythm can change. A rhetorical question is fine. Mild humour is fine when it stays fair. Be strong only where the point can stand.",
+    "Do not write a compressed fact-check or a bibliography. Do not force a source name into every post. Evidence can sit under the sentence without naming every outlet.",
+    "Do not put URLs in the draft. The editor attaches sources later, including on a #CheckAm follow-up.",
+    "Do not reach for: I checked INEC sites. The record shows. BBC and Daily Trust talk about. The Electoral Act and reports. The claim lacks evidence. Use one of those only if the sentence truly needs it.",
+    "The 453-polling-unit claim was not established. That is not proof that a batch of 453 units does not exist. Do not use a register total, including 176,846, to close that question. The fair thought is that you went looking for the figure and could not establish it.",
+    "Keep the real reported controversy separate from the extra claim. Credible reporting describes suspected AI-generated photographs in the preliminary voter register, and INEC responded. The 453 figure is the part that was not established. Do not paste a template sentence.",
+    "You must not say: 453 is false; INEC never created 453; the account lied; AI-generated voters voted; the final certified register contained the irregularities; #NotTrue; criminal organisation.",
+    "Do not open with: Our investigation found. According to our research. We conducted. Fact check:",
+    "#CheckAm on at most one version.",
+    "Each post is at most 280 characters. Do not ruin a clear thought just to stay inside one post.",
+    "Conversational and analytical may be one post, or two posts separated by a blank line. Punchy is one short post. A thread exists only when the story needs the sequence. If it does not, set thread.needed to false and give a short reason. Do not send a stub thread.",
+    "The styles are different ways into the same angle, not four paraphrases.",
     "Return only the JSON object described by the schema.",
   ].join(" ");
   const user = [
-    `Verdict: ${brief.verdict}. Confidence: ${brief.confidence}.`,
-    `Angle: ${brief.angleTitle}.`,
-    brief.anglePoints.length ? `Angle notes:\n${brief.anglePoints.map((point) => `- ${point}`).join("\n")}` : "The editor wrote their own angle. Follow the claim and the evidence, and do not invent their opinion.",
+    `Selected angle: ${brief.angleTitle}. This angle drives the writing.`,
+    brief.anglePoints.length ? `What the angle is holding:\n${brief.anglePoints.map((point) => `- ${point}`).join("\n")}` : "The editor wrote their own angle. Follow that, and do not invent an opinion they did not write.",
     brief.take ? `Editor's take, which you may reflect without widening it: ${brief.take}` : "The editor left My take blank. Do not invent a take and attribute it to them.",
-    `Claim on the desk: ${brief.claim}`,
-    `Original post, which you must not rewrite or call a lie:\n${brief.postText}`,
-    `Evidence already reviewed:\n${evidence}`,
+    `Verdict already chosen, for your restraint, not as a label to announce: ${brief.verdict}. Confidence: ${brief.confidence}.`,
+    `Claim, as context rather than an outline: ${brief.claim}`,
+    `Original post. Leave it alone:\n${brief.postText}`,
+    `Support you may use. Do not dump it:\n${evidence}`,
     only
-      ? `Write only the ${only} style. ${styles[0]?.brief ?? ""} Make it different from a straight paraphrase of the notes.`
-      : `Write all four styles.\n${styles.map((style) => `${style.label}: ${style.brief}`).join("\n")}`,
+      ? `Write only the ${only} style. ${styles[0]?.brief ?? ""}`
+      : `Write the styles below.\n${styles.map((style) => `${style.label}: ${style.brief}`).join("\n")}`,
   ].join("\n\n");
   return { system, user, promptVersion: DRAFT_PROMPT_VERSION };
 }
@@ -354,25 +463,26 @@ export function draftSchema(only?: GeneratedStyle) {
       hashtag: { type: "STRING" },
     },
   };
-  const thread = {
+  const optionalThread = {
     type: "OBJECT",
-    required: ["opening", "posts"],
     properties: {
+      needed: { type: "BOOLEAN" },
+      reason: { type: "STRING" },
       opening: { type: "STRING" },
       posts: { type: "ARRAY", items: { type: "STRING" } },
       hashtag: { type: "STRING" },
     },
   };
-  if (only === "thread") return thread;
+  if (only === "thread") return optionalThread;
   if (only) return post;
   return {
     type: "OBJECT",
-    required: ["conversational", "punchy", "analytical", "thread"],
+    required: ["conversational", "punchy", "analytical"],
     properties: {
       conversational: post,
       punchy: post,
       analytical: post,
-      thread,
+      thread: optionalThread,
     },
   };
 }

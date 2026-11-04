@@ -5,7 +5,7 @@ import {
   type ProviderCard,
   type ProviderId,
 } from "@/lib/ai/catalog";
-import { retainedFailure, shownProviderStatus, type ProviderDiagnostic } from "@/lib/ai/diagnostics";
+import { providerReadout, retainedFailure, shownProviderStatus, type ProviderDiagnostic } from "@/lib/ai/diagnostics";
 import { credentialPresent, readAiEnv } from "@/lib/ai/runtime";
 import { columnMissing, schemaMissing, serviceClient } from "@/lib/db/client";
 import type { StampedAttempt } from "@/lib/drafts/chain";
@@ -16,6 +16,7 @@ type AttemptRow = {
   provider: ProviderId;
   status: "success" | "failure" | "rejected";
   called: boolean;
+  task: string;
   failure_reason: string | null;
   diagnostic: ProviderDiagnostic | null;
   completed_at: string;
@@ -59,24 +60,24 @@ async function rowsSince(startIso: string) {
   if (!db) return { rows: [] as AttemptRow[], blocked: false };
   const selected = await db
     .from("ai_attempts")
-    .select("provider, status, called, failure_reason, diagnostic, completed_at, input_tokens, reasoning_tokens, output_tokens, total_tokens")
+    .select("provider, task, status, called, failure_reason, diagnostic, completed_at, input_tokens, reasoning_tokens, output_tokens, total_tokens")
     .gte("completed_at", startIso)
     .order("completed_at", { ascending: false });
   if (selected.error && columnMissing(selected.error.message)) {
     const plain = await db
       .from("ai_attempts")
-      .select("provider, status, called, failure_reason, diagnostic, completed_at, input_tokens, output_tokens")
+      .select("provider, task, status, called, failure_reason, diagnostic, completed_at, input_tokens, output_tokens")
       .gte("completed_at", startIso)
       .order("completed_at", { ascending: false });
     if (plain.error && columnMissing(plain.error.message)) {
       const older = await db
         .from("ai_attempts")
-        .select("provider, status, called, failure_reason, completed_at")
+        .select("provider, task, status, called, failure_reason, completed_at")
         .gte("completed_at", startIso)
         .order("completed_at", { ascending: false });
       if (older.error) return { rows: [] as AttemptRow[], blocked: !schemaMissing(older.error.message) };
       return {
-        rows: ((older.data ?? []) as Array<Pick<AttemptRow, "provider" | "status" | "called" | "failure_reason" | "completed_at">>).map((row) => ({
+        rows: ((older.data ?? []) as Array<Pick<AttemptRow, "provider" | "task" | "status" | "called" | "failure_reason" | "completed_at">>).map((row) => ({
           ...row,
           diagnostic: null,
           input_tokens: null,
@@ -118,9 +119,9 @@ export async function providerBoard(): Promise<{ paidUsage: boolean; providers: 
   const called = emptyCounts();
   const successful = emptyCounts();
   const failed = emptyCounts();
-  const lastCalledFailure: Record<ProviderId, string | null> = { groq: null, openrouter: null, gemini: null };
   const lastSkip: Record<ProviderId, string | null> = { groq: null, openrouter: null, gemini: null };
   const latestCalled: Record<ProviderId, AttemptRow | null> = { groq: null, openrouter: null, gemini: null };
+  const earlierFailure: Record<ProviderId, string | null> = { groq: null, openrouter: null, gemini: null };
   const providerLimits: Record<ProviderId, string | null> = { groq: null, openrouter: null, gemini: null };
   const lostOriginal: Record<ProviderId, boolean> = { groq: false, openrouter: false, gemini: false };
   for (const row of loaded.rows) {
@@ -131,15 +132,16 @@ export async function providerBoard(): Promise<{ paidUsage: boolean; providers: 
       if (!lastSkip[row.provider] && row.failure_reason) lastSkip[row.provider] = row.failure_reason;
       continue;
     }
-    if (!latestCalled[row.provider]) latestCalled[row.provider] = row;
+    const latest = latestCalled[row.provider];
+    if (!latest) latestCalled[row.provider] = row;
+    else if ((latest.status === "success" || latest.status === "rejected") && row.status === "failure" && !earlierFailure[row.provider]) {
+      const retained = retainedFailure(row.failure_reason, row.diagnostic);
+      earlierFailure[row.provider] = retained?.text ?? row.failure_reason;
+    }
     called[row.provider] += 1;
     if (row.status === "success") successful[row.provider] += 1;
     else failed[row.provider] += 1;
-    if (!lastCalledFailure[row.provider] && row.status !== "success") {
-      const retained = retainedFailure(row.failure_reason, row.diagnostic);
-      lastCalledFailure[row.provider] = retained?.text ?? row.failure_reason;
-      lostOriginal[row.provider] = retained?.retained === false && row.failure_reason === "unavailable";
-    }
+    if (row.status === "failure" && row.failure_reason === "unavailable" && !latest) lostOriginal[row.provider] = true;
   }
   const usageUnreadable = !usage.ok;
   const historical = usage.ok ? usage.totals.geminiRequests : env.daily.gemini;
@@ -154,6 +156,17 @@ export async function providerBoard(): Promise<{ paidUsage: boolean; providers: 
     providers: plans.map((plan) => {
       const requestsToday = used[plan.id];
       const latest = latestCalled[plan.id];
+      const readout = providerReadout({
+        latest: latest
+          ? {
+              status: latest.status,
+              task: latest.task,
+              completedAt: latest.completed_at,
+              reason: latest.status === "failure" ? (retainedFailure(latest.failure_reason, latest.diagnostic)?.text ?? latest.failure_reason) : null,
+            }
+          : null,
+        earlierFailure: earlierFailure[plan.id],
+      });
       const checked = Boolean(latest);
       const succeeded = latest?.status === "success" || latest?.status === "rejected";
       const baseNote = modelNote(plan);
@@ -180,7 +193,9 @@ export async function providerBoard(): Promise<{ paidUsage: boolean; providers: 
         requestsToday,
         successfulRequests: successful[plan.id],
         failedRequests: failed[plan.id],
-        lastFailure: lastCalledFailure[plan.id] ?? lastSkip[plan.id],
+        latestResult: readout.latestResult ?? lastSkip[plan.id],
+        latestKind: readout.latestKind,
+        earlierFailure: readout.earlierFailure,
         status: shownProviderStatus({
           credential: credentialPresent(plan.id, env),
           callable: plan.callable,

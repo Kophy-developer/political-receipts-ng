@@ -82,7 +82,9 @@ export type ProviderCard = {
   requestsToday: number;
   successfulRequests: number;
   failedRequests: number;
-  lastFailure: string | null;
+  latestResult: string | null;
+  latestKind: "success" | "failure" | "none";
+  earlierFailure: string | null;
   status: ProviderStatus;
   note: string | null;
   dailyAllowance: number;
