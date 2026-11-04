@@ -3,6 +3,7 @@ import { estimatedCostUsd, type ProviderPlan } from "@/lib/ai/catalog";
 import { buildDiagnostic, editorMessage, type ProviderDiagnostic } from "@/lib/ai/diagnostics";
 import { chatDraftBody, chatHealthBody, geminiBody, geminiEndpoint, groqChatEndpoint, openRouterChatEndpoint } from "@/lib/ai/payload";
 import type { ProviderCallResult, ProviderRequest } from "@/lib/ai/route";
+import { healthObjectOk, readChatGenerated, readGeminiGenerated, responseShape } from "@/lib/ai/structured";
 
 function timeoutError(error: unknown) {
   if (!error || typeof error !== "object") return false;
@@ -16,39 +17,6 @@ function headerRecord(response: Response) {
     headers[key] = value;
   });
   return headers;
-}
-
-function parseJsonObject(text: string) {
-  const trimmed = text.trim();
-  const candidates = [trimmed];
-  const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  if (fenced?.[1]) candidates.push(fenced[1].trim());
-  const start = trimmed.indexOf("{");
-  const end = trimmed.lastIndexOf("}");
-  if (start >= 0 && end > start) candidates.push(trimmed.slice(start, end + 1));
-  for (const candidate of candidates) {
-    try {
-      const parsed = JSON.parse(candidate) as unknown;
-      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return parsed;
-    } catch {
-      continue;
-    }
-  }
-  return null;
-}
-
-function contentText(content: unknown): string {
-  if (typeof content === "string") return content;
-  if (!Array.isArray(content)) return "";
-  return content
-    .map((part) => {
-      if (typeof part === "string") return part;
-      if (part && typeof part === "object" && "text" in part && typeof (part as { text?: unknown }).text === "string") {
-        return (part as { text: string }).text;
-      }
-      return "";
-    })
-    .join("");
 }
 
 function tokenCount(value: unknown) {
@@ -129,19 +97,19 @@ async function chat(
       model: plan.model,
     }), usage);
   }
-  const content = (parsed as { choices?: Array<{ message?: { content?: unknown } }> } | null)?.choices?.[0]?.message?.content;
-  const data = parseJsonObject(contentText(content));
-  if (!data) {
+  const generated = readChatGenerated(parsed);
+  if (!generated.data || (request.mode === "health" && !healthObjectOk(generated.data))) {
     return failed(buildDiagnostic({
       httpStatus: response.status,
       headers: responseHeaders,
       endpoint: url,
       model: plan.model,
       invalidResponse: true,
-      message: "The response was not a JSON object.",
+      shape: responseShape(generated),
+      message: generated.data ? "The assistant JSON did not contain ok: true." : "The assistant content was not a JSON object.",
     }), usage);
   }
-  return { ok: true, data, failureReason: null, diagnostic: null, ...usage };
+  return { ok: true, data: generated.data, failureReason: null, diagnostic: null, ...usage };
 }
 
 async function gemini(plan: ProviderPlan, request: ProviderRequest, key: string, maxTokens: number, temperature: number): Promise<ProviderCallResult> {
@@ -189,19 +157,19 @@ async function gemini(plan: ProviderPlan, request: ProviderRequest, key: string,
   if (!response.ok) {
     return failed(buildDiagnostic({ httpStatus: response.status, body: parsed, headers: responseHeaders, endpoint, model: plan.model }), usage);
   }
-  const text = (parsed as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> } | null)?.candidates?.[0]?.content?.parts?.map((part) => part.text || "").join("") ?? "";
-  const data = parseJsonObject(text);
-  if (!data) {
+  const generated = readGeminiGenerated(parsed);
+  if (!generated.data || (request.mode === "health" && !healthObjectOk(generated.data))) {
     return failed(buildDiagnostic({
       httpStatus: response.status,
       headers: responseHeaders,
       endpoint,
       model: plan.model,
       invalidResponse: true,
-      message: "The response was not a JSON object.",
+      shape: responseShape(generated),
+      message: generated.data ? "The assistant JSON did not contain ok: true." : "The assistant content was not a JSON object.",
     }), usage);
   }
-  return { ok: true, data, failureReason: null, diagnostic: null, ...usage };
+  return { ok: true, data: generated.data, failureReason: null, diagnostic: null, ...usage };
 }
 
 export async function callProvider(plan: ProviderPlan, request: ProviderRequest, limits?: { maxTokens?: number; temperature?: number }): Promise<ProviderCallResult> {

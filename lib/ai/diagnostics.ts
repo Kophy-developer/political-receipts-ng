@@ -29,6 +29,15 @@ export type DeskStatus =
   | "AUTH ERROR"
   | "DAILY APP LIMIT REACHED";
 
+export type ResponseShape = {
+  envelope: string;
+  choiceCount: number;
+  finishReason: string | null;
+  contentType: string;
+  contentLength: number;
+  contentPreview: string | null;
+};
+
 export type ProviderDiagnostic = {
   classification: FailureClass;
   httpStatus: number | null;
@@ -39,6 +48,7 @@ export type ProviderDiagnostic = {
   rateLimit: Record<string, string> | null;
   endpoint: string;
   model: string;
+  shape: ResponseShape | null;
 };
 
 const ORIGINAL_NOT_RETAINED = "Original provider error was not retained.";
@@ -126,6 +136,7 @@ export function buildDiagnostic(input: {
   network?: "timeout" | "network" | null;
   invalidResponse?: boolean;
   message?: string | null;
+  shape?: ResponseShape | null;
 }): ProviderDiagnostic {
   const classified = classifyProviderFailure(input);
   const headers = readProviderHeaders(input.headers ?? {});
@@ -139,6 +150,7 @@ export function buildDiagnostic(input: {
     rateLimit: headers.rateLimit,
     endpoint: input.endpoint,
     model: input.model,
+    shape: input.shape ?? null,
   };
 }
 
@@ -156,6 +168,9 @@ export function editorMessage(diagnostic: ProviderDiagnostic) {
     rate ? `Rate limit ${rate}` : null,
     `Endpoint ${diagnostic.endpoint}`,
     `Model ${diagnostic.model}`,
+    diagnostic.shape
+      ? `Envelope ${diagnostic.shape.envelope}. Choices ${diagnostic.shape.choiceCount}. Finish ${diagnostic.shape.finishReason ?? "none"}. Content ${diagnostic.shape.contentType}, ${diagnostic.shape.contentLength} characters.${diagnostic.shape.contentPreview ? ` Preview ${diagnostic.shape.contentPreview}` : ""}`
+      : null,
   ].filter((part) => part && part.trim()).join(". ");
 }
 

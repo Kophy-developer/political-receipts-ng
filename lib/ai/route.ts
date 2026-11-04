@@ -156,7 +156,7 @@ export async function generateStructuredContent(input: {
         ...base,
         diagnostic,
         status: "failure",
-        failureReason: sanitizeProviderMessage(raw.failureReason || editorMessage(diagnostic)),
+        failureReason: raw.diagnostic ? editorMessage(raw.diagnostic) : sanitizeProviderMessage(raw.failureReason || editorMessage(diagnostic)),
       });
       continue;
     }
