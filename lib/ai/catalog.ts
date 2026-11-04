@@ -1,3 +1,5 @@
+import type { DeskStatus } from "@/lib/ai/diagnostics";
+
 /**
  * Provider catalogue for draft generation.
  * No credentials are read here. Callers pass an environment snapshot.
@@ -15,7 +17,7 @@ export const DRAFT_PROVIDER_ORDER = ["groq", "openrouter", "gemini"] as const;
 
 export type ProviderId = (typeof DRAFT_PROVIDER_ORDER)[number];
 
-export type ProviderStatus = "AVAILABLE" | "LIMITED" | "DAILY APP LIMIT REACHED" | "UNAVAILABLE";
+export type ProviderStatus = DeskStatus;
 
 export const providerLabels: Record<ProviderId, string> = {
   groq: "Groq",
@@ -145,22 +147,10 @@ export function planDraftProviders(env: AiEnv, used: Record<ProviderId, number>)
   return DRAFT_PROVIDER_ORDER.map((provider) => planProvider(provider, env, used[provider] ?? 0));
 }
 
-export function providerStatus(plan: ProviderPlan, used: number, limit: number): ProviderStatus {
-  if (plan.skipReason === "daily allowance exhausted" || (plan.callable && used >= limit)) return "DAILY APP LIMIT REACHED";
-  if (!plan.callable) return "UNAVAILABLE";
-  if (limit > 0 && used / limit >= 0.8) return "LIMITED";
-  return "AVAILABLE";
-}
-
 export function modelNote(plan: ProviderPlan) {
   const live = "Availability was not checked with a live request.";
   if (plan.modelSource === "environment") return `Set by ${plan.id === "groq" ? "GROQ_MODEL" : plan.id === "openrouter" ? "OPENROUTER_MODEL" : "GEMINI_MODEL"}. ${live}`;
   if (plan.id === "groq") return `Default ${plan.model}, from Groq's published free-tier rate limits. ${live}`;
   if (plan.id === "openrouter") return `Default ${plan.model}, OpenRouter's free router. It is not switched onto a paid model. ${live}`;
   return `Default ${plan.model}, the extraction model already configured for this desk. ${live}`;
-}
-
-export function scrubProviderText(message: string) {
-  if (/key|token|bearer|authorization|api[_ -]?key|secret/i.test(message)) return "The provider request was rejected.";
-  return message.replace(/\s+/g, " ").trim().slice(0, 300) || "The provider request failed.";
 }

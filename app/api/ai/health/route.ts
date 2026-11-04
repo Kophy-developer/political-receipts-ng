@@ -59,11 +59,20 @@ export async function POST(request: Request) {
     });
   }
   const consumed = "This check used one request.";
+  const diagnostic = attempt.diagnostic;
   return Response.json({
     ok: routed.ok,
     called: true,
     provider,
     model: plan.model,
+    classification: diagnostic?.classification ?? null,
+    httpStatus: diagnostic?.httpStatus ?? null,
+    providerCode: diagnostic?.providerCode ?? null,
+    providerType: diagnostic?.providerType ?? null,
+    providerMessage: diagnostic?.message ?? null,
+    requestId: diagnostic?.requestId ?? null,
+    endpoint: diagnostic?.endpoint ?? null,
+    rateLimit: diagnostic?.rateLimit ?? null,
     message: routed.ok ? `Available. ${consumed}` : `${attempt.failureReason ?? "The check failed."} ${consumed}`,
   });
 }

@@ -2,12 +2,12 @@ import "server-only";
 import {
   modelNote,
   planDraftProviders,
-  providerStatus,
   type ProviderCard,
   type ProviderId,
 } from "@/lib/ai/catalog";
+import { retainedFailure, shownProviderStatus, type ProviderDiagnostic } from "@/lib/ai/diagnostics";
 import { credentialPresent, readAiEnv } from "@/lib/ai/runtime";
-import { schemaMissing, serviceClient } from "@/lib/db/client";
+import { columnMissing, schemaMissing, serviceClient } from "@/lib/db/client";
 import type { StampedAttempt } from "@/lib/drafts/chain";
 import { lagosDayStart } from "@/lib/intel/limits";
 import { usageSince } from "@/lib/db/usage";
@@ -17,6 +17,7 @@ type AttemptRow = {
   status: "success" | "failure" | "rejected";
   called: boolean;
   failure_reason: string | null;
+  diagnostic: ProviderDiagnostic | null;
   completed_at: string;
 };
 
@@ -35,6 +36,7 @@ export async function persistAttempts(rows: StampedAttempt[]) {
     status: row.status,
     called: row.called,
     failure_reason: row.failureReason,
+    diagnostic: row.diagnostic,
     input_tokens: row.inputTokens,
     output_tokens: row.outputTokens,
     estimated_cost_usd: row.estimatedCostUsd,
@@ -49,13 +51,22 @@ export async function persistAttempts(rows: StampedAttempt[]) {
 async function rowsSince(startIso: string) {
   const db = serviceClient();
   if (!db) return { rows: [] as AttemptRow[], blocked: false };
-  const { data, error } = await db
+  const selected = await db
     .from("ai_attempts")
-    .select("provider, status, called, failure_reason, completed_at")
+    .select("provider, status, called, failure_reason, diagnostic, completed_at")
     .gte("completed_at", startIso)
     .order("completed_at", { ascending: false });
-  if (error) return { rows: [] as AttemptRow[], blocked: !schemaMissing(error.message) };
-  return { rows: (data ?? []) as AttemptRow[], blocked: false };
+  if (selected.error && columnMissing(selected.error.message)) {
+    const plain = await db
+      .from("ai_attempts")
+      .select("provider, status, called, failure_reason, completed_at")
+      .gte("completed_at", startIso)
+      .order("completed_at", { ascending: false });
+    if (plain.error) return { rows: [] as AttemptRow[], blocked: !schemaMissing(plain.error.message) };
+    return { rows: ((plain.data ?? []) as Array<Omit<AttemptRow, "diagnostic">>).map((row) => ({ ...row, diagnostic: null })), blocked: false };
+  }
+  if (selected.error) return { rows: [] as AttemptRow[], blocked: !schemaMissing(selected.error.message) };
+  return { rows: (selected.data ?? []) as AttemptRow[], blocked: false };
 }
 
 export async function providerBoard(): Promise<{ paidUsage: boolean; providers: ProviderCard[] }> {
@@ -67,15 +78,22 @@ export async function providerBoard(): Promise<{ paidUsage: boolean; providers: 
   const failed = emptyCounts();
   const lastCalledFailure: Record<ProviderId, string | null> = { groq: null, openrouter: null, gemini: null };
   const lastSkip: Record<ProviderId, string | null> = { groq: null, openrouter: null, gemini: null };
+  const latestCalled: Record<ProviderId, AttemptRow | null> = { groq: null, openrouter: null, gemini: null };
+  const lostOriginal: Record<ProviderId, boolean> = { groq: false, openrouter: false, gemini: false };
   for (const row of loaded.rows) {
     if (!row.called) {
       if (!lastSkip[row.provider] && row.failure_reason) lastSkip[row.provider] = row.failure_reason;
       continue;
     }
+    if (!latestCalled[row.provider]) latestCalled[row.provider] = row;
     called[row.provider] += 1;
     if (row.status === "success") successful[row.provider] += 1;
     else failed[row.provider] += 1;
-    if (!lastCalledFailure[row.provider] && row.status !== "success" && row.failure_reason) lastCalledFailure[row.provider] = row.failure_reason;
+    if (!lastCalledFailure[row.provider] && row.status !== "success") {
+      const retained = retainedFailure(row.failure_reason, row.diagnostic);
+      lastCalledFailure[row.provider] = retained?.text ?? row.failure_reason;
+      lostOriginal[row.provider] = retained?.retained === false && row.failure_reason === "unavailable";
+    }
   }
   const usageUnreadable = !usage.ok;
   const historical = usage.ok ? usage.totals.geminiRequests : env.daily.gemini;
@@ -89,24 +107,44 @@ export async function providerBoard(): Promise<{ paidUsage: boolean; providers: 
     paidUsage: env.paidUsage,
     providers: plans.map((plan) => {
       const requestsToday = used[plan.id];
+      const latest = latestCalled[plan.id];
+      const checked = Boolean(latest);
+      const succeeded = latest?.status === "success" || latest?.status === "rejected";
+      const baseNote = modelNote(plan);
+      const liveNote = !checked
+        ? baseNote
+        : succeeded
+          ? baseNote.replace("Availability was not checked with a live request.", "A live request succeeded.")
+          : baseNote.replace("Availability was not checked with a live request.", "A live request was made and did not establish availability.");
       const note = plan.skipReason === "paid route blocked"
         ? "This model is not a free route. It is skipped while AI paid usage is off."
-        : plan.id === "gemini" && usageUnreadable
-          ? "The earlier Gemini log could not be read, so Gemini is held until it can be."
-          : plan.id === "gemini" && historical > 0
-            ? `Earlier Gemini log: ${historical} request${historical === 1 ? "" : "s"}. That log was not rewritten and does not split success from failure.`
-            : null;
+        : lostOriginal[plan.id]
+          ? "Original provider error was not retained."
+          : plan.id === "gemini" && usageUnreadable
+            ? "The earlier Gemini log could not be read, so Gemini is held until it can be."
+            : plan.id === "gemini" && historical > 0
+              ? `Earlier Gemini log: ${historical} request${historical === 1 ? "" : "s"}. That log was not rewritten and does not split success from failure.`
+              : null;
       return {
         id: plan.id,
         label: plan.label,
         credential: credentialPresent(plan.id, env),
         model: plan.model,
-        modelNote: modelNote(plan),
+        modelNote: liveNote,
         requestsToday,
         successfulRequests: successful[plan.id],
         failedRequests: failed[plan.id],
         lastFailure: lastCalledFailure[plan.id] ?? lastSkip[plan.id],
-        status: providerStatus(plan, used[plan.id], env.daily[plan.id]),
+        status: shownProviderStatus({
+          credential: credentialPresent(plan.id, env),
+          callable: plan.callable,
+          skipReason: plan.skipReason,
+          used: used[plan.id],
+          limit: env.daily[plan.id],
+          latest: latest
+            ? { status: latest.status, reason: latest.failure_reason, diagnostic: latest.diagnostic }
+            : null,
+        }),
         note,
       };
     }),

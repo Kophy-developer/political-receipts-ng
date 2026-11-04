@@ -351,7 +351,7 @@ function ProviderCardView({ provider }: { provider: ProviderCard }) {
         </div>
         <div>
           <dt className="font-mono text-[10px] tracking-[0.12em] text-ink-soft uppercase">Last failure</dt>
-          <dd>{provider.lastFailure ?? "None"}</dd>
+          <dd className="break-words">{provider.lastFailure ?? "None"}</dd>
         </div>
         <div>
           <dt className="font-mono text-[10px] tracking-[0.12em] text-ink-soft uppercase">Status</dt>

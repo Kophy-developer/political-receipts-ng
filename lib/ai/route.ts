@@ -1,9 +1,9 @@
 import {
   estimatedCostUsd,
-  scrubProviderText,
   type ProviderId,
   type ProviderPlan,
 } from "@/lib/ai/catalog";
+import { buildDiagnostic, editorMessage, sanitizeProviderMessage, type ProviderDiagnostic } from "@/lib/ai/diagnostics";
 
 export type { ProviderPlan };
 
@@ -15,12 +15,14 @@ export type ProviderRequest = {
   schema: unknown;
   evidence?: unknown;
   timeoutMs: number;
+  mode: "health" | "generate";
 };
 
 export type ProviderCallResult = {
   ok: boolean;
   data?: unknown;
   failureReason: string | null;
+  diagnostic: ProviderDiagnostic | null;
   inputTokens: number | null;
   outputTokens: number | null;
   estimatedCostUsd: number | null;
@@ -34,6 +36,7 @@ export type AttemptRecord = {
   called: boolean;
   status: "success" | "failure" | "rejected";
   failureReason: string | null;
+  diagnostic: ProviderDiagnostic | null;
   startedAt: string;
   completedAt: string;
   latencyMs: number;
@@ -83,6 +86,7 @@ export async function generateStructuredContent(input: {
     schema: input.schema,
     evidence: input.evidence,
     timeoutMs: input.timeoutMs,
+    mode: input.task === "health" ? "health" : "generate",
   };
   const attempts: AttemptRecord[] = [];
   const seen = new Set<ProviderId>();
@@ -98,6 +102,7 @@ export async function generateStructuredContent(input: {
         called: false,
         status: "failure",
         failureReason: plan.skipReason,
+        diagnostic: null,
         startedAt: stamp(started),
         completedAt: stamp(completed),
         latencyMs: Math.max(0, completed - started),
@@ -111,9 +116,17 @@ export async function generateStructuredContent(input: {
     try {
       raw = await input.call(plan, request);
     } catch {
+      const diagnostic = buildDiagnostic({
+        httpStatus: null,
+        endpoint: "no response",
+        model: plan.model,
+        network: "network",
+        message: "The provider call did not return a response.",
+      });
       raw = {
         ok: false,
-        failureReason: "unavailable",
+        failureReason: editorMessage(diagnostic),
+        diagnostic,
         inputTokens: null,
         outputTokens: null,
         estimatedCostUsd: estimatedCostUsd(plan.id, plan.model),
@@ -130,25 +143,40 @@ export async function generateStructuredContent(input: {
       inputTokens: raw.inputTokens,
       outputTokens: raw.outputTokens,
       estimatedCostUsd: raw.estimatedCostUsd,
+      diagnostic: raw.diagnostic,
     };
     if (!raw.ok || raw.data === undefined) {
+      const diagnostic = raw.diagnostic ?? buildDiagnostic({
+        httpStatus: null,
+        endpoint: "no response",
+        model: plan.model,
+        message: raw.failureReason || "The provider did not return a usable response.",
+      });
       attempts.push({
         ...base,
+        diagnostic,
         status: "failure",
-        failureReason: scrubProviderText(raw.failureReason || "unavailable"),
+        failureReason: sanitizeProviderMessage(raw.failureReason || editorMessage(diagnostic)),
       });
       continue;
     }
     const verdict = input.accept(raw.data);
     if (verdict === "malformed") {
-      attempts.push({ ...base, status: "failure", failureReason: "malformed output" });
+      const diagnostic = buildDiagnostic({
+        httpStatus: 200,
+        endpoint: raw.diagnostic?.endpoint ?? "completed response",
+        model: plan.model,
+        invalidResponse: true,
+        message: "The JSON did not match the requested shape.",
+      });
+      attempts.push({ ...base, diagnostic, status: "failure", failureReason: editorMessage(diagnostic) });
       continue;
     }
     if (verdict === "rejected") {
-      attempts.push({ ...base, status: "rejected", failureReason: input.rejectionReason });
+      attempts.push({ ...base, diagnostic: null, status: "rejected", failureReason: input.rejectionReason });
       return { ok: false, rejected: true, provider: plan.id, model: plan.model, data: raw.data, attempts };
     }
-    attempts.push({ ...base, status: "success", failureReason: null });
+    attempts.push({ ...base, diagnostic: null, status: "success", failureReason: null });
     return { ok: true, rejected: false, provider: plan.id, model: plan.model, data: raw.data, attempts };
   }
   return { ok: false, rejected: false, provider: null, model: null, attempts };

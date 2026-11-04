@@ -70,11 +70,11 @@ function baseEnv(overrides: Partial<AiEnv> = {}): AiEnv {
 }
 
 function ok(data: unknown, extra: Partial<ProviderCallResult> = {}): ProviderCallResult {
-  return { ok: true, data, failureReason: null, inputTokens: 11, outputTokens: 22, estimatedCostUsd: 0, ...extra };
+  return { ok: true, data, failureReason: null, diagnostic: null, inputTokens: 11, outputTokens: 22, estimatedCostUsd: 0, ...extra };
 }
 
 function fail(reason: string): ProviderCallResult {
-  return { ok: false, failureReason: reason, inputTokens: null, outputTokens: null, estimatedCostUsd: null };
+  return { ok: false, failureReason: reason, diagnostic: null, inputTokens: null, outputTokens: null, estimatedCostUsd: null };
 }
 
 function clock() {
@@ -167,13 +167,13 @@ async function main() {
     groq: () => Promise.resolve(ok({ note: "not a draft" })),
     openrouter: () => Promise.resolve(ok(good)),
   });
-  check("malformed JSON tries the next provider", malformed.seen.join(",") === "groq,openrouter" && malformed.result.attempts[0]?.failureReason === "malformed output");
+  check("malformed JSON tries the next provider", malformed.seen.join(",") === "groq,openrouter" && (malformed.result.attempts[0]?.failureReason?.includes("INVALID_RESPONSE") ?? false));
 
   const thrown = await run(baseEnv(), zero, {
     groq: () => Promise.reject(new Error("socket")),
     openrouter: () => Promise.resolve(ok(good)),
   });
-  check("a thrown provider error tries the next provider once", thrown.seen.join(",") === "groq,openrouter" && thrown.result.attempts[0]?.failureReason === "unavailable");
+  check("a thrown provider error tries the next provider once", thrown.seen.join(",") === "groq,openrouter" && (thrown.result.attempts[0]?.failureReason?.includes("NETWORK_ERROR") ?? false));
 
   const rejected = await run(baseEnv(), zero, {
     groq: () => Promise.resolve(ok(bad)),
