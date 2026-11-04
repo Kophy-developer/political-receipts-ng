@@ -149,7 +149,9 @@ export async function reprocessStoredPosts(): Promise<ReprocessReport> {
     } else if (candidates.length === 0) {
       extraction = blank("not_run", "Extraction did not run. No actionable or discussion post was sent to the model.");
     } else if (remaining < 1) {
-      extraction = blank("failed", "AI extraction failed: the daily Gemini limit is reached.");
+      extraction = blank("failed", "AI extraction failed: the daily Gemini limit is reached. The posts were not sent.");
+    } else if (remaining < 2) {
+      extraction = blank("failed", "AI extraction failed: one Gemini request remains today, which is not enough to check the model and then read the posts. The posts were not sent.");
     } else if (!geminiConfigured()) {
       extraction = blank("failed", "AI extraction failed: Gemini is not configured.", geminiModelName());
     } else {
