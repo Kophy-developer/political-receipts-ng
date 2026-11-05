@@ -1,5 +1,7 @@
 import "server-only";
-import { characterCount, POST_LIMIT } from "@/lib/format";
+import { characterCount } from "@/lib/format";
+import { loadStoredCapability } from "@/lib/db/connections";
+import { textFits } from "@/lib/publish/capability";
 import { contentHash } from "@/lib/desk/hash";
 import { editorActor } from "@/lib/db/identity";
 import { checklist } from "@/lib/system";
@@ -53,10 +55,10 @@ export async function createApproval(input: {
   if (!checklistComplete(input.checks)) {
     return { ok: false as const, status: 400, message: "Every checklist line has to be confirmed on the server." };
   }
+  const capability = await loadStoredCapability();
+  const fit = textFits(input.text, capability);
+  if (!fit.ok) return { ok: false as const, status: 400, message: fit.reason };
   const count = characterCount(input.text);
-  if (count < 1 || count > POST_LIMIT) {
-    return { ok: false as const, status: 400, message: `The post must be 1–${POST_LIMIT} characters.` };
-  }
   const { data: draft, error } = await db
     .from("drafts")
     .select("id, claim_id, content, status")

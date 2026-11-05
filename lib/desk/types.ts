@@ -275,6 +275,8 @@ export type SystemHealth = {
     username: string | null;
     displayName: string | null;
     lastVerified: string | null;
+    subscriptionType: string | null;
+    subscriptionCheckedAt: string | null;
   };
   ai: "Claim extraction" | "Not configured";
   model: string | null;

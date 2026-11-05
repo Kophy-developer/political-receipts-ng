@@ -41,7 +41,7 @@ export async function systemHealth(): Promise<SystemHealth> {
     xOauth2: flags.oauth2,
     xOauth1: flags.oauth1,
     encryptionKey: encryptionReady(),
-    xAccount: { status: "Not verified", username: null, displayName: null, lastVerified: null },
+    xAccount: { status: "Not verified", username: null, displayName: null, lastVerified: null, subscriptionType: null, subscriptionCheckedAt: null },
     ai: geminiLabel(),
     model: geminiConfigured() ? geminiModelName() : null,
     monitoring: "Manual only",
@@ -78,6 +78,8 @@ export async function systemHealth(): Promise<SystemHealth> {
         username: connection.username,
         displayName: connection.displayName,
         lastVerified: connection.lastVerified,
+        subscriptionType: connection.subscriptionType,
+        subscriptionCheckedAt: connection.subscriptionCheckedAt,
       };
     }
   }

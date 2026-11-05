@@ -8,6 +8,7 @@ import { PageFrame } from "@/components/shell/page-frame";
 import { getClaim } from "@/lib/db/claims";
 import { loadFinalPost } from "@/lib/db/final-post";
 import { loadClaimDrafts } from "@/lib/db/drafting";
+import { loadStoredCapability } from "@/lib/db/connections";
 import Loading from "@/app/loading";
 
 export const metadata: Metadata = { title: "Story" };
@@ -32,7 +33,11 @@ async function StoryBody({ params }: { params: Promise<{ id: string }> }) {
     );
   }
   if (!result.claim) notFound();
-  const [finalPost, drafts] = await Promise.all([loadFinalPost(result.claim.id), loadClaimDrafts(result.claim.id)]);
+  const [finalPost, drafts, capability] = await Promise.all([
+    loadFinalPost(result.claim.id),
+    loadClaimDrafts(result.claim.id),
+    loadStoredCapability(),
+  ]);
   const suggestions = drafts
     .filter((draft) => draft.style !== "manual")
     .map((draft) => ({ id: draft.id, label: draft.label, text: draft.text }));
@@ -57,6 +62,7 @@ async function StoryBody({ params }: { params: Promise<{ id: string }> }) {
       finalText={finalPost?.text ?? ""}
       sources={(finalPost?.sources ?? []).join("\n")}
       suggestions={suggestions}
+      capability={capability}
     />
   );
 }

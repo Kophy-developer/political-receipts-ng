@@ -1,5 +1,5 @@
 import { characterCount } from "@/lib/format";
-import { currentPublishLimit, publishingCapability } from "@/lib/publish/capability";
+import { standardPostLimit, uncheckedCapability, type PublishCapability } from "@/lib/publish/capability";
 
 export type PostFormat = "unset" | "long" | "thread" | "short";
 
@@ -19,8 +19,8 @@ function sentencesIn(paragraph: string) {
     .filter(Boolean);
 }
 
-/** Packs whole sentences. A sentence longer than the limit stays whole. */
-export function splitForThread(text: string, limit = currentPublishLimit()) {
+/** Packs whole sentences into standard posts. A sentence longer than the limit stays whole. */
+export function splitForThread(text: string, limit = standardPostLimit) {
   const units = text
     .split(/\n\s*\n/)
     .map((part) => part.trim())
@@ -52,44 +52,52 @@ export function threadText(posts: string[]) {
   return posts.map((post) => post.trimEnd()).filter((post) => post.trim()).join("\n\n");
 }
 
-export function publishPlan(input: { text: string; format: PostFormat; posts?: string[] | null }): PublishPlan {
-  const limit = currentPublishLimit();
+export function openingFormat(text: string, capability: PublishCapability): PostFormat {
+  const count = characterCount(text);
+  if (capability.longForm && count > capability.standardPostLimit && count <= capability.maximum) return "long";
+  return "unset";
+}
+
+export function publishPlan(input: {
+  text: string;
+  format: PostFormat;
+  posts?: string[] | null;
+  capability?: PublishCapability;
+}): PublishPlan {
+  const capability = input.capability ?? uncheckedCapability;
   const text = input.text;
   const count = characterCount(text);
   if (!text.trim()) return { label: "Empty", send: false, posts: [], reason: "The final post is empty." };
-  const over = count > limit;
   if (input.format === "thread") {
     const posts = input.posts && input.posts.length > 0 ? input.posts : splitForThread(text).posts;
-    const oversize = posts.some((post) => characterCount(post) > limit);
+    const oversize = posts.some((post) => characterCount(post) > capability.standardPostLimit);
     return {
       label: `Thread (${posts.length} ${posts.length === 1 ? "post" : "posts"})`,
       send: false,
       posts,
       reason: oversize
-        ? "A thread post is still over the current limit, and thread publishing is not available yet. Nothing will be sent."
-        : "Thread publishing is not available yet. None of these posts will be sent.",
+        ? "A thread post is still over 280 characters. Automatic thread publishing: Not enabled. Nothing will be sent."
+        : "Automatic thread publishing: Not enabled. None of these posts will be sent.",
     };
   }
-  if (!over && input.format !== "long") {
-    return { label: "Single post", send: publishingCapability.singlePostPublishing, posts: [text], reason: null };
+  if (count > capability.maximum) {
+    return {
+      label: "Too long",
+      send: false,
+      posts: [text],
+      reason: `This post is ${count} characters. The current limit is ${capability.maximum}. It was not shortened, and it will not be sent.`,
+    };
   }
-  if (input.format === "unset") {
-    return { label: "Not chosen", send: false, posts: [text], reason: "Choose a post format before review." };
+  if (count <= capability.standardPostLimit) {
+    return { label: "Single post", send: true, posts: [text], reason: null };
   }
-  if (input.format === "long" || publishingCapability.longPostSupported !== "yes") {
-    if (input.format === "long") {
-      return {
-        label: "Long post",
-        send: false,
-        posts: [text],
-        reason: "Long-post publishing is not verified, so this will not be sent.",
-      };
-    }
+  if (capability.longForm && input.format !== "short") {
+    return { label: "Long post", send: true, posts: [text], reason: null };
   }
   return {
     label: "Single post",
     send: false,
     posts: [text],
-    reason: `This post is ${count} characters. The current publish limit is ${limit}. It was not shortened, and it will not be sent.`,
+    reason: `This post is ${count} characters. The standard limit is ${capability.standardPostLimit}. It was not shortened, and it will not be sent.`,
   };
 }

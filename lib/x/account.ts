@@ -1,27 +1,35 @@
 import "server-only";
+import { parseSubscriptionType, type SubscriptionType } from "@/lib/publish/capability";
 import { xUserRequest } from "@/lib/x/oauth1";
 import { scrubPublicMessage } from "@/lib/x/scrub";
 
-const meUrl = "https://api.twitter.com/2/users/me?user.fields=id,name,username";
+const identityUrl = "https://api.twitter.com/2/users/me?user.fields=id,name,username";
+const profileUrl = "https://api.twitter.com/2/users/me?user.fields=id,name,username,subscription_type";
 
 export type XAccount = {
   id: string;
   username: string;
   name: string;
+  subscriptionType: SubscriptionType | null;
 };
 
 function accountFrom(data: unknown): XAccount | null {
   if (!data || typeof data !== "object") return null;
-  const row = (data as { data?: { id?: unknown; username?: unknown; name?: unknown } }).data;
+  const row = (data as { data?: { id?: unknown; username?: unknown; name?: unknown; subscription_type?: unknown } }).data;
   if (!row || typeof row.id !== "string" || typeof row.username !== "string" || typeof row.name !== "string") return null;
   if (!/^\d+$/.test(row.id)) return null;
   if (!/^[A-Za-z0-9_]{1,15}$/.test(row.username)) return null;
   if (!row.name.trim() || row.name.length > 80) return null;
-  return { id: row.id, username: row.username, name: row.name.trim() };
+  return {
+    id: row.id,
+    username: row.username,
+    name: row.name.trim(),
+    subscriptionType: parseSubscriptionType(row.subscription_type),
+  };
 }
 
 export async function verifyOauth1Account() {
-  const result = await xUserRequest("GET", meUrl);
+  const result = await xUserRequest("GET", profileUrl);
   if (!result.ok) return result;
   const account = accountFrom(result.data);
   if (!account) return { ok: false as const, status: 502, message: "X did not return an account profile." };
@@ -31,7 +39,7 @@ export async function verifyOauth1Account() {
 export async function identifyBearer(accessToken: string) {
   let response: Response;
   try {
-    response = await fetch(meUrl, {
+    response = await fetch(identityUrl, {
       headers: { Authorization: `Bearer ${accessToken}` },
       cache: "no-store",
     });

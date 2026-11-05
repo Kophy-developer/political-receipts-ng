@@ -5,8 +5,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { characterCount } from "@/lib/format";
 import { checklist } from "@/lib/system";
-import { currentPublishLimit, longPostUnknownCopy, publishingCapability } from "@/lib/publish/capability";
-import { publishPlan, splitForThread, threadText, type PostFormat } from "@/lib/publish/format";
+import { standardPostLimit, urlPriceNote, type PublishCapability } from "@/lib/publish/capability";
+import { openingFormat, publishPlan, splitForThread, threadText, type PostFormat } from "@/lib/publish/format";
 import {
   completedStages,
   evidenceBrief,
@@ -39,12 +39,14 @@ export function StoryWorkspace({
   finalText,
   sources,
   suggestions,
+  capability,
 }: {
   claim: ClaimCard;
   finalPostId: string | null;
   finalText: string;
   sources: string;
   suggestions: Suggestion[];
+  capability: PublishCapability;
 }) {
   const router = useRouter();
   const editorRef = useRef<HTMLTextAreaElement>(null);
@@ -57,7 +59,7 @@ export function StoryWorkspace({
   const [showReview, setShowReview] = useState(false);
   const [checks, setChecks] = useState<Record<string, boolean>>({});
   const [confirming, setConfirming] = useState(false);
-  const [format, setFormat] = useState<PostFormat>("unset");
+  const [format, setFormat] = useState<PostFormat>(() => openingFormat(finalText, capability));
   const [threadPosts, setThreadPosts] = useState<string[] | null>(null);
   const facts = {
     hasConversation: Boolean(claim.postText),
@@ -69,11 +71,12 @@ export function StoryWorkspace({
   const detected = storyStage(facts);
   const current: StoryStage = showReview || confirming ? "review" : detected === "review" && !showReview ? "write" : detected;
   const done = new Set(completedStages(showReview || confirming ? "review" : detected));
-  const limit = currentPublishLimit();
   const workingText = format === "thread" && threadPosts ? threadText(threadPosts) : text;
   const count = characterCount(workingText);
-  const over = count > limit;
-  const plan = publishPlan({ text: workingText, format: over ? format : "short", posts: threadPosts });
+  const aboveStandard = count > capability.standardPostLimit;
+  const blocked = count > capability.maximum;
+  const longRange = capability.longForm && aboveStandard && !blocked;
+  const plan = publishPlan({ text: workingText, format, posts: threadPosts, capability });
   const dirty = workingText !== savedText;
   const brief = evidenceBrief(claim.evidence, claim.recorded);
   const accepted = claim.evidence.filter((item) => item.review === "accepted");
@@ -110,7 +113,7 @@ export function StoryWorkspace({
 
   function takeSuggestion(value: string) {
     setText(value);
-    setFormat("unset");
+    setFormat(openingFormat(value, capability));
     setThreadPosts(null);
   }
 
@@ -121,6 +124,11 @@ export function StoryWorkspace({
 
   function chooseShort() {
     setFormat("short");
+    setThreadPosts(null);
+  }
+
+  function chooseLong() {
+    setFormat("long");
     setThreadPosts(null);
   }
 
@@ -175,7 +183,7 @@ export function StoryWorkspace({
           <section className="border border-ink px-4 py-5 sm:px-5">
             <h2 className="font-mono text-[11px] tracking-[0.16em] uppercase">Final post</h2>
             <p className="mt-2 text-sm text-ink-soft">This is the text that can be published. Saving it does not change the AI suggestions.</p>
-            <p className={`mt-3 font-mono text-[11px] ${over ? "text-stamp" : "text-ink-soft"}`}>{count} / {limit}</p>
+            <p className={`mt-3 font-mono text-[11px] ${blocked || (aboveStandard && !longRange) ? "text-stamp" : "text-ink-soft"}`}>{count} / {capability.maximum}</p>
             {format === "thread" && threadPosts ? (
               <ol className="mt-4 space-y-3">
                 {threadPosts.map((post, index) => (
@@ -192,7 +200,7 @@ export function StoryWorkspace({
                       rows={5}
                       className="mt-1 w-full border border-rule bg-paper px-3 py-3 text-sm leading-relaxed outline-none focus:border-ink"
                     />
-                    <p className={`mt-1 font-mono text-[11px] ${characterCount(post) > limit ? "text-stamp" : "text-ink-soft"}`}>{characterCount(post)} / {limit}</p>
+                    <p className={`mt-1 font-mono text-[11px] ${characterCount(post) > standardPostLimit ? "text-stamp" : "text-ink-soft"}`}>{characterCount(post)} / {standardPostLimit}</p>
                   </li>
                 ))}
               </ol>
@@ -206,32 +214,32 @@ export function StoryWorkspace({
                 className="mt-4 w-full border border-rule bg-paper px-3 py-3 text-sm leading-relaxed outline-none focus:border-ink"
               />
             )}
-            {over ? (
+            {aboveStandard ? (
               <div className="mt-4 border border-stamp px-4 py-4">
-                <p className="font-mono text-[11px] tracking-[0.14em] text-stamp uppercase">Longer than current publish limit</p>
-                <p className="mt-2 text-sm leading-relaxed">{longPostUnknownCopy}</p>
-                <fieldset className="mt-4">
-                  <legend className="font-mono text-[11px] tracking-[0.14em] uppercase">Post format</legend>
-                  <div className="mt-3 space-y-3 text-sm">
-                    <label className="flex items-start gap-2 text-ink-soft">
-                      <input type="radio" name="post-format" disabled checked={false} />
-                      <span>Long post. Disabled. {publishingCapability.longPostSupported === "unknown" ? "API publishing support is not verified." : "This account cannot send one."}</span>
-                    </label>
-                    <label className="flex items-start gap-2">
-                      <input type="radio" name="post-format" checked={format === "thread"} onChange={chooseThread} />
-                      <span>Thread. Splits on sentences, then you can edit each post. Nothing in the thread is sent.</span>
+                <p className="font-mono text-[11px] tracking-[0.14em] text-stamp uppercase">{blocked ? "Longer than the current limit" : "Post format"}</p>
+                <fieldset className="mt-3">
+                  <legend className="sr-only">Post format</legend>
+                  <div className="space-y-3 text-sm">
+                    <label className={`flex items-start gap-2 ${capability.longForm && !blocked ? "" : "text-ink-soft"}`}>
+                      <input type="radio" name="post-format" disabled={!capability.longForm || blocked} checked={format === "long" || (longRange && format !== "short" && format !== "thread")} onChange={chooseLong} />
+                      <span>{capability.longForm && !blocked ? "Long post." : "Long post. Disabled until the connected account is checked and allowed to send one."}</span>
                     </label>
                     <label className="flex items-start gap-2">
                       <input type="radio" name="post-format" checked={format === "short"} onChange={chooseShort} />
-                      <span>Shorten to one post. The text is not cut for you.</span>
+                      <span>Shorten to one standard post. The text is not cut for you.</span>
+                    </label>
+                    <label className="flex items-start gap-2">
+                      <input type="radio" name="post-format" checked={format === "thread"} onChange={chooseThread} />
+                      <span>Thread. You can edit each post. Automatic thread publishing: Not enabled.</span>
                     </label>
                   </div>
                 </fieldset>
-                {format !== "unset" ? <p className="mt-3 text-sm">Publishing as {plan.label}. {plan.reason}</p> : <p className="mt-3 text-sm">Choose a format here. The choice is not left until review.</p>}
+                <p className="mt-3 text-sm">Publishing as {plan.label}.{plan.reason ? ` ${plan.reason}` : ""}</p>
               </div>
             ) : (
               <p className="mt-3 text-sm text-ink-soft">Publishing as a single post.</p>
             )}
+            {/https?:\/\//.test(workingText) ? <p className="mt-3 text-sm text-ink-soft">{urlPriceNote} The text is still sent exactly as written.</p> : null}
             <div className="mt-3 flex flex-wrap gap-2">
               <button type="button" onClick={() => void save()} disabled={busy || !workingText.trim()} className="inline-flex h-10 items-center bg-ink px-4 text-sm text-paper disabled:opacity-50">
                 {busy ? "Saving…" : "Save final post"}
@@ -244,7 +252,7 @@ export function StoryWorkspace({
 
             <details className="mt-6 border-t border-rule pt-4">
               <summary className="cursor-pointer text-sm">Supporting sources, optional</summary>
-              <p className="mt-2 text-sm text-ink-soft">Up to four https links. They stay out of the final post. The current publish gate does not send them.</p>
+              <p className="mt-2 text-sm text-ink-soft">Up to four https links. They stay out of the final post and are not added after approval. {urlPriceNote}</p>
               <textarea
                 value={sourceText}
                 onChange={(event) => setSourceText(event.target.value)}
@@ -275,7 +283,7 @@ export function StoryWorkspace({
 
             <button
               type="button"
-              disabled={!savedText.trim() || dirty || (over && format === "unset")}
+              disabled={!savedText.trim() || dirty || (aboveStandard && !longRange && !blocked && format === "unset")}
               onClick={() => { setShowReview(true); setConfirming(false); }}
               className="mt-6 inline-flex h-11 items-center bg-ink px-4 text-sm text-paper disabled:opacity-50"
             >
@@ -293,7 +301,7 @@ export function StoryWorkspace({
                   <li key={`${index}-${post.slice(0, 16)}`} className="border border-rule px-3 py-3">
                     <p className="font-mono text-[10px] tracking-[0.12em] uppercase">{plan.posts.length > 1 ? `Post ${index + 1}` : "Exact text"}</p>
                     <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed">{post}</p>
-                    <p className="mt-2 font-mono text-[11px] text-ink-soft">{characterCount(post)} / {limit}</p>
+                    <p className="mt-2 font-mono text-[11px] text-ink-soft">{characterCount(post)} / {plan.posts.length > 1 ? standardPostLimit : capability.maximum}</p>
                   </li>
                 ))}
               </ol>
@@ -335,13 +343,12 @@ export function StoryWorkspace({
               {confirming ? (
                 <div className="mt-5 border border-ink px-4 py-4">
                   <p className="font-mono text-[11px] tracking-[0.14em] uppercase">Exact payload</p>
-                  <ol className="mt-3 space-y-3">
-                    {plan.posts.map((post, index) => (
-                      <li key={`confirm-${index}`} className="whitespace-pre-wrap text-sm leading-relaxed">{plan.posts.length > 1 ? `Post ${index + 1}: ${post}` : post}</li>
-                    ))}
-                  </ol>
+                  <p className="mt-2 text-sm text-ink-soft">This is the text field sent to POST /2/tweets. It is not shortened, rewritten, or given a hashtag or a source link after approval.</p>
                   {plan.send && !dirty ? (
-                    <ConfirmSend claimId={claim.id} draftId={draftId} text={savedText} />
+                    <>
+                      <p className="mt-3 whitespace-pre-wrap text-sm leading-relaxed">{savedText}</p>
+                      <ConfirmSend claimId={claim.id} draftId={draftId} text={savedText} />
+                    </>
                   ) : (
                     <p className="mt-3 text-sm">{plan.reason ?? "Save the final post before it can be sent."} Nothing has been sent.</p>
                   )}
@@ -357,10 +364,10 @@ export function StoryWorkspace({
             <ol className="mt-3 space-y-3">
               {plan.posts.map((post, index) => (
                 <li key={`${index}-${post.slice(0, 12)}`} className="border border-rule px-3 py-3">
-                  <p className="font-mono text-[10px] tracking-[0.12em] uppercase">{plan.posts.length > 1 ? `Post ${index + 1}` : "Single post"}</p>
+                    <p className="font-mono text-[10px] tracking-[0.12em] uppercase">{plan.posts.length > 1 ? `Post ${index + 1}` : plan.label}</p>
                   <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed">{post}</p>
-                  <p className={`mt-2 font-mono text-[11px] ${characterCount(post) > limit ? "text-stamp" : "text-ink-soft"}`}>
-                    {characterCount(post)} / {limit}
+                  <p className={`mt-2 font-mono text-[11px] ${characterCount(post) > (plan.posts.length > 1 ? standardPostLimit : capability.maximum) ? "text-stamp" : "text-ink-soft"}`}>
+                    {characterCount(post)} / {plan.posts.length > 1 ? standardPostLimit : capability.maximum}
                   </p>
                 </li>
               ))}

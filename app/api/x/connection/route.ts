@@ -1,4 +1,4 @@
-import { markConnectionVerified } from "@/lib/db/connections";
+import { recordAccountProfile } from "@/lib/db/connections";
 import { verifyOauth1Account } from "@/lib/x/account";
 import { credentialFlags } from "@/lib/x/env";
 import { assertEditorPost, reserveAccountRead } from "@/lib/x/guard";
@@ -25,17 +25,25 @@ export async function POST(request: Request) {
   const stamp = seal({ at: Date.now() } satisfies CheckCookie);
   const cookie = stamp ? writeCookie("prng_x_check", stamp, "/api/x", 60) : undefined;
   if (!result.ok) return json({ ok: false, connected: false, message: result.message }, result.status >= 400 ? result.status : 502, cookie);
-  await markConnectionVerified(result.account.username);
+  const stored = await recordAccountProfile({
+    xUserId: result.account.id,
+    username: result.account.username,
+    displayName: result.account.name,
+    subscriptionType: result.account.subscriptionType,
+  });
   return json(
     {
       ok: true,
       connected: true,
       username: result.account.username,
       name: result.account.name,
+      subscriptionType: result.account.subscriptionType,
+      subscriptionCheckedAt: stored.ok ? stored.checkedAt : new Date().toISOString(),
+      stored: stored.ok,
       method: "OAuth 1.0a user context",
       read: true,
       write: "not_exercised",
-      checkedAt: new Date().toISOString(),
+      checkedAt: stored.ok ? stored.checkedAt : new Date().toISOString(),
     },
     200,
     cookie,

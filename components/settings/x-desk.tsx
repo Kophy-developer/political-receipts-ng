@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { buttonVariants } from "@/components/ui/button";
 import { Button } from "@/components/ui/button";
 import { xCallbackUrl } from "@/lib/x/public";
+import { XCapability } from "@/components/settings/x-capability";
 import { cn } from "cn";
 
 export type XFlags = {
@@ -17,10 +18,18 @@ type Check = {
   connected: boolean;
   username: string;
   name: string;
+  subscriptionType: string | null;
+  subscriptionCheckedAt: string | null;
   method: string;
   read: boolean;
   write: "not_exercised";
   checkedAt: string;
+};
+
+export type StoredXAccount = {
+  username: string | null;
+  subscriptionType: string | null;
+  subscriptionCheckedAt: string | null;
 };
 
 const reasons: Record<string, string> = {
@@ -48,7 +57,7 @@ function lagosStamp(iso: string) {
   }).format(date)} WAT`;
 }
 
-export function XDesk({ flags }: { flags: XFlags }) {
+export function XDesk({ flags, account }: { flags: XFlags; account: StoredXAccount }) {
   const params = useSearchParams();
   const handshake = params.get("x") === "handshake" ? safeHandle(params.get("handle")) : null;
   const reason = params.get("x") && params.get("x") !== "handshake" ? reasons[params.get("x") ?? ""] : null;
@@ -65,13 +74,15 @@ export function XDesk({ flags }: { flags: XFlags }) {
       const data = (await response.json().catch(() => ({}))) as Partial<Check> & { message?: string; ok?: boolean };
       if (!response.ok || !data.ok || !data.username || !data.name || !data.checkedAt) {
         setCheck(null);
-        setError(typeof data.message === "string" ? data.message.slice(0, 180) : "The connection check failed.");
+        setError(typeof data.message === "string" ? data.message.slice(0, 180) : "The account refresh failed.");
         return;
       }
       setCheck({
         connected: true,
         username: data.username,
         name: data.name,
+        subscriptionType: typeof data.subscriptionType === "string" ? data.subscriptionType : null,
+        subscriptionCheckedAt: typeof data.subscriptionCheckedAt === "string" ? data.subscriptionCheckedAt : data.checkedAt,
         method: data.method || "OAuth 1.0a user context",
         read: true,
         write: "not_exercised",
@@ -96,7 +107,7 @@ export function XDesk({ flags }: { flags: XFlags }) {
         <Status label="Publishing" value={publishing ? "Enabled" : "Closed"} on={publishing} />
       </dl>
       <p className="mt-4 text-sm leading-relaxed text-ink-soft">
-        Credentials on the server are not a connection. The account is verified only when you run the check below. That check reads the profile. It does not post, like, repost, follow, or delete.
+        Credentials on the server are not a connection. Refresh X account reads the profile, including subscription type. It does not run when this page opens, and it does not post.
       </p>
       <div className="mt-4 border border-rule bg-paper px-4 py-4">
         <p className="font-mono text-[10px] tracking-[0.16em] text-ink-soft uppercase">OAuth 1.0a account</p>
@@ -113,7 +124,7 @@ export function XDesk({ flags }: { flags: XFlags }) {
         </dl>
         {error ? <p className="mt-3 text-sm text-stamp">{error}</p> : null}
         <Button type="button" className="mt-4 h-10" disabled={!flags.oauth1 || checking} onClick={testConnection}>
-          {checking ? "Checking…" : "Test connection"}
+          {checking ? "Refreshing…" : "Refresh X account"}
         </Button>
         {!flags.oauth1 ? (
           <p className="mt-2 text-xs text-ink-soft">The OAuth 1.0a credentials are not present on the server.</p>
@@ -154,6 +165,11 @@ export function XDesk({ flags }: { flags: XFlags }) {
           Publishing stays closed until a connection check succeeds in this session. A draft still cannot send itself.
         </p>
       )}
+      <XCapability
+        username={check?.username ?? account.username}
+        subscriptionType={check ? check.subscriptionType : account.subscriptionType}
+        checkedAt={check ? check.subscriptionCheckedAt : account.subscriptionCheckedAt}
+      />
     </div>
   );
 }

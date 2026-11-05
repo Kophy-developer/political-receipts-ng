@@ -9,7 +9,6 @@ import { lagosStamp } from "@/lib/format";
 import type { EditorIdentity } from "@/lib/identity";
 import { xCallbackPath } from "@/lib/system";
 import { IdentityForm } from "@/components/settings/identity-form";
-import { XCapability } from "@/components/settings/x-capability";
 import { xProductionOrigin } from "@/lib/x/public";
 import { XDesk, type XFlags } from "@/components/settings/x-desk";
 import { Input } from "@/components/ui/input";
@@ -122,8 +121,14 @@ export function SettingsPanel({
               ) : null}
             </Section>
             <Section id="x" kicker="X Integration" title="The account that can post">
-              <XDesk flags={flags} />
-              <XCapability username={health.xAccount.username} />
+              <XDesk
+                flags={flags}
+                account={{
+                  username: health.xAccount.username,
+                  subscriptionType: health.xAccount.subscriptionType,
+                  subscriptionCheckedAt: health.xAccount.subscriptionCheckedAt,
+                }}
+              />
             </Section>
             <Section id="ai" kicker="AI Providers" title="Who can draft">
               <p className="max-w-2xl text-sm leading-relaxed">

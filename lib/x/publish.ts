@@ -1,6 +1,7 @@
 import "server-only";
 import { createHash } from "crypto";
-import { characterCount, POST_LIMIT } from "@/lib/format";
+import { textFits, uncheckedCapability, type PublishCapability } from "@/lib/publish/capability";
+import { postCreateBody } from "@/lib/publish/payload";
 import { checklist } from "@/lib/system";
 import { isUuid } from "@/lib/db/labels";
 import { xUserRequest } from "@/lib/x/oauth1";
@@ -14,14 +15,15 @@ export function textHash(approvalId: string, text: string) {
 export function validatePublishRequest(
   input: { text?: unknown; claimId?: unknown; draftId?: unknown; checks?: unknown; confirm?: unknown; approvalId?: unknown },
   requireConfirm = true,
+  capability: PublishCapability = uncheckedCapability,
 ) {
   if (requireConfirm && input.confirm !== true) return "The post needs an explicit final confirmation.";
   if (typeof input.claimId !== "string" || !isUuid(input.claimId)) return "The claim id is not one this desk can publish.";
   if (typeof input.draftId !== "string" || !isUuid(input.draftId)) return "The draft id is not one this desk can publish.";
   if (requireConfirm && (typeof input.approvalId !== "string" || !isUuid(input.approvalId))) return "The approval is missing.";
   if (typeof input.text !== "string") return "The approved text is missing.";
-  const count = characterCount(input.text);
-  if (count < 1 || count > POST_LIMIT) return `The post must be 1–${POST_LIMIT} characters.`;
+  const fit = textFits(input.text, capability);
+  if (!fit.ok) return fit.reason;
   if (!input.checks || typeof input.checks !== "object") return "The editorial checklist is incomplete.";
   const checks = input.checks as Record<string, unknown>;
   if (!checklist.every((item) => checks[item.id] === true)) return "Every checklist line has to be confirmed on the server.";
@@ -29,7 +31,7 @@ export function validatePublishRequest(
 }
 
 export async function publishApprovedPost(text: string) {
-  const result = await xUserRequest("POST", tweetsUrl, JSON.stringify({ text }));
+  const result = await xUserRequest("POST", tweetsUrl, JSON.stringify(postCreateBody(text)));
   if (!result.ok) return result;
   const id = (result.data as { data?: { id?: unknown } }).data?.id;
   if (typeof id !== "string" || !/^\d+$/.test(id)) {

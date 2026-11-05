@@ -2,8 +2,9 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { characterCount, POST_LIMIT } from "../lib/format";
 import { defaultEditorName } from "../lib/identity";
-import { longPostUnknownCopy, publishingCapability } from "../lib/publish/capability";
-import { publishPlan, splitForThread } from "../lib/publish/format";
+import { capabilityForSubscription, longFormEntitlements, textFits } from "../lib/publish/capability";
+import { openingFormat, publishPlan, splitForThread } from "../lib/publish/format";
+import { postCreateBody } from "../lib/publish/payload";
 import { POLLING_UNIT_CLAIM_ID } from "../lib/research/editor-review";
 import {
   evidenceBrief,
@@ -68,9 +69,33 @@ check(
 );
 const overLimit = "A".repeat(281);
 const unset = publishPlan({ text: overLimit, format: "unset" });
-check("281 characters asks for a format and does not send", characterCount(overLimit) === 281 && unset.send === false && unset.reason === "Choose a post format before review.");
+check("281 characters on an unchecked account is not sent", characterCount(overLimit) === 281 && unset.send === false && /not shortened/.test(unset.reason ?? ""));
 const threadPlan = publishPlan({ text: candidate, format: "thread", posts: candidateSplit.posts });
-check("a thread is shown in full and is not sent", threadPlan.send === false && threadPlan.label.startsWith("Thread (") && threadPlan.posts.length > 1 && /None of these posts will be sent/.test(threadPlan.reason ?? ""));
+check("a thread is shown in full and is not sent", threadPlan.send === false && threadPlan.label.startsWith("Thread (") && threadPlan.posts.length > 1 && /Automatic thread publishing: Not enabled/.test(threadPlan.reason ?? ""));
+
+const checked = "2026-11-05T06:00:00.000Z";
+const none = capabilityForSubscription({ subscription: "None", checkedAt: checked });
+const basic = capabilityForSubscription({ subscription: "Basic", checkedAt: checked });
+const premium = capabilityForSubscription({ subscription: "Premium", checkedAt: checked });
+const plus = capabilityForSubscription({ subscription: "PremiumPlus", checkedAt: checked });
+const unknown = capabilityForSubscription({ subscription: null, checkedAt: null });
+check("subscription None stays at 280", none.maximum === 280 && none.longForm === false);
+check("subscription Basic can send a long post", basic.longForm && basic.maximum === 25_000);
+check("subscription Premium can send a long post", premium.longForm && premium.maximum === 25_000);
+check("subscription PremiumPlus can send a long post", plus.longForm && plus.maximum === 25_000);
+check("an unchecked subscription stays at 280", unknown.maximum === 280 && unknown.longForm === false && unknown.checked === false);
+check("long-form entitlements stay in one list", longFormEntitlements.join(",") === "Basic,Premium,PremiumPlus");
+
+const ending = "\n#CheckAm";
+const longPost = `${"A".repeat(417 - ending.length)}${ending}`;
+check("the 417-character fixture keeps its hashtag", characterCount(longPost) === 417 && longPost.endsWith("#CheckAm"));
+const premiumPlan = publishPlan({ text: longPost, format: openingFormat(longPost, premium), capability: premium });
+check("a 417-character post on Premium is a long post", premiumPlan.send && premiumPlan.label === "Long post" && premiumPlan.posts[0] === longPost);
+const nonePlan = publishPlan({ text: longPost, format: "long", capability: none });
+check("a 417-character post on None is blocked", nonePlan.send === false && textFits(longPost, none).ok === false);
+check("25001 characters are blocked", textFits("B".repeat(25_001), premium).ok === false);
+const body = postCreateBody(longPost);
+check("the approved text is the create-post text", body.text === longPost && JSON.parse(JSON.stringify(body)).text === longPost && !("sources" in body));
 
 const gate = publishablePost(candidate);
 check("an over-long final post is not shortened", gate.ok === false && /not shortened/.test(gate.reason));
@@ -108,10 +133,11 @@ const workspace = readFileSync(new URL("../components/desk/workspace.tsx", impor
 check("saving the final post does not call a provider", !/groq|openrouter|tavily|brave|api\.twitter|generativelanguage/i.test(route));
 check("the workspace shows the exact text before send", workspace.includes("Exact text") && workspace.includes("Post this exact text"));
 check("use this copies into the final post and does not save over the suggestion", workspace.includes("takeSuggestion(suggestion.text)") && !workspace.includes("suggestion.text ="));
-const capability = readFileSync(new URL("../lib/publish/capability.ts", import.meta.url), "utf8");
-check("the format choice sits with the editor", workspace.includes("Longer than current publish limit") && workspace.includes("Post format") && workspace.includes("longPostUnknownCopy") && capability.includes(longPostUnknownCopy) && !workspace.includes("Convert to 2 posts"));
+const settings = readFileSync(new URL("../components/settings/x-desk.tsx", import.meta.url), "utf8");
+const account = readFileSync(new URL("../lib/x/account.ts", import.meta.url), "utf8");
+check("the format choice sits with the editor", workspace.includes("Post format") && workspace.includes("Long post") && workspace.includes("Automatic thread publishing: Not enabled") && !workspace.includes("Convert to 2 posts"));
 check("the desk does not promise a second post will be dropped after send", !workspace.includes("is not sent."));
-check("long posts stay unverified and threads are not published", publishingCapability.longPostSupported === "unknown" && publishingCapability.threadPublishing === false && publishingCapability.longPostLimit === null);
+check("refresh is the explicit profile action", settings.includes("Refresh X account") && !settings.includes("useEffect") && account.includes("subscription_type") && account.includes("profileUrl") && account.includes("identityUrl"));
 check("the editor name defaults to PRNG Admin", defaultEditorName === "PRNG Admin");
 
 function sourceOf(dir: string): string {

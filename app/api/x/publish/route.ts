@@ -1,4 +1,5 @@
 import { readActiveApproval } from "@/lib/db/approvals";
+import { loadStoredCapability } from "@/lib/db/connections";
 import { failPublication, finishPublication, reservePublication } from "@/lib/db/publishing";
 import { assertEditorPost, reservePostNonce } from "@/lib/x/guard";
 import { publishApprovedPost, validatePublishRequest } from "@/lib/x/publish";
@@ -13,7 +14,8 @@ export async function POST(request: Request) {
   } catch {
     return Response.json({ ok: false, message: "The desk could not read that request." }, { status: 400 });
   }
-  const problem = validatePublishRequest(body, true);
+  const capability = await loadStoredCapability();
+  const problem = validatePublishRequest(body, true, capability);
   if (problem) return Response.json({ ok: false, message: problem }, { status: 400, headers: { "cache-control": "no-store" } });
   const ticket = takeTicket(request, body.approvalId as string, body.text as string);
   if (!ticket.ok) {
