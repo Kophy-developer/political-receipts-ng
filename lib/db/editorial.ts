@@ -1,10 +1,17 @@
 import "server-only";
-import { assessAndRank, type ConversationDraft } from "@/lib/editorial/assess";
-import { mergeAssessments, nextAssessmentVersion, type Lifecycle, type PipelineCard, type RankedConversation } from "@/lib/editorial/model";
+import { randomUUID } from "node:crypto";
+import { planExtractionProviders } from "@/lib/ai/catalog";
+import { readAiEnv } from "@/lib/ai/runtime";
+import { callProvider } from "@/lib/ai/transport";
+import { calledToday, persistAttempts } from "@/lib/db/ai-attempts";
 import { columnMissing, schemaMissing, scrubDbMessage, serviceClient } from "@/lib/db/client";
 import { recordEvent } from "@/lib/db/events";
 import { isUuid } from "@/lib/db/labels";
 import { publishedByClaim } from "@/lib/db/publishing";
+import { assessPackets, editorialMaxTokens } from "@/lib/editorial/ai";
+import { mergeAssessments, nextAssessmentVersion, type Lifecycle, type PipelineCard } from "@/lib/editorial/model";
+import { packetsFromPosts, type StoredAssessmentPost } from "@/lib/editorial/packet";
+import { assessmentRecords } from "@/lib/editorial/reading";
 
 const pipelineColumns = [
   "id",
@@ -102,63 +109,6 @@ export async function listPipeline() {
   };
 }
 
-function opportunityRow(item: RankedConversation, scanId: string, version: number) {
-  return {
-    conversation_id: item.id,
-    claim_id: null,
-    scan_id: scanId,
-    content_pillar: "politics",
-    opportunity_type: item.opportunityType ?? "opinion",
-    research_required: item.researchNeed ?? "no",
-    score: item.priority ?? "low",
-    score_reason: "Ranked as a content opportunity. People and parties are not scored.",
-    what_happened: item.title,
-    why_interesting: item.reason,
-    what_could_add: item.possibleAngle || item.passReason || "No angle filed.",
-    angles: [],
-    research_questions: [],
-    voice: item.voice,
-    status: item.worthTalkingAbout ? "open" : "ignored",
-    source: "assessment",
-    origin: "live",
-    lifecycle: item.lifecycle,
-    queue_rank: item.rank,
-    timeliness: item.timeliness,
-    priority: item.priority,
-    claim_extraction_needed: item.claimExtractionNeeded,
-    pass_reason: item.passReason,
-    content_score: item.contentScore,
-    assessment_version: version,
-    discovered_at: item.discoveredAt,
-    possible_angle: item.possibleAngle,
-  };
-}
-
-function assessmentRow(item: RankedConversation, scanId: string, version: number) {
-  return {
-    conversation_id: item.id,
-    scan_id: scanId,
-    version,
-    worth_talking_about: item.worthTalkingAbout,
-    opportunity_type: item.opportunityType,
-    priority: item.priority,
-    research_need: item.researchNeed,
-    timeliness: item.timeliness,
-    possible_angle: item.possibleAngle,
-    reason: item.reason,
-    pass_reason: item.passReason,
-    claim_extraction_needed: item.claimExtractionNeeded,
-    content_score: item.contentScore,
-    queue_rank: item.rank,
-    lifecycle: item.lifecycle,
-    next_stage: item.nextStage,
-    discovered_at: item.discoveredAt,
-    source: "rules",
-    model_called: false,
-    x_requests: 0,
-  };
-}
-
 export async function reassessSavedScan(scanId: string) {
   const empty = {
     ok: false as const,
@@ -171,27 +121,47 @@ export async function reassessSavedScan(scanId: string) {
   const db = serviceClient();
   if (!db) return { ...empty, message: "The database is not configured." };
   if (!isUuid(scanId)) return { ...empty, message: "That scan is not on the desk." };
-  const posts = await db
+  const detailed = await db
     .from("x_posts")
-    .select("text, username, conversation_id, posted_at")
-    .eq("scan_id", scanId);
+    .select("text, username, conversation_id, posted_at, referenced, content_pillar")
+    .eq("scan_id", scanId)
+    .order("posted_at", { ascending: true });
+  const posts = detailed.error && columnMissing(detailed.error.message)
+    ? await db.from("x_posts").select("text, username, conversation_id, posted_at").eq("scan_id", scanId).order("posted_at", { ascending: true })
+    : detailed;
   if (posts.error) return { ...empty, message: "Stored posts could not be read." };
-  const grouped = new Map<string, { text: string[]; discoveredAt: string | null }>();
+  const stored: StoredAssessmentPost[] = [];
   for (const row of posts.data ?? []) {
     if (!isUuid(String(row.conversation_id ?? ""))) continue;
-    const id = String(row.conversation_id);
-    const bucket = grouped.get(id) ?? { text: [], discoveredAt: null };
-    if (typeof row.text === "string" && row.text.trim()) bucket.text.push(row.text.trim());
-    if (typeof row.posted_at === "string" && (!bucket.discoveredAt || row.posted_at < bucket.discoveredAt)) bucket.discoveredAt = row.posted_at;
-    grouped.set(id, bucket);
+    stored.push({
+      text: typeof row.text === "string" ? row.text : null,
+      username: typeof row.username === "string" ? row.username : null,
+      postedAt: typeof row.posted_at === "string" ? row.posted_at : null,
+      conversationId: String(row.conversation_id),
+      referenced: "referenced" in row ? row.referenced : undefined,
+      contentPillar: "content_pillar" in row && typeof row.content_pillar === "string" ? row.content_pillar : null,
+    });
   }
-  const drafts: ConversationDraft[] = [...grouped.entries()].map(([id, bucket]) => ({
-    id,
-    text: bucket.text.join("\n"),
-    discoveredAt: bucket.discoveredAt ?? undefined,
-  }));
-  if (drafts.length === 0) return { ...empty, message: "That scan has no stored conversations to reassess." };
-  const ranked = assessAndRank(drafts);
+  const packets = packetsFromPosts(stored).filter((packet) => packet.posts.length > 0);
+  if (packets.length === 0) return { ...empty, message: "That scan has no stored conversations to reassess." };
+  const recentTexts = await recentPublishedTexts();
+  const used = await calledToday();
+  const assessed = await assessPackets({
+    requestId: randomUUID(),
+    packets,
+    plans: planExtractionProviders(readAiEnv(), used),
+    recentTexts,
+    call: (plan, request) => callProvider(plan, request, { maxTokens: editorialMaxTokens, temperature: 0 }),
+  });
+  await persistAttempts(assessed.attempts);
+  if (!assessed.ok || !assessed.ranked) {
+    return {
+      ...empty,
+      modelCalls: assessed.modelCalls,
+      message: "The editorial assessment did not return a usable reading. Earlier cards were left in place. No X request or research call was made, and nothing was published.",
+    };
+  }
+  const ranked = assessed.ranked;
   const existingOpportunities = await db.from("opportunities").select("id").eq("scan_id", scanId);
   const previousIds = (existingOpportunities.data ?? []).map((row) => String(row.id));
   const versions = await db.from("editorial_assessments").select("conversation_id, version").eq("scan_id", scanId);
@@ -208,11 +178,12 @@ export async function reassessSavedScan(scanId: string) {
   const inserted: string[] = [];
   for (const item of ranked) {
     const version = nextAssessmentVersion(maxByConversation.get(item.id) ?? null);
-    const assessment = await db.from("editorial_assessments").insert(assessmentRow(item, scanId, version)).select("id").single();
+    const records = assessmentRecords(item, scanId, version);
+    const assessment = await db.from("editorial_assessments").insert(records.assessment).select("id").single();
     if (assessment.error || !assessment.data) {
-      return { ...empty, message: "The new assessment version was not saved. Earlier cards were left in place." };
+      return { ...empty, modelCalls: assessed.modelCalls, message: "The new assessment version was not saved. Earlier cards were left in place." };
     }
-    const opportunity = await db.from("opportunities").insert(opportunityRow(item, scanId, version)).select("id").single();
+    const opportunity = await db.from("opportunities").insert(records.opportunity).select("id").single();
     if (opportunity.error || !opportunity.data) {
       return { ...empty, message: "The queue card was not saved. Earlier cards were left in place." };
     }
@@ -222,7 +193,7 @@ export async function reassessSavedScan(scanId: string) {
       actor: "desk",
       subjectType: "opportunity",
       subjectId: String(opportunity.data.id),
-      detail: { source: "assessment", version, lifecycle: item.lifecycle, xRequests: 0, modelCalls: 0 },
+      detail: { source: "assessment", version, lifecycle: item.lifecycle, xRequests: 0, modelCalls: assessed.modelCalls, researchCalls: 0 },
     });
   }
   const merge = mergeAssessments(previousIds, inserted);
@@ -230,7 +201,7 @@ export async function reassessSavedScan(scanId: string) {
   return {
     ok: true as const,
     xRequests: 0 as const,
-    modelCalls: 0 as const,
+    modelCalls: assessed.modelCalls,
     researchCalls: 0 as const,
     posted: false as const,
     conversations: ranked.length,
@@ -238,8 +209,20 @@ export async function reassessSavedScan(scanId: string) {
     passed: ranked.length - worthwhile,
     preserved: merge.kept.length,
     deleted: merge.deleted.length,
-    message: `Reassessed ${ranked.length} stored conversations. ${worthwhile} are in the queue. Earlier cards were kept. No X request, model call, or research call was made.`,
+    message: `Reassessed ${ranked.length} stored conversations. ${worthwhile} are in the queue. Earlier cards were kept. Editorial assessment used ${assessed.modelCalls} model request${assessed.modelCalls === 1 ? "" : "s"}. No X request or research call was made, and nothing was published.`,
   };
+}
+
+async function recentPublishedTexts() {
+  const db = serviceClient();
+  if (!db) return [] as string[];
+  const published = await db.from("published_posts").select("draft_id").eq("status", "published").order("published_at", { ascending: false }).limit(20);
+  if (published.error) return [];
+  const ids = (published.data ?? []).map((row) => row.draft_id).filter((id): id is string => typeof id === "string");
+  if (!ids.length) return [];
+  const drafts = await db.from("drafts").select("content").in("id", ids);
+  if (drafts.error) return [];
+  return (drafts.data ?? []).map((row) => row.content).filter((text): text is string => typeof text === "string" && text.trim().length > 0);
 }
 
 export async function passReadyClaim(id: string) {

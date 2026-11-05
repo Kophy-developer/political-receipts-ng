@@ -15,7 +15,7 @@ import {
 
 export type StampedAttempt = AttemptRecord & {
   requestId: string;
-  task: "draft" | "draft_regenerate" | "health" | "extraction";
+  task: "draft" | "draft_regenerate" | "health" | "extraction" | "editorial";
 };
 
 export type DraftChainResult = {

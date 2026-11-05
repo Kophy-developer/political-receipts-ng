@@ -1,7 +1,7 @@
 import "server-only";
 import { estimatedCostUsd, type ProviderPlan } from "@/lib/ai/catalog";
 import { buildDiagnostic, editorMessage, type ProviderDiagnostic } from "@/lib/ai/diagnostics";
-import { chatDraftBody, chatExtractionBody, chatHealthBody, geminiBody, geminiEndpoint, groqChatEndpoint, groqExtractionReasoning, openRouterChatEndpoint } from "@/lib/ai/payload";
+import { chatDraftBody, chatExtractionBody, chatHealthBody, geminiBody, geminiEditorialBody, geminiEndpoint, groqChatEndpoint, groqExtractionReasoning, openRouterChatEndpoint } from "@/lib/ai/payload";
 import type { ProviderCallResult, ProviderRequest } from "@/lib/ai/route";
 import { readOutputBudgets } from "@/lib/ai/budgets";
 import { judgeGenerated, readChatGenerated, readGeminiGenerated, responseShape } from "@/lib/ai/structured";
@@ -63,7 +63,7 @@ async function chat(
   const empty = { ...emptyTokenAccount, estimatedCostUsd: estimatedCostUsd(plan.id, plan.model) };
   const body = request.mode === "health"
     ? chatHealthBody(plan.model, request.userPrompt, maxTokens)
-    : request.mode === "extraction"
+    : request.mode === "extraction" || request.mode === "editorial"
       ? chatExtractionBody({
           model: plan.model,
           system: request.systemPrompt,
@@ -148,7 +148,9 @@ async function gemini(plan: ProviderPlan, request: ProviderRequest, key: string,
     response = await postJson(
       endpoint,
       { "content-type": "application/json", "x-goog-api-key": key },
-      geminiBody({ system: request.systemPrompt, user: request.userPrompt, schema: request.schema, temperature: heat, maxTokens: limit }),
+      request.mode === "editorial"
+        ? geminiEditorialBody({ system: request.systemPrompt, user: request.userPrompt, temperature: heat, maxTokens: limit })
+        : geminiBody({ system: request.systemPrompt, user: request.userPrompt, schema: request.schema, temperature: heat, maxTokens: limit }),
       request.timeoutMs,
     );
   } catch (error) {

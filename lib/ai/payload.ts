@@ -67,6 +67,18 @@ export function chatExtractionBody(input: {
   };
 }
 
+/** Editorial assessment parses the assistant text locally. No provider JSON schema is attached. */
+export function geminiEditorialBody(input: { system: string; user: string; temperature: number; maxTokens: number }) {
+  return {
+    systemInstruction: { parts: [{ text: input.system }] },
+    contents: [{ role: "user" as const, parts: [{ text: input.user }] }],
+    generationConfig: {
+      temperature: input.temperature,
+      maxOutputTokens: input.maxTokens,
+    },
+  };
+}
+
 export function geminiBody(input: { system: string; user: string; schema: unknown; temperature: number; maxTokens: number }) {
   return {
     systemInstruction: { parts: [{ text: input.system }] },

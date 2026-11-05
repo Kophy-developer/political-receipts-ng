@@ -264,7 +264,13 @@ export function DeskDiscover({
           >
             {reassessing ? "Reassessing…" : "Reassess saved conversations"}
           </button>
-          <p className="mt-2 text-ink-soft">Uses the posts already stored for this scan. It does not call X, a model, or research, and it does not publish.</p>
+          <dl className="mt-3 space-y-1 text-sm text-ink-soft">
+            <div>Uses stored posts.</div>
+            <div>X requests: 0</div>
+            <div>AI assessment: up to 1 provider request where batching permits</div>
+            <div>Research requests: 0</div>
+            <div>Publishing: No</div>
+          </dl>
           {reassessNote ? <p className="mt-2">{reassessNote}</p> : null}
         </div>
       ) : null}

@@ -1,4 +1,5 @@
 import type { OpportunityType, ResearchNeed } from "@/lib/opportunities/types";
+import type { ContentPillar } from "@/lib/pillars/catalog";
 import { scanBudget } from "@/lib/intel/budget";
 
 export const lifecycles = [
@@ -64,6 +65,8 @@ export type RankedConversation = Assessment & {
   lifecycle: Lifecycle;
   nextStage: Lifecycle | null;
   discoveredAt: string;
+  pillar?: ContentPillar;
+  factualFoundation?: string[];
 };
 
 export function typeLabel(type: string | null) {

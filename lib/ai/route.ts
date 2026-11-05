@@ -15,7 +15,7 @@ export type ProviderRequest = {
   schema: unknown;
   evidence?: unknown;
   timeoutMs: number;
-  mode: "health" | "generate" | "extraction";
+  mode: "health" | "generate" | "extraction" | "editorial";
 };
 
 export type ProviderCallResult = {
@@ -92,7 +92,7 @@ export async function generateStructuredContent(input: {
     schema: input.schema,
     evidence: input.evidence,
     timeoutMs: input.timeoutMs,
-    mode: input.task === "health" ? "health" : input.task === "extraction" ? "extraction" : "generate",
+    mode: input.task === "health" ? "health" : input.task === "extraction" ? "extraction" : input.task === "editorial-assess-v1" ? "editorial" : "generate",
   };
   const attempts: AttemptRecord[] = [];
   const seen = new Set<ProviderId>();
