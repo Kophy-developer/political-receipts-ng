@@ -80,7 +80,7 @@ function scripted(responses: Record<string, ProviderCallResult>) {
 const order = planExtractionProviders(env(), used).map((plan) => plan.id);
 check("extraction order is Groq, OpenRouter, Gemini", order.join(",") === EXTRACTION_PROVIDER_ORDER.join(","));
 check("draft order stays Groq, OpenRouter, Gemini", planDraftProviders(env(), used).map((plan) => plan.id).join(",") === "groq,openrouter,gemini");
-check("extraction output budget stays 2048", defaultOutputBudgets.extraction === 2048);
+check("extraction output budget is 4096", defaultOutputBudgets.extraction === 4096);
 check("extraction timeout default is 25 seconds", defaultExtractionTimeoutMs === 25_000);
 
 const paid = planExtractionProviders(env({ groqModel: "llama-3.3-70b" }), used);

@@ -58,7 +58,7 @@ export function editorFailureReason(classification: string | null) {
   if (classification === "PROVIDER_SERVER_ERROR" || classification === "NETWORK_ERROR" || classification === "MODEL_NOT_AVAILABLE_FOR_ACCOUNT") {
     return "The provider was unavailable";
   }
-  if (classification === "BAD_REQUEST") return "The provider rejected the response";
+  if (classification === "BAD_REQUEST" || classification === "PROVIDER_REQUEST_REJECTED") return "The provider rejected the response";
   if (classification === "AUTHENTICATION_FAILED") return "The provider refused the request";
   return "The provider did not finish";
 }

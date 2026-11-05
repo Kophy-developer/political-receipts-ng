@@ -12,6 +12,7 @@ export const FAILURE_CLASSES = [
   "TOKEN_LIMIT",
   "OUTPUT_TOKEN_LIMIT",
   "BAD_REQUEST",
+  "PROVIDER_REQUEST_REJECTED",
   "TIMEOUT",
   "NETWORK_ERROR",
   "PROVIDER_SERVER_ERROR",
@@ -122,6 +123,7 @@ export function classifyProviderFailure(input: {
   else if (input.httpStatus === 429) classification = "RATE_LIMITED";
   else if (input.httpStatus === 413 || /context length|maximum context|too many tokens|token limit|max(?:imum)? tokens/.test(blob)) classification = "TOKEN_LIMIT";
   else if (input.httpStatus != null && input.httpStatus >= 500) classification = "PROVIDER_SERVER_ERROR";
+  else if (/json_validate_failed|failed to validate json|generated json does not match|structured_generation_failed/.test(blob)) classification = "PROVIDER_REQUEST_REJECTED";
   else if (input.httpStatus === 400 || input.httpStatus === 422) classification = "BAD_REQUEST";
   return {
     classification,

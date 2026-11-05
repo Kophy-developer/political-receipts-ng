@@ -171,7 +171,7 @@ export function generationCutOff(finishReason: string | null) {
   return finish === "length" || finish === "max_tokens";
 }
 
-export function judgeGenerated(mode: "health" | "generate", generated: GeneratedRead) {
+export function judgeGenerated(mode: "health" | "generate" | "extraction", generated: GeneratedRead) {
   if (generationCutOff(generated.finishReason)) return "output_limit" as const;
   if (!generated.data) return "invalid" as const;
   if (mode === "health" && !healthObjectOk(generated.data)) return "not_ok" as const;

@@ -6,7 +6,7 @@
 
 export const defaultOutputBudgets = {
   health: 1024,
-  extraction: 2048,
+  extraction: 4096,
   draft: 4096,
 } as const;
 
@@ -29,7 +29,10 @@ export function readOutputBudgets() {
 /**
  * The production extraction call was aborted at 20s, before any token count returned.
  * 25s is enough for one 10-post extraction and still leaves room for one fallback
- * inside the 60s server limit. The 2048 output budget is unchanged.
+ * inside the 60s server limit.
+ * The extraction output budget is 4096 because a recorded OpenRouter attempt
+ * spent the previous 2048 entirely on reasoning and returned no answer.
+ * Health stays 1024 and drafting stays 4096. AI_EXTRACTION_MAX_TOKENS overrides this.
  */
 export const defaultExtractionTimeoutMs = 25_000;
 

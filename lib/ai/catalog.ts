@@ -9,8 +9,9 @@ import type { DeskStatus } from "@/lib/ai/diagnostics";
  *   (about 30 requests per minute and 1,000 per day). Live `x-ratelimit-*` headers
  *   are shown exactly as returned. They are not copied into the desk allowance.
  *   This process does not call Groq to confirm the model is enabled on a key.
- * - OpenRouter `openrouter/free` is the provider's free router. It is not a paid
- *   model id. A live catalogue check was not made.
+ * - OpenRouter `openrouter/free` is the provider's free router. It picks a
+ *   free model per request and is not a stable extraction model. A specific
+ *   `:free` model was not pinned, and no paid OpenRouter model is enabled.
  * - Gemini stays on the model already used for extraction.
  */
 

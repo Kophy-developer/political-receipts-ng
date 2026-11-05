@@ -1,7 +1,7 @@
 import "server-only";
 import { estimatedCostUsd, type ProviderPlan } from "@/lib/ai/catalog";
 import { buildDiagnostic, editorMessage, type ProviderDiagnostic } from "@/lib/ai/diagnostics";
-import { chatDraftBody, chatHealthBody, geminiBody, geminiEndpoint, groqChatEndpoint, openRouterChatEndpoint } from "@/lib/ai/payload";
+import { chatDraftBody, chatExtractionBody, chatHealthBody, geminiBody, geminiEndpoint, groqChatEndpoint, groqExtractionReasoning, openRouterChatEndpoint } from "@/lib/ai/payload";
 import type { ProviderCallResult, ProviderRequest } from "@/lib/ai/route";
 import { readOutputBudgets } from "@/lib/ai/budgets";
 import { judgeGenerated, readChatGenerated, readGeminiGenerated, responseShape } from "@/lib/ai/structured";
@@ -63,7 +63,16 @@ async function chat(
   const empty = { ...emptyTokenAccount, estimatedCostUsd: estimatedCostUsd(plan.id, plan.model) };
   const body = request.mode === "health"
     ? chatHealthBody(plan.model, request.userPrompt, maxTokens)
-    : chatDraftBody({ model: plan.model, system: request.systemPrompt, user: request.userPrompt, schema: request.schema, temperature, maxTokens });
+    : request.mode === "extraction"
+      ? chatExtractionBody({
+          model: plan.model,
+          system: request.systemPrompt,
+          user: request.userPrompt,
+          temperature,
+          maxTokens,
+          reasoningEffort: plan.id === "groq" ? groqExtractionReasoning(plan.model) : undefined,
+        })
+      : chatDraftBody({ model: plan.model, system: request.systemPrompt, user: request.userPrompt, schema: request.schema, temperature, maxTokens });
   let response: Response;
   try {
     response = await postJson(url, headers, body, request.timeoutMs);

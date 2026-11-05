@@ -13,7 +13,7 @@
     "check:inventory": "tsx scripts/research-inventory-check.ts",
     "check:review": "tsx scripts/editor-review-check.ts",
     "check:drafts": "tsx scripts/draft-check.ts",
-    "check:ai": "tsx scripts/ai-route-check.ts && tsx scripts/ai-diagnose-check.ts && tsx scripts/ai-parse-check.ts && tsx scripts/ai-budget-check.ts && tsx scripts/extraction-check.ts",
+    "check:ai": "tsx scripts/ai-route-check.ts && tsx scripts/ai-diagnose-check.ts && tsx scripts/ai-parse-check.ts && tsx scripts/ai-budget-check.ts && tsx scripts/extraction-check.ts && tsx scripts/extraction-request-check.ts",
     "check:desk": "tsx scripts/desk-check.ts && tsx scripts/reprocess-progress-check.ts"
   },
   "dependencies": {

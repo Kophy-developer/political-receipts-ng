@@ -86,7 +86,7 @@ const draft = chatDraftBody({
 check("the health budget is 1024 and the draft budget is 4096", health.max_tokens === 1024 && draft.max_tokens === 4096 && draft.max_tokens > health.max_tokens);
 check("a tiny configured budget falls back to the task default", tokenBudget("32", defaultOutputBudgets.health) === 1024 && tokenBudget("9000", defaultOutputBudgets.draft) === 4096);
 check("a budget inside the range is kept", tokenBudget("1536", defaultOutputBudgets.health) === 1536);
-check("extraction stays between the health and draft budgets", defaultOutputBudgets.extraction === 2048 && defaultOutputBudgets.extraction > defaultOutputBudgets.health && defaultOutputBudgets.extraction < defaultOutputBudgets.draft);
+check("extraction budget covers a short answer after reasoning", defaultOutputBudgets.extraction === 4096 && defaultOutputBudgets.extraction > defaultOutputBudgets.health && defaultOutputBudgets.extraction === defaultOutputBudgets.draft);
 
 if (failures.length) {
   console.error(failures.join("\n"));
