@@ -7,6 +7,7 @@ import { inferClaimTypes, questionsFor } from "@/lib/research/claim-types";
 import type { Pillar, StatementKind } from "@/lib/research/types";
 import { proposeOpportunities, proposeSampleReading, type OpportunityPost } from "@/lib/opportunities/rules";
 import { reclassifyStoredPosts } from "@/lib/intel/reclassify";
+import { extractionOpportunityWrite } from "@/lib/intel/stage";
 import { opportunityTypes, type OpportunityAngle, type OpportunityCard, type OpportunityProposal, type OpportunityScore, type OpportunityType, type ResearchNeed } from "@/lib/opportunities/types";
 import { publicPostUrl, sanitizeText } from "@/lib/intel/text";
 
@@ -375,6 +376,67 @@ async function sendToResearch(row: {
   await db.from("opportunities").update({ status: "research", claim_id: claim.data.id, editor_angle: angleTitle || null }).eq("id", row.id);
   await recordEvent({ action: "research sent", actor: "editor", subjectType: "opportunity", subjectId: row.id, detail: { claimId: claim.data.id } });
   return { ok: true as const, message: "A dossier is open. Research has not started.", claimId: claim.data.id as string };
+}
+
+export async function syncModelOpportunities(links: Array<{ conversationId: string; claimId: string | null; title: string; why: string; needed: string }>) {
+  const db = serviceClient();
+  const empty = { found: 0, created: 0, updated: 0, cards: [] as Array<{ id: string; title: string; claimId: string | null }> };
+  if (!db) return empty;
+  const seen = new Set<string>();
+  const cards: Array<{ id: string; title: string; claimId: string | null }> = [];
+  let created = 0;
+  let updated = 0;
+  for (const link of links) {
+    if (seen.has(link.conversationId)) continue;
+    seen.add(link.conversationId);
+    const existing = await db
+      .from("opportunities")
+      .select("id, status, editor_take")
+      .eq("conversation_id", link.conversationId)
+      .eq("opportunity_type", "check")
+      .eq("source", "model")
+      .limit(1);
+    const row = existing.data?.[0];
+    const current = row
+      ? { status: String(row.status), editorTake: typeof row.editor_take === "string" ? row.editor_take : null }
+      : null;
+    const decision = extractionOpportunityWrite(current);
+    const fields = {
+      what_happened: link.title.slice(0, 500),
+      why_interesting: link.why.slice(0, 500),
+      what_could_add: link.needed.slice(0, 500),
+      claim_id: link.claimId,
+    };
+    if (decision === "keep" && row?.id) {
+      cards.push({ id: String(row.id), title: link.title, claimId: link.claimId });
+      continue;
+    }
+    if (decision === "update" && row?.id) {
+      await db.from("opportunities").update(fields).eq("id", row.id);
+      updated += 1;
+      cards.push({ id: String(row.id), title: link.title, claimId: link.claimId });
+      continue;
+    }
+    const inserted = await db.from("opportunities").insert({
+      conversation_id: link.conversationId,
+      ...fields,
+      content_pillar: "politics",
+      opportunity_type: "check",
+      research_required: "yes",
+      score: "medium",
+      score_reason: "Filed from the stored scan. The extraction asked only for a checkable sentence.",
+      angles: [],
+      research_questions: [],
+      voice: "fact",
+      status: "open",
+      source: "model",
+      origin: "live",
+    }).select("id").single();
+    if (!inserted.data?.id) continue;
+    created += 1;
+    cards.push({ id: String(inserted.data.id), title: link.title, claimId: link.claimId });
+  }
+  return { found: cards.length, created, updated, cards };
 }
 
 export async function listOpportunityDesk() {

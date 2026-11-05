@@ -135,6 +135,17 @@ export async function knownEntities() {
   );
 }
 
+export async function loadScanPosts(scanId: string) {
+  const db = serviceClient();
+  if (!db) return { ok: false as const, message: "The database is not configured." };
+  const { data, error } = await db
+    .from("x_posts")
+    .select("x_post_id, text, author_id, username, display_name, posted_at, public_metrics, x_conversation_id, referenced, language, source_query, relevance, relevance_reason, desk_class")
+    .eq("scan_id", scanId);
+  if (error) return { ok: false as const, message: "Stored posts could not be read." };
+  return { ok: true as const, rows: data ?? [] };
+}
+
 export async function loadStoredPosts() {
   const db = serviceClient();
   if (!db) return { ok: false as const, message: "The database is not configured." };
@@ -250,11 +261,16 @@ export async function attachPosts(postIds: string[], conversationId: string) {
   await db.from("x_posts").update({ conversation_id: conversationId }).in("x_post_id", postIds);
 }
 
-export async function claimExists(postId: string, claimText: string) {
+export async function findClaimId(postId: string, claimText: string) {
   const db = serviceClient();
-  if (!db) return true;
+  if (!db) return null;
   const { data } = await db.from("claims").select("id").eq("original_post_id", postId).eq("claim_text", claimText).maybeSingle();
-  return Boolean(data);
+  return typeof data?.id === "string" ? data.id : null;
+}
+
+export async function claimExists(postId: string, claimText: string) {
+  if (!serviceClient()) return true;
+  return (await findClaimId(postId, claimText)) !== null;
 }
 
 export async function saveClaim(row: Record<string, unknown>) {

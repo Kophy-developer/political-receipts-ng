@@ -25,3 +25,16 @@ export function readOutputBudgets() {
     draft: tokenBudget(process.env.AI_DRAFT_MAX_TOKENS, defaultOutputBudgets.draft),
   };
 }
+
+/**
+ * The production extraction call was aborted at 20s, before any token count returned.
+ * 25s is enough for one 10-post extraction and still leaves room for one fallback
+ * inside the 60s server limit. The 2048 output budget is unchanged.
+ */
+export const defaultExtractionTimeoutMs = 25_000;
+
+export function extractionTimeoutMs() {
+  const parsed = Number(process.env.AI_EXTRACTION_TIMEOUT_MS);
+  if (!Number.isInteger(parsed) || parsed < 5_000 || parsed > 45_000) return defaultExtractionTimeoutMs;
+  return parsed;
+}

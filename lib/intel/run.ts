@@ -1,5 +1,5 @@
 import "server-only";
-import { aiProvider } from "@/lib/ai/provider";
+import { readAiEnv } from "@/lib/ai/runtime";
 import { recordEvent } from "@/lib/db/events";
 import {
   existingPostIds,
@@ -19,6 +19,7 @@ import type { ExtractionReport } from "@/lib/intel/extract-posts";
 import { extractFromPosts } from "@/lib/intel/extract-posts";
 import { freshClaimAction } from "@/lib/desk/discover";
 import { fileDiscussions } from "@/lib/intel/file";
+import { syncModelOpportunities } from "@/lib/db/opportunities";
 import { lagosDayStart, lookbackStart, publishedRates, scanLimits, usd } from "@/lib/intel/limits";
 import { claimDeskLock, releaseDeskLock } from "@/lib/intel/lock";
 import type { ExtractionOutcome } from "@/lib/intel/outcome";
@@ -68,6 +69,7 @@ export type ScanReport = {
   posted: false;
   polling: false;
   found: Array<{ id: string; title: string; action: string }>;
+  opportunities: number;
 };
 
 function blockedEstimate(message: string, partial?: Partial<ScanEstimate>): ScanEstimate {
@@ -105,7 +107,7 @@ async function gate() {
     ready: true,
     message: null,
     groupName: group.name,
-    maxGeminiRequests: aiProvider() && geminiRemaining > 0 ? 1 : 0,
+    maxGeminiRequests: readAiEnv().geminiKey && geminiRemaining > 0 ? 1 : 0,
     xRemaining,
     postsRemaining,
     geminiRemaining,
@@ -153,12 +155,24 @@ function emptyReport(stopped: string | null, extra?: Partial<ScanReport>): ScanR
     posted: false,
     polling: false,
     found: [],
+    opportunities: 0,
     ...extra,
   };
 }
 
 function skippedExtraction(outcome: ExtractionOutcome, detail: string): ExtractionReport {
-  return { outcome, detail, claims: [], dropped: 0, geminiRequests: 0, inputTokens: null, outputTokens: null, model: null };
+  return {
+    outcome,
+    detail,
+    claims: [],
+    dropped: 0,
+    geminiRequests: 0,
+    inputTokens: null,
+    outputTokens: null,
+    model: null,
+    provider: null,
+    classification: null,
+  };
 }
 
 export async function runScan(): Promise<ScanReport> {
@@ -166,6 +180,7 @@ export async function runScan(): Promise<ScanReport> {
   if (!claimDeskLock()) return emptyReport("A scan is already running. No second X request was made.");
   let scanId: string | null = null;
   let xCalls = 0;
+  let retrievalSaved = false;
   try {
     const gated = await gate();
     if (!gated.ok) return emptyReport(gated.estimate.message, { durationMs: Date.now() - started });
@@ -227,14 +242,13 @@ export async function runScan(): Promise<ScanReport> {
       };
     });
     const storedCount = await persistPosts(posts, scanId);
+    retrievalSaved = true;
+    await finishScan(scanId, { stage: "X_RETRIEVAL_COMPLETE", x_requests: 1, posts_returned: searched.posts.length, posts_stored: storedCount });
+    await finishScan(scanId, { stage: "AI_PROCESSING" });
     const candidates = posts.filter((post) => post.deskClass !== "noise" && post.relevance !== "not_political");
     let extraction: ExtractionReport;
     if (candidates.length === 0) {
       extraction = skippedExtraction("not_run", "Extraction did not run. No actionable or discussion post was sent to the model.");
-    } else if (!aiProvider()) {
-      extraction = skippedExtraction("failed", "AI extraction failed: Gemini is not configured.");
-    } else if (gated.geminiRemaining < 1) {
-      extraction = skippedExtraction("failed", "AI extraction failed: the daily Gemini limit is reached.");
     } else {
       extraction = await extractFromPosts(posts, scanId);
     }
@@ -247,6 +261,7 @@ export async function runScan(): Promise<ScanReport> {
       topicSlugFor: () => gated.group.topicSlug,
       deskNote: "Filed by a manual scan. This is not a verdict, and it is not a candidate ranking.",
     });
+    const opportunities = extraction.claims.length > 0 ? await syncModelOpportunities(filed.links) : { found: 0, created: 0, updated: 0, cards: [] };
     const aiFailed = extraction.outcome === "failed" || extraction.outcome === "invalid";
     const errors = extraction.outcome === "extracted" && extraction.dropped === 0 ? [] : [extraction.detail];
     const actionablePosts = posts.filter((post) => post.deskClass === "actionable").length;
@@ -265,6 +280,7 @@ export async function runScan(): Promise<ScanReport> {
       input_tokens: extraction.inputTokens,
       output_tokens: extraction.outputTokens,
       duration_ms: Date.now() - started,
+      stage: aiFailed ? "PARTIAL_FAILURE" : "COMPLETE",
       error: aiFailed ? extraction.detail : null,
       detail: {
         groupId: gated.group.id,
@@ -275,6 +291,8 @@ export async function runScan(): Promise<ScanReport> {
         discussionPosts,
         noisePosts,
         claimsRejected: extraction.dropped,
+        extractionProvider: extraction.provider,
+        extractionClass: extraction.classification,
       },
     });
     await recordEvent({
@@ -311,12 +329,16 @@ export async function runScan(): Promise<ScanReport> {
       outputTokens: extraction.outputTokens,
       durationMs: Date.now() - started,
       errors,
-      found: filed.filedClaims.map((item) => ({ id: item.id, title: item.title, action: freshClaimAction() })),
+      found: opportunities.cards.length > 0
+        ? opportunities.cards.map((item) => ({ id: item.claimId ?? item.id, title: item.title, action: "INVESTIGATE" }))
+        : filed.filedClaims.map((item) => ({ id: item.id, title: item.title, action: freshClaimAction() })),
+      opportunities: opportunities.found,
     });
   } catch {
     if (scanId) {
       await finishScan(scanId, {
-        status: "failed",
+        status: retrievalSaved ? "stopped" : "failed",
+        stage: retrievalSaved ? "PARTIAL_FAILURE" : null,
         finished_at: new Date().toISOString(),
         x_requests: xCalls,
         error: "The scan stopped before it could finish.",

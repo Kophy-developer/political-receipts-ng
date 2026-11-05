@@ -9,6 +9,7 @@ import { listClaims } from "@/lib/db/claims";
 import { loadFinalPost } from "@/lib/db/final-post";
 import { publishedByClaim } from "@/lib/db/publishing";
 import { listOpportunityDesk } from "@/lib/db/opportunities";
+import { latestPartialScan } from "@/lib/intel/saved-scan";
 import { discoveryAction, selectDeskOpportunities } from "@/lib/desk/discover";
 import { nextAction, type StoryFacts } from "@/lib/desk/story";
 import { chicagoStamp } from "@/lib/format";
@@ -51,6 +52,7 @@ async function DeskQueue() {
   }));
   const storyIds = new Set(cards.map((card) => card.claim.id));
   const opportunities = await deskOpportunities(storyIds, cards);
+  const partial = await latestPartialScan();
   const inProgress = cards.filter((card) => !card.publication);
   const recentlyPublished = cards.filter((card) => card.publication);
   return (
@@ -58,7 +60,7 @@ async function DeskQueue() {
       <p className="font-mono text-[11px] tracking-[0.16em] text-ink-soft uppercase">Desk</p>
       <h1 className="mt-2 font-serif text-4xl tracking-[-0.03em]">The desk</h1>
       <div className="mt-8 space-y-10">
-        <DeskDiscover opportunities={opportunities} />
+        <DeskDiscover opportunities={opportunities} partial={partial} />
         <section>
           <p className="font-mono text-[11px] tracking-[0.16em] text-ink-soft uppercase">In progress</p>
           <h2 className="mt-2 font-serif text-3xl tracking-[-0.03em]">Stories already being worked on.</h2>

@@ -26,23 +26,6 @@ const sections = [
   { href: "#identity", label: "Editor identity" },
 ];
 
-type ReprocessResult = {
-  ok: boolean;
-  xRequests: number;
-  posts: number;
-  actionable: number;
-  discussion: number;
-  noise: number;
-  conversations: number;
-  claimsExtracted: number;
-  claimsRejected: number;
-  geminiCalls: number;
-  detail: string;
-  model: string | null;
-  posted: false;
-  polling: false;
-};
-
 export function SettingsPanel({
   flags,
   health,
@@ -58,27 +41,7 @@ export function SettingsPanel({
   paidUsage: boolean;
   identity: EditorIdentity;
 }) {
-  const router = useRouter();
   const [origin, setOrigin] = useState(xProductionOrigin);
-  const [reprocessing, setReprocessing] = useState(false);
-  const [reprocessResult, setReprocessResult] = useState<ReprocessResult | null>(null);
-  const [reprocessError, setReprocessError] = useState<string | null>(null);
-
-  async function reprocess() {
-    setReprocessing(true);
-    setReprocessError(null);
-    try {
-      const response = await fetch("/api/intel/reprocess", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
-      const body = (await response.json()) as ReprocessResult;
-      setReprocessResult(body);
-      if (!body.ok && body.detail) setReprocessError(body.detail);
-      router.refresh();
-    } catch {
-      setReprocessError("Reprocessing did not finish. No X request was sent from this page.");
-    } finally {
-      setReprocessing(false);
-    }
-  }
 
   return (
     <PageFrame>
@@ -196,32 +159,8 @@ export function SettingsPanel({
                 </div>
                 <div className="mt-6 max-w-2xl">
                   <p className="text-sm leading-relaxed">
-                    Reprocess stored posts with the current relevance and clustering rules, then run claim extraction on what is already saved. This does not call X.
+                    When an X scan is saved and the analysis does not finish, the Desk offers Reprocess saved posts. That action reads the stored posts and does not call X.
                   </p>
-                  <button
-                    type="button"
-                    onClick={reprocess}
-                    disabled={reprocessing}
-                    className="mt-3 inline-flex h-10 items-center bg-ink px-4 text-sm text-paper disabled:opacity-50"
-                  >
-                    {reprocessing ? "Reprocessing…" : "Reprocess stored posts"}
-                  </button>
-                  {reprocessResult ? (
-                    <dl className="mt-4 grid grid-cols-2 gap-2 border border-rule p-3 font-mono text-[11px]">
-                      <div>X requests {reprocessResult.xRequests}</div>
-                      <div>Posts {reprocessResult.posts}</div>
-                      <div>Actionable {reprocessResult.actionable}</div>
-                      <div>Discussion {reprocessResult.discussion}</div>
-                      <div>Noise {reprocessResult.noise}</div>
-                      <div>Conversations {reprocessResult.conversations}</div>
-                      <div>Claims extracted {reprocessResult.claimsExtracted}</div>
-                      <div>Claims rejected {reprocessResult.claimsRejected}</div>
-                      <div>Gemini calls {reprocessResult.geminiCalls}</div>
-                      <div>Posted {reprocessResult.posted ? "yes" : "no"}</div>
-                      <div className="col-span-2">{reprocessResult.detail}</div>
-                    </dl>
-                  ) : null}
-                  {reprocessError ? <p className="mt-3 text-sm text-stamp">{reprocessError}</p> : null}
                 </div>
                 </>
               ) : (

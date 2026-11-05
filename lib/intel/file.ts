@@ -1,5 +1,5 @@
 import "server-only";
-import { attachPosts, claimExists, saveClaim, saveConversation, topicIdFor } from "@/lib/db/intel";
+import { attachPosts, findClaimId, saveClaim, saveConversation, topicIdFor } from "@/lib/db/intel";
 import { attentionOf } from "@/lib/intel/attention";
 import { clusterPosts, type ClusterEntity } from "@/lib/intel/cluster";
 import type { AcceptedClaim } from "@/lib/intel/extract-posts";
@@ -25,6 +25,7 @@ export async function fileDiscussions(input: {
   let claims = 0;
   const conversationIds: string[] = [];
   const filedClaims: Array<{ id: string; title: string }> = [];
+  const links: Array<{ conversationId: string; claimId: string | null; title: string; why: string; needed: string }> = [];
   for (const cluster of clusters) {
     const posts = cluster.posts;
     const ids = new Set(posts.map((post) => post.id));
@@ -75,7 +76,11 @@ export async function fileDiscussions(input: {
     if (saved.created) conversations += 1;
     await attachPosts(posts.map((post) => post.id), saved.id);
     for (const claim of clusterClaims) {
-      if (await claimExists(claim.post.id, claim.claim)) continue;
+      const existingId = await findClaimId(claim.post.id, claim.claim);
+      if (existingId) {
+        links.push({ conversationId: saved.id, claimId: existingId, title: claim.claim, why: claim.why, needed: claim.needed });
+        continue;
+      }
       const ranked = rankClaim({
         accounts,
         engagement,
@@ -128,10 +133,11 @@ export async function fileDiscussions(input: {
       if (id) {
         claims += 1;
         filedClaims.push({ id, title: claim.claim });
+        links.push({ conversationId: saved.id, claimId: id, title: claim.claim, why: claim.why, needed: claim.needed });
       }
     }
   }
-  return { conversations, claims, conversationIds, filedClaims };
+  return { conversations, claims, conversationIds, filedClaims, links };
 }
 
 function majority(values: Array<string | null>) {

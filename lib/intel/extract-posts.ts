@@ -1,10 +1,16 @@
 import "server-only";
-import { aiProvider } from "@/lib/ai/provider";
-import { extractionSystem, extractionUser, parseExtraction, promptVersion } from "@/lib/ai/extract";
+import { randomUUID } from "crypto";
+import { extractionTimeoutMs, readOutputBudgets } from "@/lib/ai/budgets";
+import { planExtractionProviders } from "@/lib/ai/catalog";
+import { extractWithProviders, type ExtractionPost } from "@/lib/ai/extraction";
+import { promptVersion } from "@/lib/ai/extract";
+import { callProvider } from "@/lib/ai/transport";
+import { calledToday, persistAttempts } from "@/lib/db/ai-attempts";
 import { saveAnalysis } from "@/lib/db/intel";
-import { recordUsage } from "@/lib/db/usage";
+import { readAiEnv } from "@/lib/ai/runtime";
 import type { WorkingPost } from "@/lib/intel/posts";
 import { extractionLabel, type ExtractionOutcome } from "@/lib/intel/outcome";
+import { analysisFailureReason } from "@/lib/intel/stage";
 import { cleanModelNote, groundedClaim, groundedSpeaker, looksCheckable, sanitizeText } from "@/lib/intel/text";
 
 export type AcceptedClaim = {
@@ -27,6 +33,8 @@ export type ExtractionReport = {
   inputTokens: number | null;
   outputTokens: number | null;
   model: string | null;
+  provider: string | null;
+  classification: string | null;
 };
 
 function tally(reasons: string[]) {
@@ -45,50 +53,54 @@ export async function extractFromPosts(posts: WorkingPost[], scanId: string | nu
     inputTokens: null,
     outputTokens: null,
     model: null,
+    provider: null,
+    classification: null,
     ...extra,
   });
   const candidates = posts.filter((post) => post.deskClass !== "noise" && post.relevance !== "not_political");
   if (candidates.length === 0) {
     return empty("not_run", "No actionable or discussion post was sent to the model.");
   }
-  const provider = aiProvider();
-  if (!provider) return empty("failed", "AI extraction failed: Gemini is not configured.");
-  const completion = await provider.completeJson({
-    promptVersion,
-    system: extractionSystem,
-    user: extractionUser(
-      candidates.map((post) => ({
-        id: post.id,
-        text: post.text,
-        username: post.username,
-        relevance: post.relevance,
-      })),
-    ),
+  const source: ExtractionPost[] = candidates.map((post) => ({
+    id: post.id,
+    text: post.text,
+    username: post.username,
+    relevance: post.relevance,
+  }));
+  const used = await calledToday();
+  const plans = planExtractionProviders(readAiEnv(), used);
+  const routed = await extractWithProviders({
+    requestId: randomUUID(),
+    posts: source,
+    plans,
+    timeoutMs: extractionTimeoutMs(),
+    call: (plan, request) => callProvider(plan, request, { maxTokens: readOutputBudgets().extraction, temperature: 0 }),
   });
-  await recordUsage({
-    provider: "gemini",
-    operation: "claim_extract",
-    requests: 1,
-    units: candidates.length,
-    inputTokens: completion.usage.inputTokens,
-    outputTokens: completion.usage.outputTokens,
-    scanId,
-  });
-  await saveAnalysis({ provider: completion.provider, model: completion.model, promptVersion, scanId: scanId ?? undefined });
-  const base = {
-    geminiRequests: 1,
-    inputTokens: completion.usage.inputTokens,
-    outputTokens: completion.usage.outputTokens,
-    model: completion.model,
-  };
-  if (!completion.ok) {
-    const invalid = /json/i.test(completion.message);
-    const outcome: ExtractionOutcome = invalid ? "invalid" : "failed";
-    const prefix = extractionLabel(outcome);
-    return empty(outcome, `${prefix}: ${completion.message}`, base);
+  await persistAttempts(routed.attempts);
+  const called = routed.attempts.filter((attempt) => attempt.called);
+  const last = called[called.length - 1] ?? null;
+  const recordedProvider = routed.provider ?? last?.provider ?? null;
+  const recordedModel = routed.model ?? last?.model ?? null;
+  if (recordedProvider && recordedModel) {
+    await saveAnalysis({ provider: recordedProvider, model: recordedModel, promptVersion, scanId: scanId ?? undefined });
   }
-  const parsed = parseExtraction(completion.data);
-  if (!parsed) return empty("invalid", "AI response was invalid: the JSON did not match the claim schema.", base);
+  const geminiRequests = called.filter((attempt) => attempt.provider === "gemini").length;
+  const tokens = last;
+  const base = {
+    geminiRequests,
+    inputTokens: tokens?.inputTokens ?? null,
+    outputTokens: tokens?.outputTokens ?? null,
+    model: routed.model ?? last?.model ?? null,
+    provider: routed.provider ?? last?.provider ?? null,
+    classification: routed.classification,
+  };
+  if (!routed.ok || !routed.parsed) {
+    const invalid = routed.classification === "INVALID_RESPONSE" || routed.classification === "OUTPUT_TOKEN_LIMIT";
+    const outcome: ExtractionOutcome = invalid ? "invalid" : "failed";
+    const reason = analysisFailureReason(routed.classification ?? last?.failureReason ?? null);
+    return empty(outcome, `${extractionLabel(outcome)}: ${reason}`, base);
+  }
+  const parsed = routed.parsed;
   if (parsed.claims.length === 0) return empty("no_claims", "No checkable claims existed.", base);
   const byId = new Map(posts.map((post) => [post.id, post]));
   const accepted: AcceptedClaim[] = [];

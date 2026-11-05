@@ -2,6 +2,41 @@ import type { Relevance } from "@/lib/intel/relevance";
 
 export const promptVersion = "claim-extract-v2";
 
+export const extractionSchema = {
+  type: "OBJECT",
+  required: ["posts", "claims"],
+  properties: {
+    posts: {
+      type: "ARRAY",
+      items: {
+        type: "OBJECT",
+        required: ["postId", "relevance"],
+        properties: {
+          postId: { type: "STRING" },
+          relevance: { type: "STRING", enum: ["political", "possibly_political", "not_political"] },
+        },
+      },
+    },
+    claims: {
+      type: "ARRAY",
+      items: {
+        type: "OBJECT",
+        required: ["postId", "claim", "whyVerifiable", "evidenceNeeded", "confidence"],
+        properties: {
+          postId: { type: "STRING" },
+          claim: { type: "STRING" },
+          speaker: { type: "STRING" },
+          topic: { type: "STRING" },
+          entities: { type: "ARRAY", items: { type: "STRING" } },
+          whyVerifiable: { type: "STRING" },
+          evidenceNeeded: { type: "STRING" },
+          confidence: { type: "STRING", enum: ["low", "moderate", "high"] },
+        },
+      },
+    },
+  },
+} as const;
+
 export const extractionSystem = `You extract checkable factual claims from public posts for a non-partisan Nigerian newsroom desk.
 
 Rules:

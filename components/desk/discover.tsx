@@ -14,6 +14,13 @@ export type DeskOpportunityView = {
 
 type Found = { id: string; title: string; action: string };
 
+export type PartialScan = {
+  scanId: string;
+  postsSaved: number;
+  provider: string;
+  reason: string;
+};
+
 type Report = {
   ok: boolean;
   stopped: string | null;
@@ -21,19 +28,60 @@ type Report = {
   conversations: number;
   newConversations?: number;
   claims: number;
+  opportunities?: number;
   found?: Found[];
   posted: false;
   polling: false;
 };
 
-export function DeskDiscover({ opportunities }: { opportunities: DeskOpportunityView[] }) {
+type ReprocessReport = {
+  ok: boolean;
+  xRequests: number;
+  posts: number;
+  conversations: number;
+  opportunities: number;
+  summary?: { posts: string; conversations: string; opportunities: string };
+  found?: Found[];
+  provider: string | null;
+  reason: string | null;
+  detail: string;
+  posted: false;
+  polling: false;
+};
+
+export function DeskDiscover({ opportunities, partial }: { opportunities: DeskOpportunityView[]; partial: PartialScan | null }) {
   const router = useRouter();
   const [confirming, setConfirming] = useState(false);
   const [running, setRunning] = useState(false);
   const [report, setReport] = useState<Report | null>(null);
+  const [reprocess, setReprocess] = useState<ReprocessReport | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const summary = report ? scanDeskSummary({ postsReturned: report.postsReturned, conversations: report.newConversations ?? 0, claims: report.claims }) : null;
-  const found = report?.found ?? [];
+  const summary = reprocess?.ok
+    ? reprocess.summary
+    : report
+      ? scanDeskSummary({ postsReturned: report.postsReturned, conversations: report.newConversations ?? 0, claims: report.opportunities ?? report.claims })
+      : null;
+  const found = (reprocess?.ok ? reprocess.found : report?.found) ?? [];
+
+  async function reprocessSaved() {
+    if (!partial || running) return;
+    setRunning(true);
+    setError(null);
+    try {
+      const response = await fetch("/api/intel/reprocess", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ scanId: partial.scanId }),
+      });
+      const body = (await response.json()) as ReprocessReport;
+      setReprocess(body);
+      router.refresh();
+    } catch {
+      setError("Reprocessing did not finish. No X request was sent.");
+    } finally {
+      setRunning(false);
+    }
+  }
 
   async function runScan() {
     setRunning(true);
@@ -89,6 +137,26 @@ export function DeskDiscover({ opportunities }: { opportunities: DeskOpportunity
             className="mt-4 inline-flex h-10 items-center bg-ink px-4 text-sm text-paper disabled:opacity-50"
           >
             {running ? "Scanning…" : "Run scan"}
+          </button>
+        </div>
+      ) : null}
+      {partial && !reprocess?.ok ? (
+        <div className="mt-4 border border-rule px-4 py-4 text-sm">
+          <p>{partial.postsSaved} posts were saved successfully.</p>
+          <p>AI analysis did not finish.</p>
+          <p className="mt-2">X scan complete</p>
+          <p>{partial.postsSaved} posts saved</p>
+          <p className="mt-2">AI analysis incomplete</p>
+          <p className="mt-2">Provider: {reprocess?.provider || partial.provider}</p>
+          <p>Reason: {reprocess?.reason || partial.reason}</p>
+          <p className="mt-2 text-ink-soft">No additional X request is needed.</p>
+          <button
+            type="button"
+            onClick={() => void reprocessSaved()}
+            disabled={running}
+            className="mt-4 inline-flex h-10 items-center bg-ink px-4 text-sm text-paper disabled:opacity-50"
+          >
+            {running ? "Reprocessing…" : "Reprocess saved posts"}
           </button>
         </div>
       ) : null}

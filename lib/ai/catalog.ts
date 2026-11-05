@@ -15,6 +15,7 @@ import type { DeskStatus } from "@/lib/ai/diagnostics";
  */
 
 export const DRAFT_PROVIDER_ORDER = ["groq", "openrouter", "gemini"] as const;
+export const EXTRACTION_PROVIDER_ORDER = ["groq", "openrouter", "gemini"] as const;
 
 export type ProviderId = (typeof DRAFT_PROVIDER_ORDER)[number];
 
@@ -149,8 +150,19 @@ export function planProvider(provider: ProviderId, env: AiEnv, used: number): Pr
   };
 }
 
+export function providerOrder(raw: string | undefined, fallback: readonly ProviderId[]) {
+  const allowed = new Set<string>(DRAFT_PROVIDER_ORDER);
+  const parsed = (raw ?? "").split(",").map((item) => item.trim().toLowerCase()).filter((item): item is ProviderId => allowed.has(item));
+  const unique = [...new Set(parsed)];
+  return unique.length > 0 ? unique : [...fallback];
+}
+
 export function planDraftProviders(env: AiEnv, used: Record<ProviderId, number>) {
-  return DRAFT_PROVIDER_ORDER.map((provider) => planProvider(provider, env, used[provider] ?? 0));
+  return providerOrder(process.env.AI_DRAFT_PROVIDER_ORDER, DRAFT_PROVIDER_ORDER).map((provider) => planProvider(provider, env, used[provider] ?? 0));
+}
+
+export function planExtractionProviders(env: AiEnv, used: Record<ProviderId, number>) {
+  return providerOrder(process.env.AI_EXTRACTION_PROVIDER_ORDER, EXTRACTION_PROVIDER_ORDER).map((provider) => planProvider(provider, env, used[provider] ?? 0));
 }
 
 export function modelNote(plan: ProviderPlan) {
