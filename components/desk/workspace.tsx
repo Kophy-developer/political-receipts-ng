@@ -183,7 +183,7 @@ export function StoryWorkspace({
             <p className="mt-1 text-sm">Angle {claim.angle ?? "Not chosen"}.</p>
           </details>
 
-          <section className="border border-ink px-4 py-5 sm:px-5">
+          <section id="publish" className="border border-ink px-4 py-5 sm:px-5">
             <h2 className="font-mono text-[11px] tracking-[0.16em] uppercase">{publication ? "Published post" : "Final post"}</h2>
             <p className="mt-2 text-sm text-ink-soft">{publication ? "This story is finished. It is not waiting on another review, rewrite, or post." : "This is the text that can be published. Saving it does not change the AI suggestions."}</p>
             {publication?.url ? <a href={publication.url} className="mt-3 inline-block text-sm underline">View the post</a> : null}

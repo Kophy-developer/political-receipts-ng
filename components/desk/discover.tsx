@@ -4,7 +4,6 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { scanConfirmation, scanDeskSummary, type DiscoveryAction } from "@/lib/desk/discover";
-import { chicagoStamp } from "@/lib/format";
 import { deskJobView, type ReprocessJob } from "@/lib/intel/progress";
 
 export type DeskOpportunityView = {
@@ -51,7 +50,6 @@ export function DeskDiscover({
   postsSaved,
   job,
   latestOpportunities,
-  recent,
   provider,
   reason,
 }: {
@@ -59,7 +57,6 @@ export function DeskDiscover({
   postsSaved: number;
   job: ReprocessJob | null;
   latestOpportunities: DeskOpportunityView[];
-  recent: RecentScanView[];
   provider: string;
   reason: string;
 }) {
@@ -70,6 +67,8 @@ export function DeskDiscover({
   const [currentJob, setCurrentJob] = useState<ReprocessJob | null>(job);
   const [found, setFound] = useState<Found[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [reassessing, setReassessing] = useState(false);
+  const [reassessNote, setReassessNote] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const busy = useRef(false);
   const view = deskJobView({ job: currentJob, postsSaved, now });
@@ -131,6 +130,27 @@ export function DeskDiscover({
     } finally {
       busy.current = false;
       setNow(Date.now());
+    }
+  }
+
+  async function reassessSaved() {
+    if (!scanId || reassessing) return;
+    setReassessing(true);
+    setReassessNote(null);
+    setError(null);
+    try {
+      const response = await fetch("/api/intel/reassess", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ scanId }),
+      });
+      const body = (await response.json()) as { ok?: boolean; message?: string };
+      setReassessNote(body.message || (body.ok ? "Reassessed." : "Reassess did not finish."));
+      if (body.ok) router.refresh();
+    } catch {
+      setReassessNote("Reassess did not finish. No X request was sent.");
+    } finally {
+      setReassessing(false);
     }
   }
 
@@ -226,6 +246,16 @@ export function DeskDiscover({
               {view.button}
             </button>
           ) : null}
+          <button
+            type="button"
+            onClick={() => void reassessSaved()}
+            disabled={reassessing || running}
+            className="mt-4 inline-flex h-10 items-center border border-ink px-4 text-sm disabled:opacity-50"
+          >
+            {reassessing ? "Reassessing…" : "Reassess saved conversations"}
+          </button>
+          <p className="mt-2 text-ink-soft">Uses the posts already stored for this scan. It does not call X, a model, or research, and it does not publish.</p>
+          {reassessNote ? <p className="mt-2">{reassessNote}</p> : null}
         </div>
       ) : null}
       {error ? <p className="mt-3 text-sm text-stamp">{error}</p> : null}
@@ -255,22 +285,6 @@ export function DeskDiscover({
             </li>
           ))}
         </ul>
-      ) : null}
-      {recent.length > 0 ? (
-        <details className="mt-6">
-          <summary className="cursor-pointer font-mono text-[11px] tracking-[0.16em] text-ink-soft uppercase">Recent scans</summary>
-          <ul className="mt-3 space-y-3 text-sm">
-            {recent.map((item) => (
-              <li key={item.id} className="border border-rule px-3 py-3">
-                <p>{chicagoStamp(item.startedAt)}</p>
-                <p>{item.posts} posts retrieved</p>
-                <p>{item.analysis}</p>
-                <p>{item.opportunities === null ? "Opportunities not linked" : `${item.opportunities} ${item.opportunities === 1 ? "opportunity" : "opportunities"}`}</p>
-                <p>Provider: {item.provider}</p>
-              </li>
-            ))}
-          </ul>
-        </details>
       ) : null}
     </section>
   );

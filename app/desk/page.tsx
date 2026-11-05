@@ -2,17 +2,16 @@ import { Suspense } from "react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { connection } from "next/server";
-import { DeskDiscover, type DeskOpportunityView } from "@/components/desk/discover";
-import { EmptyDesk } from "@/components/marks";
+import { DeskDiscover } from "@/components/desk/discover";
+import { EditorialPipeline, PassedOver, type ReadyItem } from "@/components/desk/pipeline";
 import { PageFrame } from "@/components/shell/page-frame";
 import { listClaims } from "@/lib/db/claims";
+import { listPipeline } from "@/lib/db/editorial";
 import { loadFinalPost } from "@/lib/db/final-post";
 import { publishedByClaim } from "@/lib/db/publishing";
-import { listOpportunityDesk } from "@/lib/db/opportunities";
 import { latestReprocessJob, listRecentScans } from "@/lib/db/reprocess-jobs";
 import { latestDeskScan } from "@/lib/intel/saved-scan";
-import { splitLatestWork } from "@/lib/intel/progress";
-import { discoveryAction, selectDeskOpportunities } from "@/lib/desk/discover";
+import { inProgressLifecycle, lifecycleLabel, postShape, queueLifecycle, readyLifecycle, researchLabel } from "@/lib/editorial/model";
 import { nextAction, type StoryFacts } from "@/lib/desk/story";
 import { chicagoStamp } from "@/lib/format";
 import Loading from "@/app/loading";
@@ -30,73 +29,106 @@ export default function DeskPage() {
 async function DeskQueue() {
   await connection();
   const result = await listClaims();
-  if (!result.ok) {
-    return (
-      <PageFrame>
-        <EmptyDesk title="Desk unavailable" body="The stories could not be read. Nothing was published." />
-      </PageFrame>
-    );
-  }
-  const published = await publishedByClaim();
-  const cards = await Promise.all(result.claims.map(async (claim) => {
-    const finalPost = await loadFinalPost(claim.id);
-    const publication = published.get(claim.id) ?? null;
-    const facts: StoryFacts = {
-      hasConversation: Boolean(claim.postText && claim.postText !== "The original post text has not been filed."),
-      acceptedEvidence: claim.evidence.filter((item) => item.review === "accepted").length
-        || claim.verdictEvidenceUsed.filter((item) => item.kind !== "original allegation").length,
-      verdictRecorded: Boolean(claim.verdictRecordedAt),
-      angleChosen: Boolean(claim.editorAngle),
-      finalText: finalPost?.text ?? "",
-      published: Boolean(publication),
-    };
-    return { claim, action: nextAction(facts), facts, publication };
-  }));
-  const storyIds = new Set(cards.map((card) => card.claim.id));
-  const opportunities = await deskOpportunities(storyIds, cards);
+  const published = result.ok ? await publishedByClaim() : new Map();
+  const cards = result.ok
+    ? await Promise.all(result.claims.map(async (claim) => {
+        const finalPost = await loadFinalPost(claim.id);
+        const publication = published.get(claim.id) ?? null;
+        const facts: StoryFacts = {
+          hasConversation: Boolean(claim.postText && claim.postText !== "The original post text has not been filed."),
+          acceptedEvidence: claim.evidence.filter((item) => item.review === "accepted").length
+            || claim.verdictEvidenceUsed.filter((item) => item.kind !== "original allegation").length,
+          verdictRecorded: Boolean(claim.verdictRecordedAt),
+          angleChosen: Boolean(claim.editorAngle),
+          finalText: finalPost?.text ?? "",
+          published: Boolean(publication),
+        };
+        return { claim, action: nextAction(facts), publication, finalPost };
+      }))
+    : [];
+  const pipeline = await listPipeline();
   const scan = await latestDeskScan();
   const reprocess = scan ? await latestReprocessJob(scan.scanId) : null;
   const recent = await listRecentScans(5);
-  const grouped = splitLatestWork(scan?.scanId ?? null, opportunities);
-  const inProgress = cards.filter((card) => !card.publication);
+  const readyIds = new Set(
+    cards.filter((card) => card.finalPost && !card.publication).map((card) => card.claim.id),
+  );
+  const ready: ReadyItem[] = cards.flatMap((card) => {
+    if (!card.finalPost || card.publication || card.claim.status === "Dismissed") return [];
+    const shape = postShape(card.finalPost.text);
+    const accepted = card.claim.evidence.filter((item) => item.review === "accepted");
+    return [{
+      id: card.claim.id,
+      kind: "claim" as const,
+      title: card.claim.claim,
+      text: card.finalPost.text,
+      type: card.claim.format?.current ?? "Story",
+      why: card.claim.editorAngleText || card.claim.importanceReason || "The editor already has a final draft.",
+      evidence: accepted.length > 0 ? `${accepted.length} accepted source${accepted.length === 1 ? "" : "s"} on the story.` : null,
+      sources: card.finalPost.sources,
+      count: shape.count,
+      shape: shape.shape,
+      href: `/desk/${card.claim.id}`,
+    }];
+  });
+  for (const item of pipeline.cards) {
+    if (!readyLifecycle(item.lifecycle) || (item.claimId && readyIds.has(item.claimId))) continue;
+    const shape = postShape(item.angle || item.title);
+    ready.push({
+      id: item.id,
+      kind: "opportunity",
+      title: item.title,
+      text: item.angle || item.reason,
+      type: item.type,
+      why: item.reason,
+      evidence: null,
+      sources: [],
+      count: shape.count,
+      shape: shape.shape,
+      href: item.claimId ? `/desk/${item.claimId}` : "/opportunities",
+    });
+  }
+  const queue = pipeline.cards.filter((item) => queueLifecycle(item.lifecycle));
+  const working = pipeline.cards.filter((item) => inProgressLifecycle(item.lifecycle));
+  const passed = pipeline.cards.filter((item) => item.lifecycle === "PASSED");
+  const earlier = pipeline.earlier.filter((item) => item.status !== "ignored");
+  const inProgress = cards.filter((card) => !card.publication && !card.finalPost && card.claim.status !== "Dismissed");
   const recentlyPublished = cards.filter((card) => card.publication);
+
   return (
     <PageFrame className="max-w-3xl">
       <p className="font-mono text-[11px] tracking-[0.16em] text-ink-soft uppercase">Desk</p>
       <h1 className="mt-2 font-serif text-4xl tracking-[-0.03em]">The desk</h1>
+      {!result.ok ? <p className="mt-4 text-sm">The stories could not be read. Nothing was published.</p> : null}
       <div className="mt-8 space-y-10">
         <DeskDiscover
           scanId={scan?.scanId ?? null}
           postsSaved={scan?.postsSaved ?? 0}
           job={reprocess}
-          latestOpportunities={grouped.latest}
-          recent={recent}
+          latestOpportunities={[]}
           provider={scan?.provider ?? "Not recorded"}
           reason={scan?.reason ?? "The analysis did not finish"}
         />
-        <section>
-          <p className="font-mono text-[11px] tracking-[0.16em] text-ink-soft uppercase">Other open work</p>
-          <h2 className="mt-2 font-serif text-3xl tracking-[-0.03em]">Older opportunities.</h2>
-          {grouped.older.length === 0 ? (
-            <p className="mt-4 text-sm text-ink-soft">No older opportunity is waiting.</p>
-          ) : (
-            <ul className="mt-4 space-y-3">
-              {grouped.older.map((item) => (
-                <li key={item.id} className="border border-rule px-3 py-3">
-                  <p className="text-sm leading-relaxed">{item.title}</p>
-                  <Link href={item.href} className="mt-3 inline-flex h-9 items-center bg-ink px-3 text-sm text-paper">{item.action}</Link>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
+        <EditorialPipeline
+          ready={ready}
+          queue={queue}
+          earlier={earlier}
+          migrationPending={pipeline.reason === "pending"}
+        />
         <section>
           <p className="font-mono text-[11px] tracking-[0.16em] text-ink-soft uppercase">In progress</p>
-          <h2 className="mt-2 font-serif text-3xl tracking-[-0.03em]">Stories already being worked on.</h2>
-          {inProgress.length === 0 ? (
-            <p className="mt-4 text-sm text-ink-soft">No story is in progress.</p>
-          ) : (
+          <h2 className="mt-2 font-serif text-3xl tracking-[-0.03em]">Research and drafts already open.</h2>
+          {inProgress.length === 0 && working.length === 0 ? (
+            <p className="mt-4 text-sm text-ink-soft">No story is in progress. A research job starts only when an opportunity needs it.</p>
+          ) : null}
+          {inProgress.length > 0 || working.length > 0 ? (
             <ul className="mt-4 space-y-4">
+              {working.map((item) => (
+                <li key={item.id} className="border border-rule px-5 py-5">
+                  <p className="font-serif text-2xl leading-snug tracking-[-0.02em]">{item.title}</p>
+                  <p className="mt-2 text-sm text-ink-soft">{lifecycleLabel(item.lifecycle)} · {researchLabel(item.research)}</p>
+                </li>
+              ))}
               {inProgress.map(({ claim, action }) => (
                 <li key={claim.id} className="border border-rule px-5 py-5">
                   <p className="font-serif text-2xl leading-snug tracking-[-0.02em]">{claim.claim}</p>
@@ -109,11 +141,11 @@ async function DeskQueue() {
                 </li>
               ))}
             </ul>
-          )}
+          ) : null}
         </section>
         <section>
           <p className="font-mono text-[11px] tracking-[0.16em] text-ink-soft uppercase">Recently published</p>
-          <h2 className="mt-2 font-serif text-3xl tracking-[-0.03em]">Recently completed work.</h2>
+          <h2 className="mt-2 font-serif text-3xl tracking-[-0.03em]">Completed posts.</h2>
           {recentlyPublished.length === 0 ? (
             <p className="mt-4 text-sm text-ink-soft">Nothing from this desk has been published.</p>
           ) : (
@@ -131,35 +163,28 @@ async function DeskQueue() {
             </ul>
           )}
         </section>
+        <PassedOver passed={passed} />
+        <section>
+          <details>
+            <summary className="cursor-pointer font-mono text-[11px] tracking-[0.16em] text-ink-soft uppercase">Recent scans</summary>
+            {recent.length === 0 ? (
+              <p className="mt-3 text-sm text-ink-soft">No scan is stored.</p>
+            ) : (
+              <ul className="mt-3 space-y-3 text-sm">
+                {recent.map((item) => (
+                  <li key={item.id} className="border border-rule px-3 py-3">
+                    <p>{chicagoStamp(item.startedAt)}</p>
+                    <p>{item.posts} posts retrieved</p>
+                    <p>{item.analysis}</p>
+                    <p>{item.opportunities === null ? "Opportunities not linked" : `${item.opportunities} ${item.opportunities === 1 ? "opportunity" : "opportunities"}`}</p>
+                    <p>Provider: {item.provider}</p>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </details>
+        </section>
       </div>
     </PageFrame>
   );
-}
-
-async function deskOpportunities(
-  storyIds: Set<string>,
-  cards: Array<{ claim: { id: string }; facts: StoryFacts }>,
-): Promise<DeskOpportunityView[]> {
-  const desk = await listOpportunityDesk();
-  if (!desk.ok) return [];
-  const factsOf = new Map(cards.map((card) => [card.claim.id, card.facts]));
-  return selectDeskOpportunities(desk.items, storyIds).flatMap((item) => {
-    const facts = item.claimId ? factsOf.get(item.claimId) ?? null : null;
-    const action = discoveryAction({
-      type: item.type,
-      research: item.research,
-      status: item.status,
-      editorAngle: item.editorAngle,
-      editorTake: item.editorTake,
-      claim: facts ? { published: Boolean(facts.published), facts } : null,
-    });
-    if (!action) return [];
-    return [{
-      id: item.id,
-      title: item.whatHappened,
-      action,
-      href: item.claimId ? `/desk/${item.claimId}` : "/opportunities",
-      scanId: item.scanId ?? null,
-    }];
-  });
 }

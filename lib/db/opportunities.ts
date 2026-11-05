@@ -301,6 +301,33 @@ export async function decideOpportunity(input: { id: string; action: string; ang
   if (!isUuid(input.id)) return { ok: false as const, message: "That opportunity is not on the desk." };
   const row = await db.from("opportunities").select("id, status, conversation_id, what_happened, research_questions, angles, opportunity_type, voice, content_pillar, research_required").eq("id", input.id).maybeSingle();
   if (row.error || !row.data) return { ok: false as const, message: "That opportunity is not on the desk." };
+  if (input.action === "promote" || input.action === "pass") {
+    const ranked = await db.from("opportunities").select("queue_rank").eq("lifecycle", "RANKED");
+    const nextRank = (ranked.data ?? []).reduce((max, row) => Math.max(max, typeof row.queue_rank === "number" ? row.queue_rank : 0), 0) + 1;
+    const patch = input.action === "promote"
+      ? { status: "open", lifecycle: "RANKED", queue_rank: nextRank, pass_reason: null }
+      : { status: "ignored", lifecycle: "PASSED", queue_rank: null, pass_reason: "Passed by the editor." };
+    let updated = await db.from("opportunities").update(patch).eq("id", input.id);
+    if (updated.error && columnMissing(updated.error.message)) {
+      updated = await db.from("opportunities").update({ status: patch.status }).eq("id", input.id);
+    }
+    if (updated.error) return { ok: false as const, message: scrubDbMessage(updated.error.message), xRequests: 0 as const, posted: false as const };
+    await recordEvent({
+      action: "opportunity decided",
+      actor: "editor",
+      subjectType: "opportunity",
+      subjectId: input.id,
+      detail: { status: patch.status, lifecycle: input.action === "promote" ? "RANKED" : "PASSED", modelCalls: 0, xRequests: 0 },
+    });
+    return {
+      ok: true as const,
+      xRequests: 0 as const,
+      posted: false as const,
+      message: input.action === "promote"
+        ? "Moved into the content queue. No model was called."
+        : "Passed. It stays on the desk, and nothing was published.",
+    };
+  }
   if (input.action === "ignore" || input.action === "save") {
     const status = input.action === "ignore" ? "ignored" : "saved";
     const { error } = await db.from("opportunities").update({ status }).eq("id", input.id);
@@ -343,13 +370,23 @@ async function sendToResearch(row: {
     questions.push("Is there a factual sentence here, or only a view?");
   }
   const pillar: Pillar = row.content_pillar === "football" || row.content_pillar === "finance" ? row.content_pillar : "politics";
-  const kind: StatementKind = row.voice === "analysis" ? "analysis" : row.voice === "fact" ? "fact" : "opinion";
+  const prediction = row.voice === "prediction";
+  const kind: StatementKind = prediction ? "opinion" : row.voice === "analysis" ? "analysis" : row.voice === "fact" ? "fact" : "opinion";
   const claimText = sanitizeText(row.what_happened, 500);
   const types = inferClaimTypes(claimText, pillar);
   const post = row.conversation_id
     ? await db.from("x_posts").select("x_post_id, username, text").eq("conversation_id", row.conversation_id).limit(1).maybeSingle()
     : { data: null };
-  const verdict = proposeVerdict({ statementKind: kind, evidence: [] });
+  const verdict = prediction
+    ? {
+        factual: null,
+        reasoning: "This is a prediction. The desk does not forecast the result, and it does not assign a factual verdict.",
+        caveats: "A separate checkable sentence would need its own opportunity.",
+        unknown: "No winner is predicted.",
+        confidence: null,
+        attribution: "Not a factual claim.",
+      }
+    : proposeVerdict({ statementKind: kind, evidence: [] });
   const claim = await db.from("claims").insert({
     claim_text: claimText,
     conversation_id: row.conversation_id,
