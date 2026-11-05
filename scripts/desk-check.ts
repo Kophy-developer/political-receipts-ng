@@ -1,12 +1,14 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import { join } from "node:path";
 import { characterCount, POST_LIMIT } from "../lib/format";
+import { defaultEditorName } from "../lib/identity";
+import { longPostUnknownCopy, publishingCapability } from "../lib/publish/capability";
+import { publishPlan, splitForThread } from "../lib/publish/format";
 import { POLLING_UNIT_CLAIM_ID } from "../lib/research/editor-review";
 import {
-  convertToTwoPosts,
   evidenceBrief,
   finalPostRecord,
   nextAction,
-  postsIn,
   previewPosts,
   publishablePost,
   readFinalPost,
@@ -52,14 +54,26 @@ const preview = previewPosts(candidate);
 check("the candidate preview keeps the hashtag and does not cut the post", preview.posts.length === 1 && preview.posts[0] === candidate.trimEnd() && preview.posts[0]?.includes("#CheckAm"));
 check("a long post is marked, not shortened", previewPosts(`${"word ".repeat(80)}#CheckAm`).overflow === true);
 
-const long = `${"The photographs were already the story. ".repeat(12)}#CheckAm`;
-const split = convertToTwoPosts(long);
-check("convert to two posts keeps the hashtag and both pieces", Boolean(split) && split!.includes("#CheckAm") && postsIn(split!).length === 2 && postsIn(split!).every((post) => characterCount(post) <= POST_LIMIT));
+const longSentence = `${"word ".repeat(70)}end`;
+const uncut = splitForThread(longSentence);
+check("a sentence over the limit is not cut in half", uncut.posts.length === 1 && uncut.posts[0] === longSentence && characterCount(uncut.posts[0]!) > POST_LIMIT);
+
+const candidateSplit = splitForThread(candidate);
+const candidateSentences = candidate.replace(/\s*\n\s*/g, " ").split(/(?<=[.!?])\s+(?=[A-Z#“"])/).map((part) => part.trim());
+check(
+  "the candidate splits on sentences and keeps the hashtag",
+  candidateSplit.posts.some((post) => post.endsWith("#CheckAm"))
+    && candidateSplit.posts.every((post) => characterCount(post) <= POST_LIMIT)
+    && candidateSentences.every((sentence) => candidateSplit.posts.filter((post) => post.includes(sentence)).length === 1),
+);
+const overLimit = "A".repeat(281);
+const unset = publishPlan({ text: overLimit, format: "unset" });
+check("281 characters asks for a format and does not send", characterCount(overLimit) === 281 && unset.send === false && unset.reason === "Choose a post format before review.");
+const threadPlan = publishPlan({ text: candidate, format: "thread", posts: candidateSplit.posts });
+check("a thread is shown in full and is not sent", threadPlan.send === false && threadPlan.label.startsWith("Thread (") && threadPlan.posts.length > 1 && /None of these posts will be sent/.test(threadPlan.reason ?? ""));
 
 const gate = publishablePost(candidate);
 check("an over-long final post is not shortened", gate.ok === false && /not shortened/.test(gate.reason));
-const candidateSplit = convertToTwoPosts(candidate);
-check("the candidate can be split without dropping the hashtag", Boolean(candidateSplit) && candidateSplit!.includes("#CheckAm") && postsIn(candidateSplit!).every((post) => characterCount(post) <= POST_LIMIT));
 const onePost = "The photographs were the story, and INEC responded. I could not establish the 453 figure.\n\n#CheckAm";
 const oneGate = publishablePost(onePost.replace("\n\n#CheckAm", " #CheckAm"));
 check("a single post approval is the exact text", oneGate.ok === true && oneGate.text.endsWith("#CheckAm"));
@@ -93,7 +107,26 @@ const route = readFileSync(new URL("../app/api/desk/final/route.ts", import.meta
 const workspace = readFileSync(new URL("../components/desk/workspace.tsx", import.meta.url), "utf8");
 check("saving the final post does not call a provider", !/groq|openrouter|tavily|brave|api\.twitter|generativelanguage/i.test(route));
 check("the workspace shows the exact text before send", workspace.includes("Exact text") && workspace.includes("Post this exact text"));
-check("use this copies into the final post and does not save over the suggestion", workspace.includes("setText(suggestion.text)") && !workspace.includes("suggestion.text ="));
+check("use this copies into the final post and does not save over the suggestion", workspace.includes("takeSuggestion(suggestion.text)") && !workspace.includes("suggestion.text ="));
+const capability = readFileSync(new URL("../lib/publish/capability.ts", import.meta.url), "utf8");
+check("the format choice sits with the editor", workspace.includes("Longer than current publish limit") && workspace.includes("Post format") && workspace.includes("longPostUnknownCopy") && capability.includes(longPostUnknownCopy) && !workspace.includes("Convert to 2 posts"));
+check("the desk does not promise a second post will be dropped after send", !workspace.includes("is not sent."));
+check("long posts stay unverified and threads are not published", publishingCapability.longPostSupported === "unknown" && publishingCapability.threadPublishing === false && publishingCapability.longPostLimit === null);
+check("the editor name defaults to PRNG Admin", defaultEditorName === "PRNG Admin");
+
+function sourceOf(dir: string): string {
+  return readdirSync(dir).flatMap((entry) => {
+    const path = join(dir, entry);
+    if (entry === "node_modules" || entry === ".next") return [];
+    const info = statSync(path);
+    if (info.isDirectory()) return [sourceOf(path)];
+    if (/\.(ts|tsx|md)$/.test(entry)) return [readFileSync(path, "utf8")];
+    return [];
+  }).join("\n");
+}
+const root = new URL("..", import.meta.url);
+const product = ["app", "components", "lib"].map((dir) => sourceOf(join(root.pathname, dir))).join("\n");
+check("the retired editor name is not in the product", !product.includes("Ifeoma Okeke") && !product.includes("Duty editor"));
 
 if (failures.length) {
   console.error(failures.join("\n"));

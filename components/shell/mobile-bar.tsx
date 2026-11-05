@@ -6,8 +6,9 @@ import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { ReceiptMark } from "@/components/shell/mark";
 import { SidebarNav } from "@/components/shell/sidebar-nav";
+import type { EditorIdentity } from "@/lib/identity";
 
-export function MobileBar({ gemini = "Not configured" }: { gemini?: string }) {
+export function MobileBar({ gemini = "Not configured", identity }: { gemini?: string; identity: EditorIdentity }) {
   const [open, setOpen] = useState(false);
 
   return (
@@ -31,7 +32,7 @@ export function MobileBar({ gemini = "Not configured" }: { gemini?: string }) {
         >
           <SheetTitle className="sr-only">Menu</SheetTitle>
           <Suspense fallback={null}>
-            <SidebarNav gemini={gemini} onNavigate={() => setOpen(false)} />
+            <SidebarNav gemini={gemini} identity={identity} onNavigate={() => setOpen(false)} />
           </Suspense>
         </SheetContent>
       </Sheet>

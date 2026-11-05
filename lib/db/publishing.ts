@@ -1,5 +1,5 @@
 import "server-only";
-import { editor } from "@/lib/system";
+import { editorActor } from "@/lib/db/identity";
 import { scrubDbMessage, serviceClient } from "@/lib/db/client";
 import { recordEvent } from "@/lib/db/events";
 
@@ -39,7 +39,7 @@ export async function reservePublication(approvalId: string, draftId: string) {
   }
   await recordEvent({
     action: "publish attempted",
-    actor: editor.name,
+    actor: await editorActor(),
     subjectType: "published_post",
     subjectId: data.id,
     detail: { approvalId, draftId },
@@ -69,7 +69,7 @@ export async function finishPublication(input: {
   await db.from("publish_approvals").update({ status: "published" }).eq("id", input.approvalId).eq("status", "active");
   await recordEvent({
     action: "publish succeeded",
-    actor: editor.name,
+    actor: await editorActor(),
     subjectType: "published_post",
     subjectId: input.rowId,
     detail: { approvalId: input.approvalId, xPostId: input.xPostId },
@@ -83,7 +83,7 @@ export async function failPublication(rowId: string, approvalId: string) {
   await db.from("published_posts").update({ status: "failed" }).eq("id", rowId).eq("status", "pending");
   await recordEvent({
     action: "publish failed",
-    actor: editor.name,
+    actor: await editorActor(),
     subjectType: "published_post",
     subjectId: rowId,
     detail: { approvalId },

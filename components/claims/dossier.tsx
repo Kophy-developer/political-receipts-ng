@@ -18,6 +18,7 @@ export function Dossier({
   inventory,
   drafts,
   providers,
+  editorName,
 }: {
   claim: DeskClaim;
   mode: DeskMode;
@@ -25,6 +26,7 @@ export function Dossier({
   inventory: { results: StoredSearchResult[]; note: string | null };
   drafts: StoredDraft[];
   providers: ProviderCard[];
+  editorName: string;
 }) {
   const initials = claim.handle.replace("@", "").slice(0, 2).toUpperCase();
 
@@ -221,7 +223,7 @@ export function Dossier({
             )}
           </section>
         </div>
-        <EditorReview claim={claim} />
+        <EditorReview claim={claim} editorName={editorName} />
         <DraftingPanel claim={claim} drafts={drafts} providers={providers} />
         <ResearchPanel claim={claim} plan={plan} />
         <section>

@@ -139,8 +139,8 @@ export function convertToTwoPosts(text: string) {
 
 export function publishablePost(text: string) {
   const posts = postsIn(text);
-  if (posts.length !== 1) return { ok: false as const, reason: "The current publish gate sends one post. A second post is shown, and it is not sent." };
-  if (characterCount(posts[0]!) > POST_LIMIT) return { ok: false as const, reason: `This post is over ${POST_LIMIT} characters. It was not shortened.` };
+  if (posts.length !== 1) return { ok: false as const, reason: "Thread publishing is not available yet. None of these posts will be sent." };
+  if (characterCount(posts[0]!) > POST_LIMIT) return { ok: false as const, reason: `This post is over ${POST_LIMIT} characters. It was not shortened, and it will not be sent.` };
   if (!posts[0]!.trim()) return { ok: false as const, reason: "The final post is empty." };
   return { ok: true as const, text: posts[0]! };
 }

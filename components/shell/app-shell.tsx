@@ -1,8 +1,10 @@
 import { geminiLabel } from "@/lib/ai/env";
 import { MobileBar } from "@/components/shell/mobile-bar";
 import { Sidebar } from "@/components/shell/sidebar";
+import { loadEditorIdentity } from "@/lib/db/identity";
 
-export function AppShell({ children }: { children: React.ReactNode }) {
+export async function AppShell({ children }: { children: React.ReactNode }) {
+  const identity = await loadEditorIdentity();
   return (
     <div className="min-h-full lg:flex">
       <a
@@ -11,9 +13,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       >
         Skip to desk
       </a>
-      <Sidebar />
+      <Sidebar identity={identity} />
       <div className="min-w-0 flex-1">
-        <MobileBar gemini={geminiLabel()} />
+        <MobileBar gemini={geminiLabel()} identity={identity} />
         <main id="desk">{children}</main>
       </div>
     </div>

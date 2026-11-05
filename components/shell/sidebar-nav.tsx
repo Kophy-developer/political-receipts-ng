@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { editor } from "@/lib/system";
+import { editorInitials, type EditorIdentity } from "@/lib/identity";
 import { isActive, libraryNav, primaryNav, systemNav, type NavItem } from "@/lib/nav";
 import { cn } from "cn";
 import { ReceiptMark } from "@/components/shell/mark";
@@ -39,7 +39,7 @@ function NavGroup({ label, items, pathname, onNavigate }: { label: string; items
   );
 }
 
-export function SidebarNav({ onNavigate }: { onNavigate?: () => void; gemini?: string }) {
+export function SidebarNav({ onNavigate, identity }: { onNavigate?: () => void; gemini?: string; identity: EditorIdentity }) {
   const pathname = usePathname();
 
   return (
@@ -71,13 +71,11 @@ export function SidebarNav({ onNavigate }: { onNavigate?: () => void; gemini?: s
       <div className="border-t border-white/10 px-4 py-3">
         <div className="flex items-center gap-2.5">
           <span className="grid size-8 shrink-0 place-items-center rounded-full border border-white/15 font-mono text-[11px] text-[#f3efe6]">
-            {editor.initials}
+            {editorInitials(identity.name)}
           </span>
           <span>
-            <span className="block text-sm text-[#f6f3ec]">{editor.name}</span>
-            <span className="block text-xs text-white/50">
-              {editor.role} · {editor.desk}
-            </span>
+            <span className="block text-sm text-[#f6f3ec]">{identity.name}</span>
+            {identity.role ? <span className="block text-xs text-white/50">{identity.role}</span> : null}
           </span>
         </div>
       </div>

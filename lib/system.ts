@@ -1,12 +1,5 @@
 import type { ChecklistItem } from "@/lib/types";
 
-export const editor = {
-  name: "Ifeoma Okeke",
-  role: "Duty editor",
-  initials: "IO",
-  desk: "Lagos",
-};
-
 export const telemetry = {
   postsMonitored: 48216,
   postsMonitoredNote: "+6.4% on the previous sample day",

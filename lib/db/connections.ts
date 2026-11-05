@@ -3,7 +3,7 @@ import { xScopes } from "@/lib/x/public";
 import { encryptSecret, encryptionReady } from "@/lib/db/crypto";
 import { scrubDbMessage, serviceClient } from "@/lib/db/client";
 import { recordEvent } from "@/lib/db/events";
-import { editor } from "@/lib/system";
+import { editorActor } from "@/lib/db/identity";
 
 export async function saveOauth2Connection(input: {
   xUserId: string;
@@ -41,7 +41,7 @@ export async function saveOauth2Connection(input: {
   if (error || !data) return { ok: false as const, reason: "database" as const, message: scrubDbMessage(error?.message || "upsert") };
   await recordEvent({
     action: "X connection changed",
-    actor: editor.name,
+    actor: await editorActor(),
     subjectType: "x_connection",
     subjectId: data.id,
     detail: { username: input.username, status: "connected" },
@@ -60,7 +60,7 @@ export async function markConnectionVerified(username: string) {
   if (!data?.length) return;
   await recordEvent({
     action: "X connection changed",
-    actor: editor.name,
+    actor: await editorActor(),
     subjectType: "x_connection",
     subjectId: data[0].id,
     detail: { username, status: "verified" },

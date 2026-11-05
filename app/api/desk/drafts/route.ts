@@ -1,6 +1,6 @@
 import { saveDraftEdit } from "@/lib/db/drafts";
 import { isUuid } from "@/lib/db/labels";
-import { editor } from "@/lib/system";
+import { editorActor } from "@/lib/db/identity";
 import { assertEditorPost } from "@/lib/x/guard";
 
 export async function POST(request: Request) {
@@ -15,7 +15,7 @@ export async function POST(request: Request) {
   if (typeof body.draftId !== "string" || !isUuid(body.draftId) || typeof body.content !== "string") {
     return Response.json({ ok: false, message: "The draft edit is incomplete." }, { status: 400, headers: { "cache-control": "no-store" } });
   }
-  const saved = await saveDraftEdit({ draftId: body.draftId, content: body.content, actor: editor.name });
+  const saved = await saveDraftEdit({ draftId: body.draftId, content: body.content, actor: await editorActor() });
   if (!saved.ok) return Response.json({ ok: false, message: saved.message }, { status: 400, headers: { "cache-control": "no-store" } });
   return Response.json({ ok: true }, { headers: { "cache-control": "no-store" } });
 }

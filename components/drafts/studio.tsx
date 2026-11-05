@@ -6,7 +6,8 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Check, Copy } from "lucide-react";
 import type { DeskMode, StudioClaim, StudioPackage } from "@/lib/desk/types";
 import { characterCount, POST_LIMIT } from "@/lib/format";
-import { checklist, editor } from "@/lib/system";
+import { defaultEditorName } from "@/lib/identity";
+import { checklist } from "@/lib/system";
 import type { VersionId } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -506,7 +507,7 @@ export function DraftStudio({ claims, packages, mode }: { claims: StudioClaim[];
                       ) : null}
                       {posted && posted.claimId === claim.id ? (
                         <p className="text-sm">
-                          Posted by {editor.name}. X id {posted.id}. {posted.retained ? "The id is stored with the approval." : "The database did not confirm the row."}{" "}
+                          Posted by {defaultEditorName}. X id {posted.id}. {posted.retained ? "The id is stored with the approval." : "The database did not confirm the row."}{" "}
                           <a href={posted.url} className="underline" target="_blank" rel="noreferrer">
                             Open the post
                           </a>

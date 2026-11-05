@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import type { DeskClaim } from "@/lib/desk/types";
 import { chicagoStamp } from "@/lib/format";
+import { defaultEditorName } from "@/lib/identity";
 import { angleChosen, draftUnlocked, type ReviewAngleId } from "@/lib/research/editor-review";
 
 const verdicts = ["SUPPORTED", "CONTRADICTED", "MISLEADING", "NEEDS CONTEXT", "UNVERIFIED", "INSUFFICIENT EVIDENCE"] as const;
@@ -15,14 +16,14 @@ function confidenceValue(label: DeskClaim["verdictConfidence"]): "low" | "modera
   return "moderate";
 }
 
-export function EditorReview({ claim }: { claim: DeskClaim }) {
+export function EditorReview({ claim, editorName = defaultEditorName }: { claim: DeskClaim; editorName?: string }) {
   const review = claim.editorReview;
   if (!review) return null;
   const formKey = [claim.editorAngle, claim.editorAngleText, claim.editorTake, claim.proposedVerdict, claim.verdictConfidence, claim.verdictRecordedAt].join("|");
-  return <EditorReviewForm key={formKey} claim={claim} review={review} />;
+  return <EditorReviewForm key={formKey} claim={claim} review={review} editorName={editorName} />;
 }
 
-function EditorReviewForm({ claim, review }: { claim: DeskClaim; review: NonNullable<DeskClaim["editorReview"]> }) {
+function EditorReviewForm({ claim, review, editorName }: { claim: DeskClaim; review: NonNullable<DeskClaim["editorReview"]>; editorName: string }) {
   const router = useRouter();
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -250,7 +251,7 @@ function EditorReviewForm({ claim, review }: { claim: DeskClaim; review: NonNull
               <dl className="mt-3 space-y-2 text-sm">
                 <div>
                   <dt className="font-mono text-[10px] tracking-[0.12em] text-ink-soft uppercase">Editor</dt>
-                  <dd>{claim.verdictRecordedBy || "Duty editor"}</dd>
+                  <dd>{editorName}</dd>
                 </div>
                 <div>
                   <dt className="font-mono text-[10px] tracking-[0.12em] text-ink-soft uppercase">Timestamp</dt>

@@ -6,7 +6,10 @@ import Link from "next/link";
 import { providerLabels, type ProviderCard, type ProviderId } from "@/lib/ai/catalog";
 import type { SystemHealth, UsageView } from "@/lib/desk/types";
 import { lagosStamp } from "@/lib/format";
-import { editor, xCallbackPath } from "@/lib/system";
+import type { EditorIdentity } from "@/lib/identity";
+import { xCallbackPath } from "@/lib/system";
+import { IdentityForm } from "@/components/settings/identity-form";
+import { XCapability } from "@/components/settings/x-capability";
 import { xProductionOrigin } from "@/lib/x/public";
 import { XDesk, type XFlags } from "@/components/settings/x-desk";
 import { Input } from "@/components/ui/input";
@@ -21,7 +24,7 @@ const sections = [
   { href: "#sources", label: "Sources" },
   { href: "#rules", label: "Editorial Rules" },
   { href: "#publishing", label: "Publishing" },
-  { href: "#account", label: "Account" },
+  { href: "#identity", label: "Editor identity" },
 ];
 
 type ReprocessResult = {
@@ -47,12 +50,14 @@ export function SettingsPanel({
   usage,
   providers,
   paidUsage,
+  identity,
 }: {
   flags: XFlags;
   health: SystemHealth;
   usage: UsageView;
   providers: ProviderCard[];
   paidUsage: boolean;
+  identity: EditorIdentity;
 }) {
   const router = useRouter();
   const [origin, setOrigin] = useState(xProductionOrigin);
@@ -118,6 +123,7 @@ export function SettingsPanel({
             </Section>
             <Section id="x" kicker="X Integration" title="The account that can post">
               <XDesk flags={flags} />
+              <XCapability username={health.xAccount.username} />
             </Section>
             <Section id="ai" kicker="AI Providers" title="Who can draft">
               <p className="max-w-2xl text-sm leading-relaxed">
@@ -244,18 +250,10 @@ export function SettingsPanel({
                 <li>Reject keeps the package off the approve button until the editor undoes it.</li>
               </ul>
             </Section>
-            <Section id="account" kicker="Account" title="Who is on duty">
-              <div className="flex items-center gap-3">
-                <span className="grid size-12 place-items-center rounded-full border border-rule font-mono">{editor.initials}</span>
-                <div>
-                  <p className="font-serif text-xl">{editor.name}</p>
-                  <p className="text-sm text-ink-soft">
-                    {editor.role} · {editor.desk} · sample desk
-                  </p>
-                </div>
-              </div>
+            <Section id="identity" kicker="Editor identity" title="Who is writing">
+              <IdentityForm identity={identity} />
               <p className="mt-4 max-w-2xl text-sm leading-relaxed text-ink-soft">
-                Access control is not enabled. Anyone with the URL can open this demonstration. Do not treat it as a private newsroom until authentication is added.
+                Access control is not enabled. Anyone with the URL can open this desk. Do not treat it as a private newsroom until authentication is added.
               </p>
               <OriginField origin={origin} onChange={setOrigin} />
             </Section>

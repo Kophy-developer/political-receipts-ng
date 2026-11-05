@@ -1,7 +1,8 @@
 import "server-only";
 import { characterCount, POST_LIMIT } from "@/lib/format";
 import { contentHash } from "@/lib/desk/hash";
-import { checklist, editor } from "@/lib/system";
+import { editorActor } from "@/lib/db/identity";
+import { checklist } from "@/lib/system";
 import { scrubDbMessage, serviceClient } from "@/lib/db/client";
 import { recordEvent } from "@/lib/db/events";
 import { isUuid } from "@/lib/db/labels";
@@ -29,7 +30,7 @@ export async function invalidateActiveApprovals(draftId: string, reason: string)
   for (const row of data ?? []) {
     await recordEvent({
       action: "approval invalidated",
-      actor: editor.name,
+      actor: await editorActor(),
       subjectType: "publish_approval",
       subjectId: row.id,
       detail: { reason: reason.slice(0, 120) },
@@ -79,7 +80,7 @@ export async function createApproval(input: {
       })
       .eq("id", draft.id);
     if (saved.error) return { ok: false as const, status: 502, message: scrubDbMessage(saved.error.message) };
-    await recordEvent({ action: "draft edited", actor: editor.name, subjectType: "draft", subjectId: draft.id, detail: { claimId: input.claimId } });
+    await recordEvent({ action: "draft edited", actor: await editorActor(), subjectType: "draft", subjectId: draft.id, detail: { claimId: input.claimId } });
   } else {
     const aligned = await db.from("drafts").update({ content_hash: hash, character_count: count }).eq("id", draft.id);
     if (aligned.error) return { ok: false as const, status: 502, message: scrubDbMessage(aligned.error.message) };
@@ -89,14 +90,14 @@ export async function createApproval(input: {
     .from("editorial_reviews")
     .insert({
       draft_id: draft.id,
-      reviewer_name: editor.name,
+      reviewer_name: await editorActor(),
       checklist: input.checks,
       reviewed_at: new Date().toISOString(),
     })
     .select("id")
     .single();
   if (review.error || !review.data) return { ok: false as const, status: 502, message: scrubDbMessage(review.error?.message || "review") };
-  await recordEvent({ action: "review completed", actor: editor.name, subjectType: "editorial_review", subjectId: review.data.id, detail: { draftId: draft.id } });
+  await recordEvent({ action: "review completed", actor: await editorActor(), subjectType: "editorial_review", subjectId: review.data.id, detail: { draftId: draft.id } });
   const approval = await db
     .from("publish_approvals")
     .insert({
@@ -105,7 +106,7 @@ export async function createApproval(input: {
       approved_text: input.text,
       approved_text_hash: hash,
       draft_content_hash: hash,
-      reviewer_name: editor.name,
+      reviewer_name: await editorActor(),
       status: "active",
     })
     .select("id")
@@ -113,7 +114,7 @@ export async function createApproval(input: {
   if (approval.error || !approval.data) return { ok: false as const, status: 502, message: scrubDbMessage(approval.error?.message || "approval") };
   await recordEvent({
     action: "approval created",
-    actor: editor.name,
+    actor: await editorActor(),
     subjectType: "publish_approval",
     subjectId: approval.data.id,
     detail: { draftId: draft.id, claimId: input.claimId },

@@ -3,7 +3,7 @@ import { columnMissing, scrubDbMessage, serviceClient } from "@/lib/db/client";
 import { recordEvent } from "@/lib/db/events";
 import { isUuid } from "@/lib/db/labels";
 import { draftUnlocked, evidenceUsedFrom, parseEditorReview } from "@/lib/research/editor-review";
-import { editor } from "@/lib/system";
+import { editorActor } from "@/lib/db/identity";
 import { inferClaimTypes, inferStatementKind, questionsFor } from "@/lib/research/claim-types";
 import { prepareEvidenceDraft } from "@/lib/research/passage";
 import { proposeVerdict, type Verdict } from "@/lib/research/verdict";
@@ -274,7 +274,7 @@ export async function reviewResearch(input: {
     }
     const { error } = await updateClaim(input.claimId, patch);
     if (error) return { ok: false as const, message: columnMissing(error.message) ? "Editor review is not installed on this desk yet." : scrubDbMessage(error.message) };
-    await recordEvent({ action: "verdict revised", actor: editor.name, subjectType: "claim", subjectId: input.claimId, detail: { verdict: input.verdict } });
+    await recordEvent({ action: "verdict revised", actor: await editorActor(), subjectType: "claim", subjectId: input.claimId, detail: { verdict: input.verdict } });
     return { ok: true as const, message: "The proposed verdict is saved. It is not recorded until you accept it." };
   }
 
@@ -291,7 +291,7 @@ export async function reviewResearch(input: {
       editor_take: take,
     });
     if (error) return { ok: false as const, message: columnMissing(error.message) ? "Editor review is not installed on this desk yet." : scrubDbMessage(error.message) };
-    await recordEvent({ action: "angle saved", actor: editor.name, subjectType: "claim", subjectId: input.claimId, detail: { angle: input.angle } });
+    await recordEvent({ action: "angle saved", actor: await editorActor(), subjectType: "claim", subjectId: input.claimId, detail: { angle: input.angle } });
     return { ok: true as const, message: "The angle is saved. It is a starting point, not a published opinion." };
   }
 
@@ -316,13 +316,13 @@ export async function reviewResearch(input: {
       verification_confidence: confidence,
       verdict_confidence: confidence,
       verdict_recorded_at: recordedAt,
-      verdict_recorded_by: editor.name,
+      verdict_recorded_by: await editorActor(),
       verdict_evidence_used: reviewPacket ? evidenceUsedFrom(reviewPacket) : [],
     });
     if (error) return { ok: false as const, message: columnMissing(error.message) ? "Editor review is not installed on this desk yet." : scrubDbMessage(error.message) };
     await recordEvent({
       action: "verdict recorded",
-      actor: editor.name,
+      actor: await editorActor(),
       subjectType: "claim",
       subjectId: input.claimId,
       detail: { status, verdict: proposed, confidence },
@@ -339,7 +339,7 @@ export async function reviewResearch(input: {
       verdict_evidence_used: null,
     });
     if (error) return { ok: false as const, message: scrubDbMessage(error.message) };
-    await recordEvent({ action: "more research requested", actor: editor.name, subjectType: "claim", subjectId: input.claimId });
+    await recordEvent({ action: "more research requested", actor: await editorActor(), subjectType: "claim", subjectId: input.claimId });
     return { ok: true as const, message: "More research is requested. The recorded verdict is withdrawn. The original post was not changed." };
   }
 

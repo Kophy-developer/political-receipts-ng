@@ -5,6 +5,7 @@ import { SettingsPanel } from "@/components/settings/panel";
 import { providerBoard } from "@/lib/db/ai-attempts";
 import { systemHealth } from "@/lib/db/health";
 import { usageView } from "@/lib/db/usage";
+import { loadEditorIdentity } from "@/lib/db/identity";
 import { credentialFlags } from "@/lib/x/env";
 
 export const metadata: Metadata = {
@@ -12,8 +13,8 @@ export const metadata: Metadata = {
 };
 
 async function SettingsBody() {
-  const [health, usage, board] = await Promise.all([systemHealth(), usageView(), providerBoard()]);
-  return <SettingsPanel flags={credentialFlags()} health={health} usage={usage} providers={board.providers} paidUsage={board.paidUsage} />;
+  const [health, usage, board, identity] = await Promise.all([systemHealth(), usageView(), providerBoard(), loadEditorIdentity()]);
+  return <SettingsPanel flags={credentialFlags()} health={health} usage={usage} providers={board.providers} paidUsage={board.paidUsage} identity={identity} />;
 }
 
 export default async function SettingsPage() {

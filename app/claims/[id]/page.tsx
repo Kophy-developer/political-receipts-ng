@@ -7,6 +7,7 @@ import { EmptyDesk } from "@/components/marks";
 import { PageFrame } from "@/components/shell/page-frame";
 import { getClaim } from "@/lib/db/claims";
 import { providerBoard } from "@/lib/db/ai-attempts";
+import { loadEditorIdentity } from "@/lib/db/identity";
 import { loadClaimDrafts } from "@/lib/db/drafting";
 import { loadSearchResults } from "@/lib/db/search-results";
 import { loadPlan } from "@/lib/research/plan";
@@ -42,7 +43,7 @@ async function ClaimBody({ params }: { params: Promise<{ id: string }> }) {
   const plan = await loadPlan(result.claim.id);
   const inventory = await loadSearchResults(result.claim.id);
   const drafts = await loadClaimDrafts(result.claim.id);
-  const board = await providerBoard();
+  const [board, identity] = await Promise.all([providerBoard(), loadEditorIdentity()]);
   return (
     <Dossier
       claim={result.claim}
@@ -51,6 +52,7 @@ async function ClaimBody({ params }: { params: Promise<{ id: string }> }) {
       inventory={{ results: inventory.results, note: inventory.note }}
       drafts={drafts}
       providers={board.providers}
+      editorName={identity.name}
     />
   );
 }
