@@ -1,10 +1,26 @@
+import { Suspense } from "react";
+import { connection } from "next/server";
 import { geminiLabel } from "@/lib/ai/env";
 import { MobileBar } from "@/components/shell/mobile-bar";
 import { Sidebar } from "@/components/shell/sidebar";
 import { loadEditorIdentity } from "@/lib/db/identity";
+import { defaultEditorIdentity, type EditorIdentity } from "@/lib/identity";
 
-export async function AppShell({ children }: { children: React.ReactNode }) {
+export function AppShell({ children }: { children: React.ReactNode }) {
+  return (
+    <Suspense fallback={<Shell identity={defaultEditorIdentity}>{children}</Shell>}>
+      <LoadedShell>{children}</LoadedShell>
+    </Suspense>
+  );
+}
+
+async function LoadedShell({ children }: { children: React.ReactNode }) {
+  await connection();
   const identity = await loadEditorIdentity();
+  return <Shell identity={identity}>{children}</Shell>;
+}
+
+function Shell({ identity, children }: { identity: EditorIdentity; children: React.ReactNode }) {
   return (
     <div className="min-h-full lg:flex">
       <a
