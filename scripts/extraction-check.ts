@@ -190,12 +190,13 @@ check("the desk summary counts the stored scan", summary.posts === "10 posts rev
 const saved = readFileSync(new URL("../lib/intel/saved-scan.ts", import.meta.url), "utf8");
 const route = readFileSync(new URL("../app/api/intel/reprocess/route.ts", import.meta.url), "utf8");
 const desk = readFileSync(new URL("../components/desk/discover.tsx", import.meta.url), "utf8");
+const progress = readFileSync(new URL("../lib/intel/progress.ts", import.meta.url), "utf8");
 const extract = readFileSync(new URL("../lib/intel/extract-posts.ts", import.meta.url), "utf8");
 const settings = readFileSync(new URL("../components/settings/panel.tsx", import.meta.url), "utf8");
 const run = readFileSync(new URL("../lib/intel/run.ts", import.meta.url), "utf8");
 check("reprocess does not search X", !saved.includes("searchRecent") && !saved.includes("api.twitter.com") && !saved.includes("geminiHealth"));
 check("reprocess route requires the saved scan id", route.includes("scanId") && route.includes("reprocessSavedScan"));
-check("the desk offers reprocess saved posts", desk.includes("Reprocess saved posts") && desk.includes("scanId: partial.scanId") && desk.includes("/api/intel/reprocess"));
+check("the desk offers reprocess saved posts", progress.includes("Reprocess saved posts") && desk.includes("scanId") && desk.includes("/api/intel/reprocess"));
 check("extraction uses the provider router", extract.includes("extractWithProviders") && extract.includes("planExtractionProviders") && !extract.includes("completeJson"));
 check("settings does not start a reprocess", !settings.includes("/api/intel/reprocess"));
 check("a scan records the retrieval stage before extraction", run.includes("X_RETRIEVAL_COMPLETE") && run.includes("PARTIAL_FAILURE"));

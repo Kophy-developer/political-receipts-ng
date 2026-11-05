@@ -31,6 +31,8 @@ export async function extractWithProviders(input: {
   plans: ProviderPlan[];
   timeoutMs: number;
   now?: () => number;
+  onStart?: (plan: ProviderPlan) => Promise<void> | void;
+  onAttempt?: (attempt: StampedAttempt) => Promise<void> | void;
   call: ProviderCaller;
 }): Promise<ExtractionChainResult> {
   const routed = await generateStructuredContent({
@@ -42,6 +44,10 @@ export async function extractWithProviders(input: {
     plans: input.plans,
     rejectionReason: "The extraction did not match the claim schema.",
     now: input.now,
+    onStart: input.onStart,
+    onAttempt: async (attempt) => {
+      await input.onAttempt?.({ ...attempt, requestId: input.requestId, task: "extraction" });
+    },
     accept: acceptExtraction,
     call: input.call,
   });

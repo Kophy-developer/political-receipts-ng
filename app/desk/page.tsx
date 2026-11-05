@@ -9,7 +9,9 @@ import { listClaims } from "@/lib/db/claims";
 import { loadFinalPost } from "@/lib/db/final-post";
 import { publishedByClaim } from "@/lib/db/publishing";
 import { listOpportunityDesk } from "@/lib/db/opportunities";
-import { latestPartialScan } from "@/lib/intel/saved-scan";
+import { latestReprocessJob, listRecentScans } from "@/lib/db/reprocess-jobs";
+import { latestDeskScan } from "@/lib/intel/saved-scan";
+import { splitLatestWork } from "@/lib/intel/progress";
 import { discoveryAction, selectDeskOpportunities } from "@/lib/desk/discover";
 import { nextAction, type StoryFacts } from "@/lib/desk/story";
 import { chicagoStamp } from "@/lib/format";
@@ -52,7 +54,10 @@ async function DeskQueue() {
   }));
   const storyIds = new Set(cards.map((card) => card.claim.id));
   const opportunities = await deskOpportunities(storyIds, cards);
-  const partial = await latestPartialScan();
+  const scan = await latestDeskScan();
+  const reprocess = scan ? await latestReprocessJob(scan.scanId) : null;
+  const recent = await listRecentScans(5);
+  const grouped = splitLatestWork(scan?.scanId ?? null, opportunities);
   const inProgress = cards.filter((card) => !card.publication);
   const recentlyPublished = cards.filter((card) => card.publication);
   return (
@@ -60,7 +65,31 @@ async function DeskQueue() {
       <p className="font-mono text-[11px] tracking-[0.16em] text-ink-soft uppercase">Desk</p>
       <h1 className="mt-2 font-serif text-4xl tracking-[-0.03em]">The desk</h1>
       <div className="mt-8 space-y-10">
-        <DeskDiscover opportunities={opportunities} partial={partial} />
+        <DeskDiscover
+          scanId={scan?.scanId ?? null}
+          postsSaved={scan?.postsSaved ?? 0}
+          job={reprocess}
+          latestOpportunities={grouped.latest}
+          recent={recent}
+          provider={scan?.provider ?? "Not recorded"}
+          reason={scan?.reason ?? "The analysis did not finish"}
+        />
+        <section>
+          <p className="font-mono text-[11px] tracking-[0.16em] text-ink-soft uppercase">Other open work</p>
+          <h2 className="mt-2 font-serif text-3xl tracking-[-0.03em]">Older opportunities.</h2>
+          {grouped.older.length === 0 ? (
+            <p className="mt-4 text-sm text-ink-soft">No older opportunity is waiting.</p>
+          ) : (
+            <ul className="mt-4 space-y-3">
+              {grouped.older.map((item) => (
+                <li key={item.id} className="border border-rule px-3 py-3">
+                  <p className="text-sm leading-relaxed">{item.title}</p>
+                  <Link href={item.href} className="mt-3 inline-flex h-9 items-center bg-ink px-3 text-sm text-paper">{item.action}</Link>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
         <section>
           <p className="font-mono text-[11px] tracking-[0.16em] text-ink-soft uppercase">In progress</p>
           <h2 className="mt-2 font-serif text-3xl tracking-[-0.03em]">Stories already being worked on.</h2>
@@ -130,6 +159,7 @@ async function deskOpportunities(
       title: item.whatHappened,
       action,
       href: item.claimId ? `/desk/${item.claimId}` : "/opportunities",
+      scanId: item.scanId ?? null,
     }];
   });
 }

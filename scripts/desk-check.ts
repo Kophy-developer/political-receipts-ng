@@ -177,7 +177,9 @@ const publishing = readFileSync(new URL("../lib/db/publishing.ts", import.meta.u
 check("the published filter reads the text", archive.includes("visiblePublished"));
 check("publication stores the tag and leaves the approved text alone", publishing.includes("editorial_tag: editorialTagIn(input.text)") && !publishing.includes("approved_text:"));
 check("Desk shows Scan X and keeps the three queues apart", discover.includes("Scan X") && discover.includes("Run scan") && deskPage.includes("In progress") && deskPage.includes("Recently published"));
-check("Desk scan delegates to the intelligence route and does not scan on its own", discover.includes('fetch("/api/intel/scan"') && !discover.includes("useEffect") && !discover.includes("api.twitter.com") && !discover.includes("searchRecent") && discover.includes("router.refresh()") && !discover.includes('push("/intelligence")'));
+const statusPoll = discover.slice(discover.indexOf("useEffect"), discover.indexOf("async function reprocessSaved"));
+check("Desk scan delegates to the intelligence route and does not scan on its own", discover.includes('fetch("/api/intel/scan"') && !discover.includes("api.twitter.com") && !discover.includes("searchRecent") && discover.includes("router.refresh()") && !discover.includes('push("/intelligence")'));
+check("status polling reads our server and does not start a scan or provider", statusPoll.includes("/api/intel/reprocess/status") && !statusPoll.includes("/api/intel/scan") && !statusPoll.includes("api.twitter.com") && !statusPoll.includes("generativelanguage") && !statusPoll.includes("api.groq.com"));
 check("a published story page does not ask for another publish", workspace.includes("This story is finished") && workspace.includes("publication ? null"));
 check("the editor name defaults to PRNG Admin", defaultEditorName === "PRNG Admin");
 

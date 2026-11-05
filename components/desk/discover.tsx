@@ -1,25 +1,30 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { scanConfirmation, scanDeskSummary, type DiscoveryAction } from "@/lib/desk/discover";
+import { chicagoStamp } from "@/lib/format";
+import { deskJobView, type ReprocessJob } from "@/lib/intel/progress";
 
 export type DeskOpportunityView = {
   id: string;
   title: string;
   action: DiscoveryAction;
   href: string;
+  scanId: string | null;
+};
+
+export type RecentScanView = {
+  id: string;
+  startedAt: string;
+  posts: number;
+  analysis: string;
+  opportunities: number | null;
+  provider: string;
 };
 
 type Found = { id: string; title: string; action: string };
-
-export type PartialScan = {
-  scanId: string;
-  postsSaved: number;
-  provider: string;
-  reason: string;
-};
 
 type Report = {
   ok: boolean;
@@ -36,50 +41,96 @@ type Report = {
 
 type ReprocessReport = {
   ok: boolean;
-  xRequests: number;
-  posts: number;
-  conversations: number;
-  opportunities: number;
-  summary?: { posts: string; conversations: string; opportunities: string };
+  job: ReprocessJob | null;
   found?: Found[];
-  provider: string | null;
-  reason: string | null;
   detail: string;
-  posted: false;
-  polling: false;
 };
 
-export function DeskDiscover({ opportunities, partial }: { opportunities: DeskOpportunityView[]; partial: PartialScan | null }) {
+export function DeskDiscover({
+  scanId,
+  postsSaved,
+  job,
+  latestOpportunities,
+  recent,
+  provider,
+  reason,
+}: {
+  scanId: string | null;
+  postsSaved: number;
+  job: ReprocessJob | null;
+  latestOpportunities: DeskOpportunityView[];
+  recent: RecentScanView[];
+  provider: string;
+  reason: string;
+}) {
   const router = useRouter();
   const [confirming, setConfirming] = useState(false);
   const [running, setRunning] = useState(false);
   const [report, setReport] = useState<Report | null>(null);
-  const [reprocess, setReprocess] = useState<ReprocessReport | null>(null);
+  const [currentJob, setCurrentJob] = useState<ReprocessJob | null>(job);
+  const [found, setFound] = useState<Found[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const summary = reprocess?.ok
-    ? reprocess.summary
-    : report
-      ? scanDeskSummary({ postsReturned: report.postsReturned, conversations: report.newConversations ?? 0, claims: report.opportunities ?? report.claims })
-      : null;
-  const found = (reprocess?.ok ? reprocess.found : report?.found) ?? [];
+  const [now, setNow] = useState(() => Date.now());
+  const busy = useRef(false);
+  const view = deskJobView({ job: currentJob, postsSaved, now });
+  const summary = report
+    ? scanDeskSummary({ postsReturned: report.postsReturned, conversations: report.newConversations ?? 0, claims: report.opportunities ?? report.claims })
+    : null;
+  const scanFound = report?.found ?? [];
+  const active = view.kind === "running";
+
+  useEffect(() => {
+    if (!scanId || !active) return;
+    let stop = false;
+    const tick = async () => {
+      const response = await fetch(`/api/intel/reprocess/status?scanId=${scanId}`);
+      const body = (await response.json()) as { job: ReprocessJob | null };
+      if (stop) return;
+      if (body.job) setCurrentJob(body.job);
+      setNow(Date.now());
+    };
+    const timer = setInterval(() => void tick(), 2000);
+    void tick();
+    return () => {
+      stop = true;
+      clearInterval(timer);
+    };
+  }, [scanId, active, currentJob?.requestId, currentJob?.phase]);
 
   async function reprocessSaved() {
-    if (!partial || running) return;
-    setRunning(true);
+    if (!scanId || busy.current || view.buttonDisabled) return;
+    busy.current = true;
     setError(null);
+    setNow(Date.now());
+    setCurrentJob({
+      id: "pending",
+      scanId,
+      requestId: "pending",
+      phase: "preparing",
+      startedAt: new Date().toISOString(),
+      finishedAt: null,
+      posts: postsSaved,
+      conversations: 0,
+      opportunities: 0,
+      provider: null,
+      steps: [],
+    });
     try {
       const response = await fetch("/api/intel/reprocess", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ scanId: partial.scanId }),
+        body: JSON.stringify({ scanId }),
       });
       const body = (await response.json()) as ReprocessReport;
-      setReprocess(body);
+      if (body.job) setCurrentJob(body.job);
+      setFound(body.found ?? []);
+      if (!body.ok && !body.job) setError(body.detail);
       router.refresh();
     } catch {
       setError("Reprocessing did not finish. No X request was sent.");
     } finally {
-      setRunning(false);
+      busy.current = false;
+      setNow(Date.now());
     }
   }
 
@@ -102,6 +153,10 @@ export function DeskDiscover({ opportunities, partial }: { opportunities: DeskOp
       setRunning(false);
     }
   }
+
+  const results = view.kind === "complete"
+    ? (found.length > 0 ? found.map((item) => ({ id: item.id, title: item.title, action: item.action, href: `/desk/${item.id}` })) : latestOpportunities)
+    : [];
 
   return (
     <section className="border border-rule px-5 py-5">
@@ -140,24 +195,37 @@ export function DeskDiscover({ opportunities, partial }: { opportunities: DeskOp
           </button>
         </div>
       ) : null}
-      {partial && !reprocess?.ok ? (
-        <div className="mt-4 border border-rule px-4 py-4 text-sm">
-          <p>{partial.postsSaved} posts were saved successfully.</p>
-          <p>AI analysis did not finish.</p>
-          <p className="mt-2">X scan complete</p>
-          <p>{partial.postsSaved} posts saved</p>
-          <p className="mt-2">AI analysis incomplete</p>
-          <p className="mt-2">Provider: {reprocess?.provider || partial.provider}</p>
-          <p>Reason: {reprocess?.reason || partial.reason}</p>
-          <p className="mt-2 text-ink-soft">No additional X request is needed.</p>
-          <button
-            type="button"
-            onClick={() => void reprocessSaved()}
-            disabled={running}
-            className="mt-4 inline-flex h-10 items-center bg-ink px-4 text-sm text-paper disabled:opacity-50"
-          >
-            {running ? "Reprocessing…" : "Reprocess saved posts"}
-          </button>
+      {scanId ? (
+        <div className="mt-6 border border-rule px-4 py-4 text-sm">
+          <p className="font-mono text-[11px] tracking-[0.16em] text-ink-soft uppercase">Latest scan</p>
+          {view.lines.map((line) => <p key={line} className="mt-2">{line}</p>)}
+          {view.trail.length > 0 ? (
+            <div className="mt-3">
+              <p>{view.trail.map((item) => item.label).join(" → ")}</p>
+              <p className="mt-1">Now: {view.trail.find((item) => item.state === "current")?.label}</p>
+            </div>
+          ) : null}
+          {view.chain.length > 0 ? (
+            <ul className="mt-3 space-y-1">
+              {view.chain.map((line) => <li key={line}>{line}</li>)}
+            </ul>
+          ) : null}
+          {view.kind === "ready" ? (
+            <>
+              <p className="mt-2">Provider: {provider}</p>
+              <p>Reason: {reason}</p>
+            </>
+          ) : null}
+          {view.button ? (
+            <button
+              type="button"
+              onClick={() => void reprocessSaved()}
+              disabled={view.buttonDisabled || running}
+              className="mt-4 inline-flex h-10 items-center bg-ink px-4 text-sm text-paper disabled:opacity-50"
+            >
+              {view.button}
+            </button>
+          ) : null}
         </div>
       ) : null}
       {error ? <p className="mt-3 text-sm text-stamp">{error}</p> : null}
@@ -168,19 +236,9 @@ export function DeskDiscover({ opportunities, partial }: { opportunities: DeskOp
           <p>{summary.opportunities}</p>
         </div>
       ) : null}
-      {found.length > 0 ? (
+      {view.kind === "complete" && results.length > 0 ? (
         <ul className="mt-4 space-y-3">
-          {found.map((item) => (
-            <li key={item.id} className="border border-rule px-3 py-3">
-              <p className="text-sm leading-relaxed">{item.title}</p>
-              <Link href={`/desk/${item.id}`} className="mt-3 inline-flex h-9 items-center bg-ink px-3 text-sm text-paper">{item.action}</Link>
-            </li>
-          ))}
-        </ul>
-      ) : null}
-      {opportunities.length > 0 ? (
-        <ul className="mt-4 space-y-3">
-          {opportunities.map((item) => (
+          {results.map((item) => (
             <li key={item.id} className="border border-rule px-3 py-3">
               <p className="text-sm leading-relaxed">{item.title}</p>
               <Link href={item.href} className="mt-3 inline-flex h-9 items-center bg-ink px-3 text-sm text-paper">{item.action}</Link>
@@ -188,6 +246,33 @@ export function DeskDiscover({ opportunities, partial }: { opportunities: DeskOp
           ))}
         </ul>
       ) : null}
+      {scanFound.length > 0 ? (
+        <ul className="mt-4 space-y-3">
+          {scanFound.map((item) => (
+            <li key={item.id} className="border border-rule px-3 py-3">
+              <p className="text-sm leading-relaxed">{item.title}</p>
+              <Link href={`/desk/${item.id}`} className="mt-3 inline-flex h-9 items-center bg-ink px-3 text-sm text-paper">{item.action}</Link>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {recent.length > 0 ? (
+        <details className="mt-6">
+          <summary className="cursor-pointer font-mono text-[11px] tracking-[0.16em] text-ink-soft uppercase">Recent scans</summary>
+          <ul className="mt-3 space-y-3 text-sm">
+            {recent.map((item) => (
+              <li key={item.id} className="border border-rule px-3 py-3">
+                <p>{chicagoStamp(item.startedAt)}</p>
+                <p>{item.posts} posts retrieved</p>
+                <p>{item.analysis}</p>
+                <p>{item.opportunities === null ? "Opportunities not linked" : `${item.opportunities} ${item.opportunities === 1 ? "opportunity" : "opportunities"}`}</p>
+                <p>Provider: {item.provider}</p>
+              </li>
+            ))}
+          </ul>
+        </details>
+      ) : null}
     </section>
   );
 }
+

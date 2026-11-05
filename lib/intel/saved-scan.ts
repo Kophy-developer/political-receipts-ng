@@ -1,4 +1,5 @@
 import "server-only";
+import { randomUUID } from "crypto";
 import { syncModelOpportunities } from "@/lib/db/opportunities";
 import {
   finishScan,
@@ -6,13 +7,14 @@ import {
   listSearchGroups,
   loadScanPosts,
 } from "@/lib/db/intel";
+import { claimReprocessJob, saveReprocessJob } from "@/lib/db/reprocess-jobs";
 import { serviceClient } from "@/lib/db/client";
 import { extractFromPosts } from "@/lib/intel/extract-posts";
 import { fileDiscussions } from "@/lib/intel/file";
-import { claimDeskLock, releaseDeskLock } from "@/lib/intel/lock";
 import type { DeskClass } from "@/lib/intel/classify";
 import type { PostMetrics, WorkingPost } from "@/lib/intel/posts";
 import type { Relevance } from "@/lib/intel/relevance";
+import { noteFinished, noteTrying, type ReprocessJob } from "@/lib/intel/progress";
 import { analysisFailureReason, providerDisplay, reprocessSummary, scanNeedsReprocess } from "@/lib/intel/stage";
 import { freshClaimAction } from "@/lib/desk/discover";
 
@@ -36,6 +38,7 @@ export type SavedScanReport = {
   posted: false;
   polling: false;
   detail: string;
+  job: ReprocessJob | null;
 };
 
 function metricsOf(value: unknown): PostMetrics {
@@ -84,6 +87,28 @@ function postsFrom(rows: Array<Record<string, unknown>>): WorkingPost[] {
   }));
 }
 
+export async function latestDeskScan(): Promise<SavedScanView | null> {
+  const db = serviceClient();
+  if (!db) return null;
+  const scan = await db
+    .from("scan_runs")
+    .select("id, status, stage, posts_stored, claims_extracted, error")
+    .order("started_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (scan.error || !scan.data) return null;
+  const row = scan.data;
+  const postsStored = typeof row.posts_stored === "number" ? row.posts_stored : 0;
+  const analysis = await db.from("ai_analyses").select("provider").eq("subject_id", row.id).order("created_at", { ascending: false }).limit(1).maybeSingle();
+  const provider = typeof analysis.data?.provider === "string" ? analysis.data.provider : null;
+  return {
+    scanId: String(row.id),
+    postsSaved: postsStored,
+    provider: providerDisplay(provider),
+    reason: analysisFailureReason(typeof row.error === "string" ? row.error : null),
+  };
+}
+
 export async function latestPartialScan(): Promise<SavedScanView | null> {
   const db = serviceClient();
   if (!db) return null;
@@ -113,6 +138,24 @@ export async function latestPartialScan(): Promise<SavedScanView | null> {
   };
 }
 
+function reportFrom(job: ReprocessJob, found: SavedScanReport["found"], detail: string): SavedScanReport {
+  return {
+    ok: job.phase === "complete",
+    xRequests: 0,
+    posts: job.posts,
+    conversations: job.conversations,
+    opportunities: job.opportunities,
+    summary: reprocessSummary({ posts: job.posts, conversations: job.conversations, opportunities: job.opportunities }),
+    found,
+    provider: providerDisplay(job.provider),
+    reason: job.phase === "failed" ? "AI analysis could not be completed." : null,
+    posted: false,
+    polling: false,
+    detail,
+    job,
+  };
+}
+
 export async function reprocessSavedScan(scanId: string): Promise<SavedScanReport> {
   const fail = (detail: string): SavedScanReport => ({
     ok: false,
@@ -127,16 +170,34 @@ export async function reprocessSavedScan(scanId: string): Promise<SavedScanRepor
     posted: false,
     polling: false,
     detail,
+    job: null,
   });
   if (!/^[0-9a-f-]{36}$/i.test(scanId)) return fail("That scan is not on the desk.");
-  if (!claimDeskLock()) return fail("A desk job is already running. No X request was made.");
+  const loaded = await loadScanPosts(scanId);
+  if (!loaded.ok) return fail(loaded.message);
+  if (loaded.rows.length === 0) return fail("That scan has no stored posts.");
+  const posts = postsFrom(loaded.rows as Array<Record<string, unknown>>);
+  const claim = await claimReprocessJob(scanId, randomUUID(), posts.length);
+  if (!claim.ok) return fail(claim.message);
+  if (!claim.claimed) return reportFrom(claim.job, [], "This scan is already being reprocessed. No second request was made.");
+  const job = claim.job;
+  let steps = job.steps;
   try {
-    const loaded = await loadScanPosts(scanId);
-    if (!loaded.ok) return fail(loaded.message);
-    if (loaded.rows.length === 0) return fail("That scan has no stored posts.");
     await finishScan(scanId, { stage: "AI_PROCESSING" });
-    const posts = postsFrom(loaded.rows as Array<Record<string, unknown>>);
-    const extraction = await extractFromPosts(posts, scanId);
+    await saveReprocessJob(job.id, { phase: "extraction", posts: posts.length, steps });
+    const extraction = await extractFromPosts(posts, scanId, {
+      requestId: job.requestId,
+      onStart: async (plan) => {
+        steps = noteTrying(steps, plan.id);
+        await saveReprocessJob(job.id, { phase: "extraction", steps, provider: plan.id });
+      },
+      onAttempt: async (attempt) => {
+        if (!attempt.called) return;
+        steps = noteFinished(steps, attempt.provider, attempt.status === "success" ? "succeeded" : "failed", attempt.diagnostic?.classification ?? null);
+        await saveReprocessJob(job.id, { phase: "extraction", steps, provider: attempt.provider });
+      },
+    });
+    await saveReprocessJob(job.id, { phase: "classifying", steps });
     const groups = await listSearchGroups();
     const topics = new Map(groups.map((group) => [group.name, group.topicSlug]));
     const filed = await fileDiscussions({
@@ -147,7 +208,10 @@ export async function reprocessSavedScan(scanId: string): Promise<SavedScanRepor
       topicSlugFor: (source) => (source && topics.get(source)) || "desk-elections",
       deskNote: "Reprocessed from the stored scan. No new X request was made.",
     });
-    const opportunities = extraction.claims.length > 0 ? await syncModelOpportunities(filed.links) : { found: 0, created: 0, updated: 0, cards: [] as Array<{ id: string; title: string; claimId: string | null }> };
+    await saveReprocessJob(job.id, { phase: "opportunities", conversations: filed.conversationIds.length, steps });
+    const opportunities = extraction.claims.length > 0
+      ? await syncModelOpportunities(filed.links, scanId)
+      : { found: 0, created: 0, updated: 0, cards: [] as Array<{ id: string; title: string; claimId: string | null }> };
     const aiFailed = extraction.outcome === "failed" || extraction.outcome === "invalid";
     const db = serviceClient();
     const previous = db ? await db.from("scan_runs").select("detail").eq("id", scanId).maybeSingle() : { data: null };
@@ -167,26 +231,26 @@ export async function reprocessSavedScan(scanId: string): Promise<SavedScanRepor
         xRequests: 0,
       },
     });
-    const summary = reprocessSummary({
+    const finished: ReprocessJob = {
+      ...job,
+      phase: aiFailed ? "failed" : "complete",
       posts: posts.length,
       conversations: filed.conversationIds.length,
       opportunities: opportunities.found,
-    });
-    return {
-      ok: !aiFailed,
-      xRequests: 0,
-      posts: posts.length,
-      conversations: filed.conversationIds.length,
-      opportunities: opportunities.found,
-      summary,
-      found: opportunities.cards.map((item) => ({ id: item.claimId ?? item.id, title: item.title, action: freshClaimAction() })),
-      provider: providerDisplay(extraction.provider),
-      reason: aiFailed ? analysisFailureReason(extraction.classification ?? extraction.detail) : null,
-      posted: false,
-      polling: false,
-    detail: extraction.detail,
-  };
-  } finally {
-    releaseDeskLock();
+      provider: extraction.provider,
+      steps,
+      finishedAt: new Date().toISOString(),
+    };
+    await saveReprocessJob(job.id, finished);
+    return reportFrom(
+      finished,
+      opportunities.cards.map((item) => ({ id: item.claimId ?? item.id, title: item.title, action: freshClaimAction() })),
+      extraction.detail,
+    );
+  } catch {
+    const failed: ReprocessJob = { ...job, phase: "failed", posts: posts.length, steps, finishedAt: new Date().toISOString() };
+    await saveReprocessJob(job.id, { phase: "failed", finishedAt: failed.finishedAt, steps });
+    await finishScan(scanId, { stage: "PARTIAL_FAILURE", status: "stopped", error: "AI analysis could not be completed." });
+    return reportFrom(failed, [], "AI analysis could not be completed.");
   }
 }

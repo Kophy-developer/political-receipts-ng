@@ -43,6 +43,7 @@ export type OpportunityCard = {
   editorTake: string | null;
   source: string;
   claimId: string | null;
+  scanId?: string | null;
   postCount: number | null;
   accountCount: number | null;
 };

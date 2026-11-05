@@ -261,7 +261,7 @@ export async function runScan(): Promise<ScanReport> {
       topicSlugFor: () => gated.group.topicSlug,
       deskNote: "Filed by a manual scan. This is not a verdict, and it is not a candidate ranking.",
     });
-    const opportunities = extraction.claims.length > 0 ? await syncModelOpportunities(filed.links) : { found: 0, created: 0, updated: 0, cards: [] };
+    const opportunities = extraction.claims.length > 0 ? await syncModelOpportunities(filed.links, scanId) : { found: 0, created: 0, updated: 0, cards: [] };
     const aiFailed = extraction.outcome === "failed" || extraction.outcome === "invalid";
     const errors = extraction.outcome === "extracted" && extraction.dropped === 0 ? [] : [extraction.detail];
     const actionablePosts = posts.filter((post) => post.deskClass === "actionable").length;

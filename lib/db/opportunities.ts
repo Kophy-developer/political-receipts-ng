@@ -378,7 +378,10 @@ async function sendToResearch(row: {
   return { ok: true as const, message: "A dossier is open. Research has not started.", claimId: claim.data.id as string };
 }
 
-export async function syncModelOpportunities(links: Array<{ conversationId: string; claimId: string | null; title: string; why: string; needed: string }>) {
+export async function syncModelOpportunities(
+  links: Array<{ conversationId: string; claimId: string | null; title: string; why: string; needed: string }>,
+  scanId: string | null = null,
+) {
   const db = serviceClient();
   const empty = { found: 0, created: 0, updated: 0, cards: [] as Array<{ id: string; title: string; claimId: string | null }> };
   if (!db) return empty;
@@ -412,12 +415,17 @@ export async function syncModelOpportunities(links: Array<{ conversationId: stri
       continue;
     }
     if (decision === "update" && row?.id) {
-      await db.from("opportunities").update(fields).eq("id", row.id);
+      const changes: Record<string, unknown> = { ...fields };
+      if (scanId) changes.scan_id = scanId;
+      const updatedRow = await db.from("opportunities").update(changes as typeof fields).eq("id", row.id);
+      if (updatedRow.error && columnMissing(updatedRow.error.message) && scanId) {
+        await db.from("opportunities").update(fields).eq("id", row.id);
+      }
       updated += 1;
       cards.push({ id: String(row.id), title: link.title, claimId: link.claimId });
       continue;
     }
-    const inserted = await db.from("opportunities").insert({
+    const record = {
       conversation_id: link.conversationId,
       ...fields,
       content_pillar: "politics",
@@ -431,7 +439,13 @@ export async function syncModelOpportunities(links: Array<{ conversationId: stri
       status: "open",
       source: "model",
       origin: "live",
-    }).select("id").single();
+    };
+    const payload: Record<string, unknown> = { ...record };
+    if (scanId) payload.scan_id = scanId;
+    let inserted = await db.from("opportunities").insert(payload as typeof record).select("id").single();
+    if (inserted.error && columnMissing(inserted.error.message) && scanId) {
+      inserted = await db.from("opportunities").insert(record).select("id").single();
+    }
     if (!inserted.data?.id) continue;
     created += 1;
     cards.push({ id: String(inserted.data.id), title: link.title, claimId: link.claimId });
@@ -442,12 +456,16 @@ export async function syncModelOpportunities(links: Array<{ conversationId: stri
 export async function listOpportunityDesk() {
   const db = serviceClient();
   if (!db) return { ok: false as const, reason: "unconfigured" as const };
-  const cardColumns = "id, conversation_id, claim_id, opportunity_type, research_required, score, score_reason, what_happened, why_interesting, what_could_add, angles, research_questions, voice, status, editor_angle, editor_take, source, post_count, account_count, conversations ( title )";
+  const cardColumns = "id, conversation_id, claim_id, opportunity_type, research_required, score, score_reason, what_happened, why_interesting, what_could_add, angles, research_questions, voice, status, editor_angle, editor_take, source, scan_id, post_count, account_count, conversations ( title )";
+  const cardColumnsNoScan = "id, conversation_id, claim_id, opportunity_type, research_required, score, score_reason, what_happened, why_interesting, what_could_add, angles, research_questions, voice, status, editor_angle, editor_take, source, post_count, account_count, conversations ( title )";
   const cardColumnsFallback = "id, conversation_id, claim_id, opportunity_type, research_required, score, score_reason, what_happened, why_interesting, what_could_add, angles, research_questions, voice, status, editor_angle, editor_take, source, conversations ( title )";
   const primaryCards = await db.from("opportunities").select(cardColumns).order("created_at", { ascending: false });
-  const cardResult = primaryCards.error && columnMissing(primaryCards.error.message)
-    ? await db.from("opportunities").select(cardColumnsFallback).order("created_at", { ascending: false })
+  const withoutScan = primaryCards.error && columnMissing(primaryCards.error.message)
+    ? await db.from("opportunities").select(cardColumnsNoScan).order("created_at", { ascending: false })
     : primaryCards;
+  const cardResult = withoutScan.error && columnMissing(withoutScan.error.message)
+    ? await db.from("opportunities").select(cardColumnsFallback).order("created_at", { ascending: false })
+    : withoutScan;
   const [reviews, conversations] = await Promise.all([
     db.from("opportunity_reviews").select("conversation_id, model_status, rules_status, note, created_at").order("created_at", { ascending: false }).limit(40),
     db.from("conversations").select("id, title, status").order("started_at", { ascending: false }),
@@ -474,6 +492,7 @@ export async function listOpportunityDesk() {
       editorTake: row.editor_take,
       source: row.source,
       claimId: row.claim_id,
+      scanId: typeof (row as unknown as { scan_id?: unknown }).scan_id === "string" ? (row as unknown as { scan_id: string }).scan_id : null,
       postCount: typeof (row as unknown as { post_count?: unknown }).post_count === "number" ? (row as unknown as { post_count: number }).post_count : null,
       accountCount: typeof (row as unknown as { account_count?: unknown }).account_count === "number" ? (row as unknown as { account_count: number }).account_count : null,
     };

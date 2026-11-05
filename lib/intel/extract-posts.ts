@@ -3,6 +3,8 @@ import { randomUUID } from "crypto";
 import { extractionTimeoutMs, readOutputBudgets } from "@/lib/ai/budgets";
 import { planExtractionProviders } from "@/lib/ai/catalog";
 import { extractWithProviders, type ExtractionPost } from "@/lib/ai/extraction";
+import type { ProviderPlan } from "@/lib/ai/route";
+import type { StampedAttempt } from "@/lib/drafts/chain";
 import { promptVersion } from "@/lib/ai/extract";
 import { callProvider } from "@/lib/ai/transport";
 import { calledToday, persistAttempts } from "@/lib/db/ai-attempts";
@@ -43,7 +45,15 @@ function tally(reasons: string[]) {
   return [...counts.entries()].map(([reason, count]) => `${count} ${reason}`).join(", ");
 }
 
-export async function extractFromPosts(posts: WorkingPost[], scanId: string | null): Promise<ExtractionReport> {
+export async function extractFromPosts(
+  posts: WorkingPost[],
+  scanId: string | null,
+  hooks?: {
+    requestId?: string;
+    onStart?: (plan: ProviderPlan) => Promise<void> | void;
+    onAttempt?: (attempt: StampedAttempt) => Promise<void> | void;
+  },
+): Promise<ExtractionReport> {
   const empty = (outcome: ExtractionOutcome, detail: string, extra?: Partial<ExtractionReport>): ExtractionReport => ({
     outcome,
     detail,
@@ -70,10 +80,12 @@ export async function extractFromPosts(posts: WorkingPost[], scanId: string | nu
   const used = await calledToday();
   const plans = planExtractionProviders(readAiEnv(), used);
   const routed = await extractWithProviders({
-    requestId: randomUUID(),
+    requestId: hooks?.requestId ?? randomUUID(),
     posts: source,
     plans,
     timeoutMs: extractionTimeoutMs(),
+    onStart: hooks?.onStart,
+    onAttempt: hooks?.onAttempt,
     call: (plan, request) => callProvider(plan, request, { maxTokens: readOutputBudgets().extraction, temperature: 0 }),
   });
   await persistAttempts(routed.attempts);

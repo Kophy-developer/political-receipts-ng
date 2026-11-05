@@ -78,6 +78,8 @@ export async function generateStructuredContent(input: {
   accept: (data: unknown) => AcceptVerdict;
   rejectionReason: string;
   now?: () => number;
+  onStart?: (plan: ProviderPlan) => Promise<void> | void;
+  onAttempt?: (attempt: AttemptRecord) => Promise<void> | void;
   call: ProviderCaller;
 }): Promise<RouteResult> {
   if (!input.task) {
@@ -94,13 +96,21 @@ export async function generateStructuredContent(input: {
   };
   const attempts: AttemptRecord[] = [];
   const seen = new Set<ProviderId>();
+  const record = async (attempt: AttemptRecord) => {
+    attempts.push(attempt);
+    try {
+      await input.onAttempt?.(attempt);
+    } catch {
+      // A progress write must not start another provider call.
+    }
+  };
   for (const plan of input.plans) {
     if (seen.has(plan.id)) continue;
     seen.add(plan.id);
     const started = now();
     if (!plan.callable) {
       const completed = now();
-      attempts.push({
+      await record({
         provider: plan.id,
         model: plan.model,
         called: false,
@@ -117,6 +127,11 @@ export async function generateStructuredContent(input: {
         estimatedCostUsd: null,
       });
       continue;
+    }
+    try {
+      await input.onStart?.(plan);
+    } catch {
+      // A progress write must not start another provider call.
     }
     let raw: ProviderCallResult;
     try {
@@ -162,7 +177,7 @@ export async function generateStructuredContent(input: {
         model: plan.model,
         message: raw.failureReason || "The provider did not return a usable response.",
       });
-      attempts.push({
+      await record({
         ...base,
         diagnostic,
         status: "failure",
@@ -179,14 +194,14 @@ export async function generateStructuredContent(input: {
         invalidResponse: true,
         message: "The JSON did not match the requested shape.",
       });
-      attempts.push({ ...base, diagnostic, status: "failure", failureReason: editorMessage(diagnostic) });
+      await record({ ...base, diagnostic, status: "failure", failureReason: editorMessage(diagnostic) });
       continue;
     }
     if (verdict === "rejected") {
-      attempts.push({ ...base, diagnostic: null, status: "rejected", failureReason: input.rejectionReason });
+      await record({ ...base, diagnostic: null, status: "rejected", failureReason: input.rejectionReason });
       return { ok: false, rejected: true, provider: plan.id, model: plan.model, data: raw.data, attempts };
     }
-    attempts.push({ ...base, diagnostic: null, status: "success", failureReason: null });
+    await record({ ...base, diagnostic: null, status: "success", failureReason: null });
     return { ok: true, rejected: false, provider: plan.id, model: plan.model, data: raw.data, attempts };
   }
   return { ok: false, rejected: false, provider: null, model: null, attempts };
