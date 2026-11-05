@@ -8,6 +8,7 @@ import {
   rankReadings,
   type EditorialReading,
 } from "@/lib/editorial/reading";
+import { stampEditorialAttempt } from "@/lib/editorial/trace";
 import { assessmentBatches, type ConversationPacket } from "@/lib/editorial/packet";
 import type { RankedConversation } from "@/lib/editorial/model";
 
@@ -50,8 +51,8 @@ export async function assessPackets(input: {
       accept: (data) => (parseEditorialAssessment(data, ids) ? "success" : "malformed"),
       call: input.call,
     });
-    attempts.push(...routed.attempts.map((attempt) => ({ ...attempt, requestId: input.requestId, task: "editorial" as const })));
     const parsed = routed.ok ? parseEditorialAssessment(routed.data, ids) : null;
+    attempts.push(...routed.attempts.map((attempt) => stampEditorialAttempt(attempt, input.requestId, parsed)));
     if (!routed.ok || !parsed) {
       return {
         ok: false,

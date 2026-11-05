@@ -9,6 +9,7 @@ import { providerReadout, retainedFailure, shownProviderStatus, type ProviderDia
 import { credentialPresent, readAiEnv } from "@/lib/ai/runtime";
 import { columnMissing, schemaMissing, serviceClient } from "@/lib/db/client";
 import type { StampedAttempt } from "@/lib/drafts/chain";
+import { readEditorialTrace, type EditorialTrace } from "@/lib/editorial/trace";
 import { lagosDayStart } from "@/lib/intel/limits";
 import { usageSince } from "@/lib/db/usage";
 
@@ -50,8 +51,18 @@ export async function persistAttempts(rows: StampedAttempt[]) {
     started_at: row.startedAt,
     completed_at: row.completedAt,
     latency_ms: row.latencyMs,
+    response: row.response ?? null,
   }));
   const { error } = await db.from("ai_attempts").insert(payload);
+  if (error && columnMissing(error.message)) {
+    const plain = payload.map((row) => {
+      const { response, ...rest } = row;
+      void response;
+      return rest;
+    });
+    const retry = await db.from("ai_attempts").insert(plain);
+    return { ok: !retry.error };
+  }
   return { ok: !error };
 }
 
@@ -213,6 +224,38 @@ export async function providerBoard(): Promise<{ paidUsage: boolean; providers: 
       };
     }),
   };
+}
+
+export type EditorialHistoryItem = EditorialTrace & { completedAt: string };
+
+/** Successful editorial readings for settings. The desk does not call this. */
+export async function editorialAssessmentHistory(limit = 5): Promise<EditorialHistoryItem[]> {
+  const db = serviceClient();
+  if (!db) return [];
+  const selected = await db
+    .from("ai_attempts")
+    .select("provider, model, request_id, completed_at, input_tokens, reasoning_tokens, output_tokens, response")
+    .eq("task", "editorial")
+    .eq("status", "success")
+    .order("completed_at", { ascending: false })
+    .limit(limit);
+  if (selected.error) return [];
+  const items: EditorialHistoryItem[] = [];
+  for (const row of selected.data ?? []) {
+    const trace = readEditorialTrace(row.response);
+    if (!trace) continue;
+    items.push({
+      ...trace,
+      provider: typeof row.provider === "string" ? row.provider : trace.provider,
+      model: typeof row.model === "string" ? row.model : trace.model,
+      requestId: typeof row.request_id === "string" ? row.request_id : trace.requestId,
+      inputTokens: typeof row.input_tokens === "number" ? row.input_tokens : trace.inputTokens,
+      reasoningTokens: typeof row.reasoning_tokens === "number" ? row.reasoning_tokens : trace.reasoningTokens,
+      outputTokens: typeof row.output_tokens === "number" ? row.output_tokens : trace.outputTokens,
+      completedAt: typeof row.completed_at === "string" ? row.completed_at : "",
+    });
+  }
+  return items;
 }
 
 export async function calledToday(): Promise<Record<ProviderId, number>> {

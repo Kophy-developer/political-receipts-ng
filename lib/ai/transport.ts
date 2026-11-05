@@ -1,6 +1,6 @@
 import "server-only";
 import { estimatedCostUsd, type ProviderPlan } from "@/lib/ai/catalog";
-import { buildDiagnostic, editorMessage, type ProviderDiagnostic } from "@/lib/ai/diagnostics";
+import { buildDiagnostic, editorMessage, readProviderHeaders, type ProviderDiagnostic } from "@/lib/ai/diagnostics";
 import { chatDraftBody, chatExtractionBody, chatHealthBody, geminiBody, geminiEditorialBody, geminiEndpoint, groqChatEndpoint, groqExtractionReasoning, openRouterChatEndpoint } from "@/lib/ai/payload";
 import type { ProviderCallResult, ProviderRequest } from "@/lib/ai/route";
 import { readOutputBudgets } from "@/lib/ai/budgets";
@@ -135,7 +135,16 @@ async function chat(
           : "The assistant content was not a JSON object.",
     }), usage);
   }
-  return { ok: true, data: generated.data, failureReason: null, diagnostic: null, ...usage };
+  const noted = readProviderHeaders(responseHeaders);
+  return {
+    ok: true,
+    data: generated.data,
+    failureReason: null,
+    diagnostic: null,
+    finishReason: generated.finishReason,
+    providerRequestId: groqRequestId(parsed) ?? noted.requestId,
+    ...usage,
+  };
 }
 
 async function gemini(plan: ProviderPlan, request: ProviderRequest, key: string, maxTokens: number, temperature: number): Promise<ProviderCallResult> {
@@ -208,7 +217,16 @@ async function gemini(plan: ProviderPlan, request: ProviderRequest, key: string,
           : "The assistant content was not a JSON object.",
     }), usage);
   }
-  return { ok: true, data: generated.data, failureReason: null, diagnostic: null, ...usage };
+  const noted = readProviderHeaders(responseHeaders);
+  return {
+    ok: true,
+    data: generated.data,
+    failureReason: null,
+    diagnostic: null,
+    finishReason: generated.finishReason,
+    providerRequestId: noted.requestId,
+    ...usage,
+  };
 }
 
 export async function callProvider(plan: ProviderPlan, request: ProviderRequest, limits?: { maxTokens?: number; temperature?: number }): Promise<ProviderCallResult> {

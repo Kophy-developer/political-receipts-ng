@@ -12,6 +12,7 @@ import { assessPackets, editorialMaxTokens } from "@/lib/editorial/ai";
 import { mergeAssessments, nextAssessmentVersion, type Lifecycle, type PipelineCard } from "@/lib/editorial/model";
 import { packetsFromPosts, type StoredAssessmentPost } from "@/lib/editorial/packet";
 import { assessmentRecords } from "@/lib/editorial/reading";
+import { withAssessmentVersions } from "@/lib/editorial/trace";
 
 const pipelineColumns = [
   "id",
@@ -153,8 +154,8 @@ export async function reassessSavedScan(scanId: string) {
     recentTexts,
     call: (plan, request) => callProvider(plan, request, { maxTokens: editorialMaxTokens, temperature: 0 }),
   });
-  await persistAttempts(assessed.attempts);
   if (!assessed.ok || !assessed.ranked) {
+    await persistAttempts(assessed.attempts);
     return {
       ...empty,
       modelCalls: assessed.modelCalls,
@@ -166,20 +167,33 @@ export async function reassessSavedScan(scanId: string) {
   const previousIds = (existingOpportunities.data ?? []).map((row) => String(row.id));
   const versions = await db.from("editorial_assessments").select("conversation_id, version").eq("scan_id", scanId);
   if (versions.error && schemaMissing(versions.error.message)) {
+    await persistAttempts(assessed.attempts);
     return { ...empty, message: "The editorial assessment table is not available yet. Nothing was deleted." };
   }
-  if (versions.error) return { ...empty, message: scrubDbMessage(versions.error.message) };
+  if (versions.error) {
+    await persistAttempts(assessed.attempts);
+    return { ...empty, message: scrubDbMessage(versions.error.message) };
+  }
   const maxByConversation = new Map<string, number>();
   for (const row of versions.data ?? []) {
     const id = String(row.conversation_id);
     const version = typeof row.version === "number" ? row.version : 0;
     maxByConversation.set(id, Math.max(maxByConversation.get(id) ?? 0, version));
   }
+  const versionByConversation: Record<string, number> = {};
+  for (const item of ranked) versionByConversation[item.id] = nextAssessmentVersion(maxByConversation.get(item.id) ?? null);
+  await persistAttempts(assessed.attempts.map((attempt) => (
+    attempt.response ? { ...attempt, response: withAssessmentVersions(attempt.response, versionByConversation) } : attempt
+  )));
   const inserted: string[] = [];
   for (const item of ranked) {
-    const version = nextAssessmentVersion(maxByConversation.get(item.id) ?? null);
+    const version = versionByConversation[item.id] ?? nextAssessmentVersion(maxByConversation.get(item.id) ?? null);
     const records = assessmentRecords(item, scanId, version);
-    const assessment = await db.from("editorial_assessments").insert(records.assessment).select("id").single();
+    let assessment = await db.from("editorial_assessments").insert(records.assessment).select("id").single();
+    if (assessment.error && columnMissing(assessment.error.message)) {
+      const withoutBasis = Object.fromEntries(Object.entries(records.assessment).filter(([key]) => key !== "editorial_basis"));
+      assessment = await db.from("editorial_assessments").insert(withoutBasis).select("id").single();
+    }
     if (assessment.error || !assessment.data) {
       return { ...empty, modelCalls: assessed.modelCalls, message: "The new assessment version was not saved. Earlier cards were left in place." };
     }

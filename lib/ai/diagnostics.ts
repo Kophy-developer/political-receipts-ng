@@ -228,7 +228,15 @@ export function providerReadout(input: {
     hour: "numeric",
     minute: "2-digit",
   }).format(new Date(input.latest.completedAt));
-  const task = input.latest.task === "health" ? "health check" : input.latest.task === "draft_regenerate" ? "regenerate" : "draft";
+  const task = input.latest.task === "health"
+    ? "health check"
+    : input.latest.task === "draft_regenerate"
+      ? "regenerate"
+      : input.latest.task === "extraction"
+        ? "extraction"
+        : input.latest.task === "editorial"
+          ? "editorial assessment"
+          : "draft";
   if (input.latest.status === "success") {
     return { latestResult: `Latest ${task} succeeded at ${when} CT.`, latestKind: "success" as const, earlierFailure: input.earlierFailure };
   }

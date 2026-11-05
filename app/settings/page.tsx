@@ -2,7 +2,7 @@ import { Suspense } from "react";
 import type { Metadata } from "next";
 import { connection } from "next/server";
 import { SettingsPanel } from "@/components/settings/panel";
-import { providerBoard } from "@/lib/db/ai-attempts";
+import { editorialAssessmentHistory, providerBoard } from "@/lib/db/ai-attempts";
 import { systemHealth } from "@/lib/db/health";
 import { usageView } from "@/lib/db/usage";
 import { loadEditorIdentity } from "@/lib/db/identity";
@@ -13,8 +13,24 @@ export const metadata: Metadata = {
 };
 
 async function SettingsBody() {
-  const [health, usage, board, identity] = await Promise.all([systemHealth(), usageView(), providerBoard(), loadEditorIdentity()]);
-  return <SettingsPanel flags={credentialFlags()} health={health} usage={usage} providers={board.providers} paidUsage={board.paidUsage} identity={identity} />;
+  const [health, usage, board, identity, editorialHistory] = await Promise.all([
+    systemHealth(),
+    usageView(),
+    providerBoard(),
+    loadEditorIdentity(),
+    editorialAssessmentHistory(),
+  ]);
+  return (
+    <SettingsPanel
+      flags={credentialFlags()}
+      health={health}
+      usage={usage}
+      providers={board.providers}
+      paidUsage={board.paidUsage}
+      identity={identity}
+      editorialHistory={editorialHistory}
+    />
+  );
 }
 
 export default async function SettingsPage() {

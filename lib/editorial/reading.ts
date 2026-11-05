@@ -23,6 +23,7 @@ export type EditorialReading = {
   claimExtractionNeeded: boolean;
   contextSummary: string;
   confidence: "high" | "medium" | "low";
+  editorialBasis: string | null;
 };
 
 function recordOf(value: unknown) {
@@ -39,20 +40,38 @@ function clip(value: string, max: number) {
   return text.length <= max ? text : `${text.slice(0, max - 1).trim()}…`;
 }
 
+function safeText(value: string, max: number) {
+  const cleaned = value
+    .replace(/bearer\s+\S+/gi, "bearer [redacted]")
+    .replace(/\b(?:sk|gsk|rk|AIza)[_-]?[A-Za-z0-9\-._]{12,}\b/g, "[redacted]")
+    .replace(/(?:api[_ -]?key|authorization|cookie)\s*[:=]\s*\S+/gi, (match) => match.replace(/[:=]\s*\S+/, ": [redacted]"));
+  return clip(cleaned, max);
+}
+
 export function editorialSystem() {
   return [
-    "You assess stored conversations for one human account. The account follows politics, finance, and Manchester United. It is one person.",
-    "Suggest an angle. Do not invent that person's political, financial, or club belief. Do not forecast an election winner.",
-    "Read every stored post in the conversation. Do not judge from a title, a first line, or a fragment.",
-    "An opinion is not automatically worth a post. Keep a conversation only when this account could reasonably add something specific.",
-    "Praise and opinion can contain factual premises. Name those premises. If the useful contribution depends on them, research_need is yes.",
-    "A prediction stays an attributed prediction. Do not turn it into a verdict about who will win. A question or analysis about the conditions behind it is allowed.",
-    "If the stored posts are not enough to understand the conversation, set worth_talking_about to false and reason to \"Insufficient context\". Do not invent missing context.",
-    "context_summary describes the full conversation in one or two sentences, using only the stored posts.",
+    "You are an editorial assistant reading one human account's feed with the editor. The account follows politics, finance, and Manchester United. It is one person.",
+    "Suggest an angle. Do not invent that person's political, financial, or club belief. Do not forecast an election winner. Do not rank people or parties by partisan benefit or harm.",
+    "This is discovery, not publication review. You are not deciding whether a final post should be published now. You are deciding whether there is a potentially worthwhile content opportunity.",
+    "The useful question is: if you and the editor were scrolling X together, would you point at this and say \"This could be something\"? If yes, keep it.",
+    "Bias toward curiosity. A useful assistant says the conversation is interesting enough to look into. It does not demand enough evidence to write the final post. Do not keep obvious garbage merely to fill a queue. Do not aim for any count or percentage. A scan may produce no worthwhile items, or several, or all of them.",
+    "worth_talking_about means this conversation gives the account a reasonable chance to say, ask, investigate, explain, analyse, react to, joke about, or explore something potentially interesting.",
+    "It does not mean the item is already verified, ready to publish, a major national story, certain to perform, or something you already know enough to resolve.",
+    "Reason through three questions, separately.",
+    "Question A: can you understand what this conversation is saying from the stored posts? If no, worth_talking_about is false and the reason may be \"Insufficient context\". Insufficient context means the available text genuinely cannot be understood. It does not mean you need research, you do not know whether a claim is true, there is only one tweet, the tweet refers to a wider issue, you lack background knowledge, or you cannot yet write the final post. A single clear tweet is enough context.",
+    "Question B: if you understand it, could it reasonably inspire something useful or interesting for this account to contribute? If no, worth_talking_about is false and you must give the real reason. Say what is wrong with it: a pure insult with no useful angle, a duplicate idea, nothing meaningful to add, too vague to develop, outside the account's interests, or understandable but no useful contribution. Do not say \"Insufficient context\" when the statement is clear.",
+    "Question C: if it is worth a contribution, does developing it need external information? If yes, research_need is yes or recommended. Research need must not flip worth_talking_about to false. Not knowing whether an assertion is true is a reason to investigate, not a reason to pass. The research stage exists for that.",
+    "A clear attributed claim, including a biographical claim or a spending claim, can be worth a check before anyone has proved it. Name the assertion, set research_need to yes, and leave the truth to research.",
+    "Praise and opinion can hide factual premises such as foreign investment, economic performance, or causal attribution. Name those premises. The opportunity may be a check, an analysis, or an original insight, with research required. Do not reduce that to political praise and stop.",
+    "An event, such as a political visit, can be a reaction, an analysis, or a question even when no claim is disputed. Ask whether there is something useful to add, not whether something is false.",
+    "An opinion is not kept automatically. Keep it only when the account could add something specific, interesting, funny, analytical, or questioning. If it cannot, pass it and give that reason.",
+    "A prediction stays an attributed prediction. Do not assess who will win or lose, and do not adopt the prediction. It may still inspire a question, an analysis, or a reaction about the observable conditions or the sentiment behind it.",
+    "Read every stored post in the conversation. Do not judge from a title, a first line, or a fragment. context_summary describes the full conversation in one or two sentences, using only the stored posts.",
+    "When worth_talking_about is true, editorial_basis is a short internal note on why it survives, such as checkable assertion, interesting event, useful question, strong reaction opportunity, economic premise, potential explanatory angle, humorous observation, or timely discussion. When it is false, editorial_basis is null.",
     "Return JSON only. No markdown. No commentary.",
-    'Shape: {"assessments":[{"conversation_id":"","worth_talking_about":false,"content_type":null,"priority":null,"timeliness":"low","research_need":"no","reason":"","angle":"","factual_foundation":[],"claim_extraction_needed":false,"context_summary":"","confidence":"low"}]}',
+    'Shape: {"assessments":[{"conversation_id":"","worth_talking_about":false,"content_type":null,"priority":null,"timeliness":"low","research_need":"no","reason":"","angle":"","factual_foundation":[],"claim_extraction_needed":false,"context_summary":"","confidence":"low","editorial_basis":null}]}',
     "content_type is reaction, opinion, check, analysis, original_insight, humour, question, or null.",
-    "priority and timeliness are high, medium, or low. priority may be null only when the conversation is not worth a post.",
+    "priority and timeliness are high, medium, or low. priority may be null only when the conversation is not worth talking about.",
     "research_need is yes, recommended, or no. confidence is high, medium, or low.",
     "Return every conversation_id you were given, once.",
     pillarVoice.politics,
@@ -98,9 +117,14 @@ function readingFrom(row: Record<string, unknown>, allowed: Set<string>): Editor
   if (typeof row.context_summary !== "string") return null;
   if (typeof row.claim_extraction_needed !== "boolean") return null;
   if (!Array.isArray(row.factual_foundation) || row.factual_foundation.some((item) => typeof item !== "string")) return null;
+  if (row.editorial_basis != null && typeof row.editorial_basis !== "string") return null;
   const contentType = typeWord as OpportunityType | null;
   const worthTalkingAbout = row.worth_talking_about;
   if (worthTalkingAbout && !contentType) return null;
+  const editorialBasis = typeof row.editorial_basis === "string" && row.editorial_basis.trim()
+    ? safeText(row.editorial_basis, 240)
+    : null;
+  if (worthTalkingAbout && !editorialBasis) return null;
   return {
     conversationId,
     worthTalkingAbout,
@@ -108,12 +132,13 @@ function readingFrom(row: Record<string, unknown>, allowed: Set<string>): Editor
     priority: worthTalkingAbout ? ((priorityWord as Priority | null) ?? "medium") : null,
     timeliness: timeliness as Timeliness,
     researchNeed: researchNeed as ResearchNeed,
-    reason: row.reason.trim(),
-    angle: row.angle.trim(),
-    factualFoundation: row.factual_foundation.map((item) => item.trim()).filter(Boolean).slice(0, 8),
+    reason: safeText(row.reason, 500),
+    angle: safeText(row.angle, 500),
+    factualFoundation: row.factual_foundation.map((item) => safeText(item, 240)).filter(Boolean).slice(0, 8),
     claimExtractionNeeded: row.claim_extraction_needed,
-    contextSummary: row.context_summary.trim(),
+    contextSummary: safeText(row.context_summary, 500),
     confidence: confidence as EditorialReading["confidence"],
+    editorialBasis: worthTalkingAbout ? editorialBasis : null,
   };
 }
 
@@ -224,10 +249,7 @@ export function rankReadings(
     let reading = base;
     if (reading && (duplicate || repeated)) {
       const reason = duplicate ? "Duplicate conversation." : "Already covered by a recent post.";
-      reading = { ...reading, worthTalkingAbout: false, priority: null, researchNeed: "no", reason, angle: "" };
-    }
-    if (reading && !reading.worthTalkingAbout && /insufficient context/i.test(reading.reason)) {
-      reading = { ...reading, reason: "Insufficient context" };
+      reading = { ...reading, worthTalkingAbout: false, priority: null, researchNeed: "no", reason, angle: "", editorialBasis: null };
     }
     return { packet, reading, summary, index };
   });
@@ -268,6 +290,7 @@ export function rankReadings(
       discoveredAt: packet.posts.find((post) => post.postedAt)?.postedAt ?? discoveredAt,
       pillar: packet.pillar,
       factualFoundation: reading?.factualFoundation ?? [],
+      editorialBasis: worth ? (reading?.editorialBasis ?? null) : null,
     };
   });
 }
@@ -297,6 +320,7 @@ export function assessmentRecords(item: RankedConversation, scanId: string, vers
       source: "model" as const,
       model_called: true,
       x_requests: 0,
+      editorial_basis: item.editorialBasis ?? null,
     },
     opportunity: {
       conversation_id: item.id,

@@ -28,6 +28,8 @@ export type ProviderCallResult = {
   outputTokens: number | null;
   totalTokens: number | null;
   estimatedCostUsd: number | null;
+  finishReason?: string | null;
+  providerRequestId?: string | null;
 };
 
 export type ProviderCaller = (plan: ProviderPlan, request: ProviderRequest) => Promise<ProviderCallResult>;
@@ -47,6 +49,9 @@ export type AttemptRecord = {
   outputTokens: number | null;
   totalTokens: number | null;
   estimatedCostUsd: number | null;
+  finishReason?: string | null;
+  providerRequestId?: string | null;
+  response?: unknown;
 };
 
 export type RouteResult = {
@@ -201,7 +206,14 @@ export async function generateStructuredContent(input: {
       await record({ ...base, diagnostic: null, status: "rejected", failureReason: input.rejectionReason });
       return { ok: false, rejected: true, provider: plan.id, model: plan.model, data: raw.data, attempts };
     }
-    await record({ ...base, diagnostic: null, status: "success", failureReason: null });
+    await record({
+      ...base,
+      diagnostic: null,
+      status: "success",
+      failureReason: null,
+      finishReason: raw.finishReason ?? null,
+      providerRequestId: raw.providerRequestId ?? null,
+    });
     return { ok: true, rejected: false, provider: plan.id, model: plan.model, data: raw.data, attempts };
   }
   return { ok: false, rejected: false, provider: null, model: null, attempts };

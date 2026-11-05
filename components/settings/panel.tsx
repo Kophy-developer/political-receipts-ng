@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { providerLabels, type ProviderCard, type ProviderId } from "@/lib/ai/catalog";
+import type { EditorialTrace } from "@/lib/editorial/trace";
 import type { SystemHealth, UsageView } from "@/lib/desk/types";
 import { lagosStamp } from "@/lib/format";
 import type { EditorIdentity } from "@/lib/identity";
@@ -33,6 +34,7 @@ export function SettingsPanel({
   providers,
   paidUsage,
   identity,
+  editorialHistory,
 }: {
   flags: XFlags;
   health: SystemHealth;
@@ -40,6 +42,7 @@ export function SettingsPanel({
   providers: ProviderCard[];
   paidUsage: boolean;
   identity: EditorIdentity;
+  editorialHistory: Array<EditorialTrace & { completedAt: string }>;
 }) {
   const [origin, setOrigin] = useState(xProductionOrigin);
 
@@ -106,6 +109,7 @@ export function SettingsPanel({
               <p className="mt-4 max-w-2xl text-sm leading-relaxed text-ink-soft">
                 Gemini still extracts claims from posts a scan already retrieved. That path is separate from drafting. The usage section keeps the earlier Gemini request log. This section does not rewrite it.
               </p>
+              <EditorialHistory history={editorialHistory} />
             </Section>
             <Section id="usage" kicker="Usage" title="What today has cost">
               <p className="max-w-2xl text-sm leading-relaxed">
@@ -205,6 +209,61 @@ export function SettingsPanel({
         </div>
       </div>
     </PageFrame>
+  );
+}
+
+function shownCount(value: number | null) {
+  return value == null ? "not reported" : String(value);
+}
+
+function EditorialHistory({ history }: { history: Array<EditorialTrace & { completedAt: string }> }) {
+  return (
+    <details className="mt-6 max-w-3xl border border-rule px-3 py-3">
+      <summary className="cursor-pointer text-sm">Editorial assessment history</summary>
+      <p className="mt-3 text-sm leading-relaxed text-ink-soft">
+        Parsed readings from successful editorial assessments. This stays in settings so the next calibration can see exactly what the model returned. It is not shown on the desk. No key is stored.
+      </p>
+      {history.length === 0 ? (
+        <p className="mt-3 text-sm">No stored editorial reading yet.</p>
+      ) : (
+        <ul className="mt-4 space-y-4">
+          {history.map((item) => (
+            <li key={`${item.requestId}-${item.completedAt}`} className="border border-rule px-3 py-3">
+              <p className="font-mono text-[11px] tracking-[0.12em] uppercase">{item.provider} · {item.model}</p>
+              <p className="mt-2 text-sm">Request {item.requestId}{item.providerRequestId ? ` · Provider request ${item.providerRequestId}` : ""}</p>
+              <p className="mt-1 text-sm text-ink-soft">
+                {item.completedAt ? lagosStamp(item.completedAt) : "Time not stored"}
+                {" · "}Finish {item.finishReason ?? "not reported"}
+                {" · "}Prompt {shownCount(item.inputTokens)}
+                {" · "}Reasoning {shownCount(item.reasoningTokens)}
+                {" · "}Completion {shownCount(item.outputTokens)}
+              </p>
+              {Object.keys(item.assessmentVersions).length > 0 ? (
+                <p className="mt-2 text-sm">
+                  Versions {Object.entries(item.assessmentVersions).map(([id, version]) => `${id.slice(0, 8)} v${version}`).join(", ")}
+                </p>
+              ) : null}
+              <ul className="mt-3 space-y-2">
+                {item.parsed.assessments.map((assessment) => {
+                  const id = typeof assessment.conversation_id === "string" ? assessment.conversation_id : "unknown";
+                  const worth = assessment.worth_talking_about === true;
+                  const reason = typeof assessment.reason === "string" ? assessment.reason : "";
+                  const basis = typeof assessment.editorial_basis === "string" ? assessment.editorial_basis : "";
+                  return (
+                    <li key={id} className="text-sm leading-relaxed">
+                      <span className="font-mono text-[11px]">{worth ? "KEEP" : "PASS"}</span> {id.slice(0, 8)}
+                      {reason ? ` — ${reason}` : ""}
+                      {basis ? ` (${basis})` : ""}
+                    </li>
+                  );
+                })}
+              </ul>
+              <pre className="mt-3 max-h-80 overflow-auto whitespace-pre-wrap text-xs leading-relaxed">{JSON.stringify(item.parsed, null, 2)}</pre>
+            </li>
+          ))}
+        </ul>
+      )}
+    </details>
   );
 }
 

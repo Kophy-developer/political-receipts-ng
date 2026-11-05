@@ -67,6 +67,7 @@ export type RankedConversation = Assessment & {
   discoveredAt: string;
   pillar?: ContentPillar;
   factualFoundation?: string[];
+  editorialBasis?: string | null;
 };
 
 export function typeLabel(type: string | null) {
