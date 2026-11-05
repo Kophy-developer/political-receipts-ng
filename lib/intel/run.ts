@@ -6,7 +6,7 @@ import {
   finishScan,
   intelReady,
   knownEntities,
-  nextSearchGroup,
+  nextSearchGroupForPillar,
   openScan,
   releaseStaleScans,
   savePosts,
@@ -92,13 +92,18 @@ function blockedEstimate(message: string, partial?: Partial<ScanEstimate>): Scan
   };
 }
 
-async function gate() {
+async function gate(storagePillar: "politics" | "finance" | "football" = "politics") {
   const ready = await intelReady();
   if (!ready.ok) return { ok: false as const, estimate: blockedEstimate(ready.message) };
   const usage = await usageSince(lagosDayStart());
   if (!usage.ok) return { ok: false as const, estimate: blockedEstimate("Usage tracking is not readable. No X request was made.") };
-  const group = await nextSearchGroup();
-  if (!group) return { ok: false as const, estimate: blockedEstimate("No search group is enabled. No X request was made.") };
+  const group = await nextSearchGroupForPillar(storagePillar);
+  if (!group) {
+    const message = storagePillar === "politics"
+      ? "No search group is enabled. No X request was made."
+      : "That pillar has no discovery query yet. No X request was made.";
+    return { ok: false as const, estimate: blockedEstimate(message) };
+  }
   if (group.query.length > 480) return { ok: false as const, estimate: blockedEstimate("The next search query is too long. No X request was made.") };
   const xRemaining = Math.max(0, scanLimits.dailyXRequests - usage.totals.xRequests);
   const postsRemaining = Math.max(0, scanLimits.dailyPosts - usage.totals.posts);
@@ -175,14 +180,15 @@ function skippedExtraction(outcome: ExtractionOutcome, detail: string): Extracti
   };
 }
 
-export async function runScan(): Promise<ScanReport> {
+export async function runScan(input?: { storagePillar?: "politics" | "finance" | "football" }): Promise<ScanReport> {
   const started = Date.now();
   if (!claimDeskLock()) return emptyReport("A scan is already running. No second X request was made.");
   let scanId: string | null = null;
   let xCalls = 0;
   let retrievalSaved = false;
   try {
-    const gated = await gate();
+    const storagePillar = input?.storagePillar ?? "politics";
+    const gated = await gate(storagePillar);
     if (!gated.ok) return emptyReport(gated.estimate.message, { durationMs: Date.now() - started });
     await releaseStaleScans();
     const opened = await openScan({
@@ -190,6 +196,8 @@ export async function runScan(): Promise<ScanReport> {
       groupName: gated.group.name,
       maxPosts: scanLimits.maxPostsPerScan,
       lookbackHours: scanLimits.lookbackHours,
+      contentPillar: storagePillar,
+      estimatedXRequests: 1,
     });
     if (!opened.ok) return emptyReport(opened.message, { durationMs: Date.now() - started });
     scanId = opened.id;
@@ -223,6 +231,9 @@ export async function runScan(): Promise<ScanReport> {
     const rules = await termRules();
     const posts: WorkingPost[] = searched.posts.map((post) => {
       const judged = judgePost(post.text, rules);
+      const kept = storagePillar !== "politics" && judged.deskClass === "noise"
+        ? { relevance: "possibly_political" as const, deskClass: "discussion" as const }
+        : { relevance: judged.relevance, deskClass: judged.deskClass };
       return {
         id: post.id,
         text: sanitizeText(post.text),
@@ -235,13 +246,13 @@ export async function runScan(): Promise<ScanReport> {
         referenced: post.referenced,
         lang: post.lang,
         source: gated.group.name,
-        relevance: judged.relevance,
-        deskClass: judged.deskClass,
+        relevance: kept.relevance,
+        deskClass: kept.deskClass,
         matchedTerm: judged.matchedTerm,
         reason: judged.reason,
       };
     });
-    const storedCount = await persistPosts(posts, scanId);
+    const storedCount = await persistPosts(posts, scanId, storagePillar);
     retrievalSaved = true;
     await finishScan(scanId, { stage: "X_RETRIEVAL_COMPLETE", x_requests: 1, posts_returned: searched.posts.length, posts_stored: storedCount });
     await finishScan(scanId, { stage: "AI_PROCESSING" });
@@ -260,6 +271,7 @@ export async function runScan(): Promise<ScanReport> {
       entities: await knownEntities(),
       topicSlugFor: () => gated.group.topicSlug,
       deskNote: "Filed by a manual scan. This is not a verdict, and it is not a candidate ranking.",
+      pillar: storagePillar,
     });
     const opportunities = extraction.claims.length > 0 ? await syncModelOpportunities(filed.links, scanId) : { found: 0, created: 0, updated: 0, cards: [] };
     const aiFailed = extraction.outcome === "failed" || extraction.outcome === "invalid";
@@ -351,7 +363,7 @@ export async function runScan(): Promise<ScanReport> {
   }
 }
 
-async function persistPosts(posts: WorkingPost[], scanId: string) {
+async function persistPosts(posts: WorkingPost[], scanId: string, storagePillar: "politics" | "finance" | "football") {
   const known = await existingPostIds(posts.map((post) => post.id));
   const rows = posts.map((post) => ({
     x_post_id: post.id,
@@ -369,7 +381,7 @@ async function persistPosts(posts: WorkingPost[], scanId: string) {
     relevance: post.relevance,
     relevance_reason: post.reason,
     desk_class: post.deskClass,
-    content_pillar: "politics",
+    content_pillar: storagePillar,
     scan_id: scanId,
   }));
   const saved = await savePosts(rows);

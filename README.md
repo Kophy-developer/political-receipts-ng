@@ -162,7 +162,7 @@ Search terms live in `search_groups`. They stay on Nigerian politics. Football a
 
 ## Database
 
-Migrations live in `supabase/migrations`. Apply them with the Supabase CLI after `supabase login` and `supabase link --project-ref <project-ref>`. The project ref is the subdomain of `NEXT_PUBLIC_SUPABASE_URL`. Do not paste the service role key into chat.
+Migrations live in `supabase/migrations`. Apply them with the Supabase CLI after `supabase login` and `supabase link --project-ref <project-ref>`. The project ref is the subdomain of `NEXT_PUBLIC_SUPABASE_URL`. Do not paste the service role key into chat. `20261105160000_content_pillars_discovery.sql` labels existing politics searches and adds separate finance and Manchester United searches. It does not change published text. Until it is applied, a finance or Manchester United scan stops before any X request.
 
 ```bash
 npx supabase db push

@@ -1,4 +1,5 @@
 import { characterCount, POST_LIMIT } from "@/lib/format";
+import { contentPillarFromStorage, maySuggestEditorialTag, pillarVoice, researchSources } from "@/lib/pillars/catalog";
 import type { EditorReviewPacket } from "@/lib/research/editor-review";
 
 export const DRAFT_UNAVAILABLE = "DRAFT GENERATION UNAVAILABLE";
@@ -79,6 +80,7 @@ export type DraftBrief = {
   anglePoints: string[];
   take: string | null;
   evidence: Array<{ kind: string; label: string; note: string; url: string }>;
+  contentPillar?: "politics" | "football" | "finance" | null;
 };
 
 const forbiddenBody = [
@@ -393,6 +395,7 @@ export function draftBriefFrom(input: {
   angle: string | null;
   take: string | null;
   review: EditorReviewPacket | null;
+  pillar?: "politics" | "football" | "finance" | null;
 }): DraftBrief | null {
   if (!input.review) return null;
   const angle = input.review.angles.find((item) => item.id === input.angle) ?? null;
@@ -407,6 +410,7 @@ export function draftBriefFrom(input: {
     angleTitle,
     anglePoints,
     take: input.take,
+    contentPillar: input.pillar ?? null,
     evidence: input.review.sources.map((source) => ({
       kind: source.kind,
       label: source.label,
@@ -414,6 +418,15 @@ export function draftBriefFrom(input: {
       url: source.url,
     })),
   };
+}
+
+function pillarVoiceLines(value: DraftBrief["contentPillar"]) {
+  const pillar = contentPillarFromStorage(value);
+  if (!pillar) return [];
+  const tag = maySuggestEditorialTag(pillar)
+    ? "An editorial hashtag is optional. Do not add one unless the post is using that tool."
+    : "Do not add #CheckAm, #ShowYourWorking, or #NotTrue.";
+  return [pillarVoice[pillar], researchSources[pillar], tag];
 }
 
 export function draftPrompt(brief: DraftBrief, only?: GeneratedStyle) {
@@ -438,6 +451,7 @@ export function draftPrompt(brief: DraftBrief, only?: GeneratedStyle) {
     "Conversational and analytical may be one post, or two posts separated by a blank line. Punchy is one short post. A thread exists only when the story needs the sequence. If it does not, set thread.needed to false and give a short reason. Do not send a stub thread.",
     "The styles are different ways into the same angle, not four paraphrases.",
     "Return only the JSON object described by the schema.",
+    ...pillarVoiceLines(brief.contentPillar),
   ].join(" ");
   const user = [
     `Selected angle: ${brief.angleTitle}. This angle drives the writing.`,

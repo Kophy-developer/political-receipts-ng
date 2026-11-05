@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { contentPillarFromStorage, contentPillars, pillarLabels, type ContentPillar } from "@/lib/pillars/catalog";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { chicagoStamp } from "@/lib/format";
@@ -60,7 +61,11 @@ export function EditorialPipeline({
     }
   }
 
-  const ranked = queue.slice().sort((left, right) => (left.rank ?? 99) - (right.rank ?? 99));
+  const [filter, setFilter] = useState<"all" | ContentPillar>("all");
+  const ranked = queue
+    .filter((item) => filter === "all" || (contentPillarFromStorage(item.pillar) ?? "politics") === filter)
+    .slice()
+    .sort((left, right) => (left.rank ?? 99) - (right.rank ?? 99));
 
   return (
     <div className="space-y-10">
@@ -112,7 +117,13 @@ export function EditorialPipeline({
       <section>
         <p className="font-mono text-[11px] tracking-[0.16em] text-ink-soft uppercase">Content queue</p>
         <h2 className="mt-2 font-serif text-3xl tracking-[-0.03em]">Ranked opportunities.</h2>
-        <p className="mt-2 text-sm text-ink-soft">Every conversation worth talking about stays here. A higher rank does not discard the others. Nothing in this list is published on its own.</p>
+        <p className="mt-2 text-sm text-ink-soft">Every conversation worth talking about stays here. A higher rank does not discard the others. The mix does not move a weaker post above a stronger one.</p>
+        <div className="mt-3 flex flex-wrap gap-2" role="group" aria-label="Queue pillar">
+          <FilterButton pressed={filter === "all"} onClick={() => setFilter("all")}>All</FilterButton>
+          {contentPillars.map((pillar) => (
+            <FilterButton key={pillar} pressed={filter === pillar} onClick={() => setFilter(pillar)}>{pillarLabels[pillar]}</FilterButton>
+          ))}
+        </div>
         {migrationPending ? (
           <p className="mt-4 text-sm">The queue columns are not on this database yet. Earlier cards are still kept. Reassess will wait until the editorial migration is applied.</p>
         ) : null}
@@ -122,7 +133,7 @@ export function EditorialPipeline({
           <ol className="mt-4 space-y-3">
             {ranked.map((item) => (
               <li key={item.id} className="border border-rule px-4 py-4">
-                <p className="font-mono text-[11px] tracking-[0.14em] uppercase">#{item.rank} [{typeLabel(item.type)}]</p>
+                <p className="font-mono text-[11px] tracking-[0.14em] uppercase">#{item.rank} [{typeLabel(item.type)}] {pillarLabels[contentPillarFromStorage(item.pillar) ?? "politics"]}</p>
                 <p className="mt-2 text-sm leading-relaxed">{item.title}</p>
                 <p className="mt-2 text-sm text-ink-soft">{item.angle}</p>
                 <p className="mt-2 text-sm">{researchLabel(item.research)} · {priorityLabel(item.priority)}</p>
@@ -215,5 +226,18 @@ export function PassedOver({ passed }: { passed: PipelineCard[] }) {
         {note ? <p className="mt-3 text-sm">{note}</p> : null}
       </details>
     </section>
+  );
+}
+
+function FilterButton({ pressed, onClick, children }: { pressed: boolean; onClick: () => void; children: string }) {
+  return (
+    <button
+      type="button"
+      aria-pressed={pressed}
+      onClick={onClick}
+      className={`inline-flex h-8 items-center border px-2.5 text-sm ${pressed ? "border-ink bg-ink text-paper" : "border-rule"}`}
+    >
+      {children}
+    </button>
   );
 }

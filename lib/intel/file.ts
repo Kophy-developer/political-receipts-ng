@@ -8,6 +8,7 @@ import type { WorkingPost } from "@/lib/intel/posts";
 import { rankClaim } from "@/lib/intel/rank";
 import { engagementOf, publicPostUrl } from "@/lib/intel/text";
 import { inferClaimTypes, inferStatementKind, questionsFor } from "@/lib/research/claim-types";
+import type { Pillar } from "@/lib/research/types";
 
 export async function fileDiscussions(input: {
   posts: WorkingPost[];
@@ -16,6 +17,7 @@ export async function fileDiscussions(input: {
   entities: Array<{ id: string; name: string; aliases: string[] }>;
   topicSlugFor: (source: string | null) => string;
   deskNote: string;
+  pillar?: Pillar;
 }) {
   const political = input.posts.filter((post) => post.relevance !== "not_political");
   const clusterEntities: ClusterEntity[] = input.entities.map((entity) => ({ name: entity.name, aliases: entity.aliases }));
@@ -94,8 +96,9 @@ export async function fileDiscussions(input: {
           ...names.map((entity) => entity.name).filter((name) => claim.post.text.toLowerCase().includes(name.toLowerCase())),
         ]),
       ).slice(0, 8);
-      const kind = inferStatementKind("politics", claim.claim);
-      const types = inferClaimTypes(claim.claim, "politics");
+      const pillar = input.pillar ?? "politics";
+      const kind = inferStatementKind(pillar, claim.claim);
+      const types = inferClaimTypes(claim.claim, pillar);
       const id = await saveClaim({
         conversation_id: saved.id,
         topic_id: topicId,
@@ -125,10 +128,10 @@ export async function fileDiscussions(input: {
         mentioned_entities: mentionedNames,
         desk_class: claim.post.deskClass,
         origin: "live",
-        content_pillar: "politics",
+        content_pillar: pillar,
         statement_kind: kind,
         claim_types: types,
-        research_questions: questionsFor(types, "politics").map((item) => item.question),
+        research_questions: questionsFor(types, pillar).map((item) => item.question),
       });
       if (id) {
         claims += 1;

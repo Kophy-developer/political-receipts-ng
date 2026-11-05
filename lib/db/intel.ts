@@ -55,6 +55,23 @@ function toSearchGroup(data: {
   };
 }
 
+export async function nextSearchGroupForPillar(pillar: "politics" | "finance" | "football"): Promise<SearchGroup | null> {
+  const db = serviceClient();
+  if (!db) return null;
+  const ranked = await db
+    .from("search_groups")
+    .select("id, name, slug, query, topic_slug, terms, anchored_terms, rotation_order")
+    .eq("enabled", true)
+    .eq("content_pillar", pillar)
+    .order("last_used_at", { ascending: true, nullsFirst: true })
+    .order("rotation_order", { ascending: true })
+    .order("name", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  if (ranked.error) return pillar === "politics" ? nextSearchGroup() : null;
+  return ranked.data ? toSearchGroup(ranked.data) : null;
+}
+
 export async function nextSearchGroup(): Promise<SearchGroup | null> {
   const db = serviceClient();
   if (!db) return null;

@@ -40,6 +40,7 @@ export async function POST(request: Request) {
     angle: claim.editorAngle,
     take: claim.editorTake,
     review: claim.editorReview,
+    pillar: claim.pillar,
   });
   if (!brief) return Response.json({ ok: false, message: "This claim is not ready for a draft." }, { status: 400 });
 

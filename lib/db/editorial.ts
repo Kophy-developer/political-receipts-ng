@@ -29,6 +29,7 @@ const pipelineColumns = [
   "assessment_version",
   "discovered_at",
   "possible_angle",
+  "content_pillar",
 ].join(", ");
 
 function textOf(value: unknown) {
@@ -60,6 +61,7 @@ function cardFrom(row: Record<string, unknown>): PipelineCard {
     claimExtractionNeeded: row.claim_extraction_needed === true,
     version: numberOf(row.assessment_version),
     scanId: textOf(row.scan_id),
+    pillar: textOf(row.content_pillar),
   };
 }
 
@@ -80,7 +82,7 @@ export async function listPipeline() {
   if (primary.error && (columnMissing(primary.error.message) || schemaMissing(primary.error.message))) {
     const fallback = await db
       .from("opportunities")
-      .select("id, conversation_id, claim_id, opportunity_type, research_required, score, what_happened, why_interesting, what_could_add, status, source, scan_id")
+      .select("id, conversation_id, claim_id, opportunity_type, research_required, score, what_happened, why_interesting, what_could_add, status, source, scan_id, content_pillar")
       .order("created_at", { ascending: false });
     if (fallback.error) return { ok: true as const, reason: "pending" as const, cards: [] as PipelineCard[], earlier: [] as PipelineCard[] };
     return {

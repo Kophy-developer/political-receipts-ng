@@ -1,6 +1,7 @@
 import "server-only";
 import { contentHash } from "@/lib/desk/hash";
-import { scrubDbMessage, serviceClient } from "@/lib/db/client";
+import { columnMissing, scrubDbMessage, serviceClient } from "@/lib/db/client";
+import { storedPillarForClaim, withoutStoredPillar } from "@/lib/db/pillars";
 import { recordEvent } from "@/lib/db/events";
 import { nextVoiceNote, savedDraftFields, styleMeta, type DraftPiece, type StoredDraft, type VoiceNote } from "@/lib/drafts/rules";
 
@@ -65,17 +66,25 @@ async function writePiece(claimId: string, piece: DraftPiece, input: { provider:
   const fields = savedDraftFields(piece, input);
   const existing = await db.from("drafts").select("id, selected").eq("claim_id", claimId).eq("version", piece.version).maybeSingle();
   if (existing.error) return { ok: false as const, message: scrubDbMessage(existing.error.message) };
+  const pillar = await storedPillarForClaim(claimId);
   const row = {
     ...fields,
     content_hash: contentHash(piece.text),
     selected: existing.data?.selected === true,
+    ...(pillar ? { content_pillar: pillar } : {}),
   };
   if (existing.data?.id) {
-    const updated = await db.from("drafts").update(row).eq("id", existing.data.id).eq("claim_id", claimId).select("id").maybeSingle();
+    let updated = await db.from("drafts").update(row).eq("id", existing.data.id).eq("claim_id", claimId).select("id").maybeSingle();
+    if (updated.error && pillar && columnMissing(updated.error.message)) {
+      updated = await db.from("drafts").update(withoutStoredPillar(row)).eq("id", existing.data.id).eq("claim_id", claimId).select("id").maybeSingle();
+    }
     if (updated.error || !updated.data) return { ok: false as const, message: scrubDbMessage(updated.error?.message || "draft") };
     return { ok: true as const, id: updated.data.id as string };
   }
-  const inserted = await db.from("drafts").insert({ ...row, claim_id: claimId }).select("id").single();
+  let inserted = await db.from("drafts").insert({ ...row, claim_id: claimId }).select("id").single();
+  if (inserted.error && pillar && columnMissing(inserted.error.message)) {
+    inserted = await db.from("drafts").insert({ ...withoutStoredPillar(row), claim_id: claimId }).select("id").single();
+  }
   if (inserted.error || !inserted.data) return { ok: false as const, message: scrubDbMessage(inserted.error?.message || "draft") };
   return { ok: true as const, id: inserted.data.id as string };
 }

@@ -3,7 +3,9 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { scanConfirmation, scanDeskSummary, type DiscoveryAction } from "@/lib/desk/discover";
+import { scanDeskSummary, type DiscoveryAction } from "@/lib/desk/discover";
+import { scanModes, type ScanMode } from "@/lib/pillars/catalog";
+import { chooseScan, type PillarSignal, type ScanChoice } from "@/lib/pillars/scan";
 import { deskJobView, type ReprocessJob } from "@/lib/intel/progress";
 
 export type DeskOpportunityView = {
@@ -52,6 +54,9 @@ export function DeskDiscover({
   latestOpportunities,
   provider,
   reason,
+  signals,
+  publishedTotal,
+  mix,
 }: {
   scanId: string | null;
   postsSaved: number;
@@ -59,9 +64,13 @@ export function DeskDiscover({
   latestOpportunities: DeskOpportunityView[];
   provider: string;
   reason: string;
+  signals: PillarSignal[];
+  publishedTotal: number;
+  mix: Array<{ pillar: string; label: string; share: number; target: number }>;
 }) {
   const router = useRouter();
   const [confirming, setConfirming] = useState(false);
+  const [mode, setMode] = useState<ScanMode>("smart");
   const [running, setRunning] = useState(false);
   const [report, setReport] = useState<Report | null>(null);
   const [currentJob, setCurrentJob] = useState<ReprocessJob | null>(job);
@@ -161,7 +170,7 @@ export function DeskDiscover({
       const response = await fetch("/api/intel/scan", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: "{}",
+        body: JSON.stringify({ mode }),
       });
       const body = (await response.json()) as Report;
       setReport(body);
@@ -182,6 +191,30 @@ export function DeskDiscover({
     <section className="border border-rule px-5 py-5">
       <p className="font-mono text-[11px] tracking-[0.16em] text-ink-soft uppercase">Discover</p>
       <h2 className="mt-2 font-serif text-3xl tracking-[-0.03em]">Find something worth talking about.</h2>
+      <div className="mt-4">
+        <p className="font-mono text-[11px] tracking-[0.14em] text-ink-soft uppercase">Last 20 published posts</p>
+        <ul className="mt-2 space-y-1 text-sm">
+          {mix.map((item) => (
+            <li key={item.pillar} className="flex items-baseline justify-between gap-4">
+              <span>{item.label}</span>
+              <span>{item.share}% <span className="text-ink-soft">target {item.target}</span></span>
+            </li>
+          ))}
+        </ul>
+      </div>
+      <div className="mt-4 flex flex-wrap gap-2" role="group" aria-label="Scan mode">
+        {scanModes.map((item) => (
+          <button
+            key={item}
+            type="button"
+            aria-pressed={mode === item}
+            onClick={() => setMode(item)}
+            className={`inline-flex h-9 items-center border px-3 text-sm ${mode === item ? "border-ink bg-ink text-paper" : "border-rule"}`}
+          >
+            {item === "smart" ? "Smart scan" : item === "manchester_united" ? "Manchester United" : item === "finance" ? "Finance" : "Politics"}
+          </button>
+        ))}
+      </div>
       <button
         type="button"
         onClick={() => { setConfirming(true); setError(null); }}
@@ -190,30 +223,7 @@ export function DeskDiscover({
         Scan X
       </button>
       {confirming ? (
-        <div className="mt-4 border border-ink px-4 py-4">
-          <p className="font-mono text-[11px] tracking-[0.14em] uppercase">Scan X</p>
-          <dl className="mt-3 space-y-1 text-sm">
-            <div>Current scope: {scanConfirmation.scope}</div>
-            <div>Search: {scanConfirmation.search}</div>
-            <div>Maximum: {scanConfirmation.maximumPosts} posts</div>
-            <div>Estimated X requests: {scanConfirmation.estimatedRequests}</div>
-          </dl>
-          <details className="mt-3">
-            <summary className="cursor-pointer text-sm text-ink-soft">Advanced details</summary>
-            <p className="mt-2 text-sm leading-relaxed text-ink-soft">
-              This runs the existing Intelligence scan, including its daily request and post-read limits. The search group and query stay on Intelligence.
-            </p>
-            <Link href="/intelligence" className="mt-2 inline-block text-sm underline">Open Intelligence</Link>
-          </details>
-          <button
-            type="button"
-            onClick={() => void runScan()}
-            disabled={running}
-            className="mt-4 inline-flex h-10 items-center bg-ink px-4 text-sm text-paper disabled:opacity-50"
-          >
-            {running ? "Scanning…" : "Run scan"}
-          </button>
-        </div>
+        <ScanConfirm choice={chooseScan(mode, signals, publishedTotal)} running={running} onRun={() => void runScan()} />
       ) : null}
       {scanId ? (
         <div className="mt-6 border border-rule px-4 py-4 text-sm">
@@ -287,6 +297,36 @@ export function DeskDiscover({
         </ul>
       ) : null}
     </section>
+  );
+}
+
+function ScanConfirm({ choice, running, onRun }: { choice: ScanChoice; running: boolean; onRun: () => void }) {
+  const title = choice.mode === "smart" ? "Smart scan" : choice.label;
+  return (
+    <div className="mt-4 border border-ink px-4 py-4">
+      <p className="font-mono text-[11px] tracking-[0.14em] uppercase">{title}</p>
+      <dl className="mt-3 space-y-2 text-sm">
+        <div>
+          <dt className="text-ink-soft">Selected pillar</dt>
+          <dd>{choice.label}</dd>
+        </div>
+        <div>
+          <dt className="text-ink-soft">Reason</dt>
+          <dd>{choice.reason}</dd>
+        </div>
+        <div>Maximum: {choice.maximumPosts} posts</div>
+        <div>Estimated X requests: {choice.estimatedRequests}</div>
+      </dl>
+      <p className="mt-3 text-sm text-ink-soft">One search. {choice.scope}. Nothing is sent until you run it.</p>
+      <button
+        type="button"
+        onClick={onRun}
+        disabled={running}
+        className="mt-4 inline-flex h-10 items-center bg-ink px-4 text-sm text-paper disabled:opacity-50"
+      >
+        {running ? "Scanning…" : "Run scan"}
+      </button>
+    </div>
   );
 }
 

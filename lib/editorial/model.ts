@@ -237,6 +237,7 @@ export type PipelineCard = {
   claimExtractionNeeded: boolean;
   version: number | null;
   scanId: string | null;
+  pillar: string | null;
 };
 
 export function postShape(text: string, maximum = 280) {

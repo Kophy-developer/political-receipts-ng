@@ -11,6 +11,7 @@ import { loadFinalPost } from "@/lib/db/final-post";
 import { publishedByClaim } from "@/lib/db/publishing";
 import { latestReprocessJob, listRecentScans } from "@/lib/db/reprocess-jobs";
 import { latestDeskScan } from "@/lib/intel/saved-scan";
+import { loadDiscoveryContext } from "@/lib/db/pillars";
 import { inProgressLifecycle, lifecycleLabel, postShape, queueLifecycle, readyLifecycle, researchLabel } from "@/lib/editorial/model";
 import { nextAction, type StoryFacts } from "@/lib/desk/story";
 import { chicagoStamp } from "@/lib/format";
@@ -48,6 +49,7 @@ async function DeskQueue() {
     : [];
   const pipeline = await listPipeline();
   const scan = await latestDeskScan();
+  const discovery = await loadDiscoveryContext();
   const reprocess = scan ? await latestReprocessJob(scan.scanId) : null;
   const recent = await listRecentScans(5);
   const readyIds = new Set(
@@ -108,6 +110,9 @@ async function DeskQueue() {
           latestOpportunities={[]}
           provider={scan?.provider ?? "Not recorded"}
           reason={scan?.reason ?? "The analysis did not finish"}
+          signals={discovery.signals}
+          publishedTotal={discovery.publishedTotal}
+          mix={discovery.mix.items}
         />
         <EditorialPipeline
           ready={ready}

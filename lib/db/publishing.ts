@@ -1,7 +1,8 @@
 import "server-only";
 import { editorialTagIn } from "@/lib/desk/tag";
 import { editorActor } from "@/lib/db/identity";
-import { scrubDbMessage, serviceClient } from "@/lib/db/client";
+import { columnMissing, scrubDbMessage, serviceClient } from "@/lib/db/client";
+import { storedPillarForPublished, withoutStoredPillar } from "@/lib/db/pillars";
 import { recordEvent } from "@/lib/db/events";
 
 export async function publishingAccount() {
@@ -57,17 +58,20 @@ export async function finishPublication(input: {
 }) {
   const db = serviceClient();
   if (!db) return { ok: false as const, message: "The database is not configured." };
-  const posted = await db
-    .from("published_posts")
-    .update({
-      x_post_id: input.xPostId,
-      x_post_url: input.xPostUrl,
-      published_at: new Date().toISOString(),
-      status: "published",
-      editorial_tag: editorialTagIn(input.text),
-      response_metadata: { id: input.xPostId },
-    })
-    .eq("id", input.rowId);
+  const pillar = await storedPillarForPublished(input.rowId);
+  const patch = {
+    x_post_id: input.xPostId,
+    x_post_url: input.xPostUrl,
+    published_at: new Date().toISOString(),
+    status: "published",
+    editorial_tag: editorialTagIn(input.text),
+    response_metadata: { id: input.xPostId },
+    ...(pillar ? { content_pillar: pillar } : {}),
+  };
+  let posted = await db.from("published_posts").update(patch).eq("id", input.rowId);
+  if (posted.error && pillar && columnMissing(posted.error.message)) {
+    posted = await db.from("published_posts").update(withoutStoredPillar(patch)).eq("id", input.rowId);
+  }
   if (posted.error) return { ok: false as const, message: scrubDbMessage(posted.error.message) };
   await db.from("publish_approvals").update({ status: "published" }).eq("id", input.approvalId).eq("status", "active");
   await recordEvent({
