@@ -17,6 +17,7 @@ import { recordUsage, usageSince } from "@/lib/db/usage";
 import { judgePost } from "@/lib/intel/classify";
 import type { ExtractionReport } from "@/lib/intel/extract-posts";
 import { extractFromPosts } from "@/lib/intel/extract-posts";
+import { freshClaimAction } from "@/lib/desk/discover";
 import { fileDiscussions } from "@/lib/intel/file";
 import { lagosDayStart, lookbackStart, publishedRates, scanLimits, usd } from "@/lib/intel/limits";
 import { claimDeskLock, releaseDeskLock } from "@/lib/intel/lock";
@@ -53,6 +54,7 @@ export type ScanReport = {
   discussionPosts: number;
   noisePosts: number;
   conversations: number;
+  newConversations: number;
   claims: number;
   claimsDropped: number;
   extraction: ExtractionOutcome | null;
@@ -65,6 +67,7 @@ export type ScanReport = {
   errors: string[];
   posted: false;
   polling: false;
+  found: Array<{ id: string; title: string; action: string }>;
 };
 
 function blockedEstimate(message: string, partial?: Partial<ScanEstimate>): ScanEstimate {
@@ -136,6 +139,7 @@ function emptyReport(stopped: string | null, extra?: Partial<ScanReport>): ScanR
     discussionPosts: 0,
     noisePosts: 0,
     conversations: 0,
+    newConversations: 0,
     claims: 0,
     claimsDropped: 0,
     extraction: null,
@@ -148,6 +152,7 @@ function emptyReport(stopped: string | null, extra?: Partial<ScanReport>): ScanR
     errors: [],
     posted: false,
     polling: false,
+    found: [],
     ...extra,
   };
 }
@@ -295,6 +300,7 @@ export async function runScan(): Promise<ScanReport> {
       discussionPosts,
       noisePosts,
       conversations: filed.conversationIds.length,
+      newConversations: filed.conversations,
       claims: filed.claims,
       claimsDropped: extraction.dropped,
       extraction: extraction.outcome,
@@ -305,6 +311,7 @@ export async function runScan(): Promise<ScanReport> {
       outputTokens: extraction.outputTokens,
       durationMs: Date.now() - started,
       errors,
+      found: filed.filedClaims.map((item) => ({ id: item.id, title: item.title, action: freshClaimAction() })),
     });
   } catch {
     if (scanId) {

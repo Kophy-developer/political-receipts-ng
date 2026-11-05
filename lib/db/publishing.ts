@@ -1,4 +1,5 @@
 import "server-only";
+import { editorialTagIn } from "@/lib/desk/tag";
 import { editorActor } from "@/lib/db/identity";
 import { scrubDbMessage, serviceClient } from "@/lib/db/client";
 import { recordEvent } from "@/lib/db/events";
@@ -52,6 +53,7 @@ export async function finishPublication(input: {
   approvalId: string;
   xPostId: string;
   xPostUrl: string;
+  text: string;
 }) {
   const db = serviceClient();
   if (!db) return { ok: false as const, message: "The database is not configured." };
@@ -62,6 +64,7 @@ export async function finishPublication(input: {
       x_post_url: input.xPostUrl,
       published_at: new Date().toISOString(),
       status: "published",
+      editorial_tag: editorialTagIn(input.text),
       response_metadata: { id: input.xPostId },
     })
     .eq("id", input.rowId);
@@ -75,6 +78,37 @@ export async function finishPublication(input: {
     detail: { approvalId: input.approvalId, xPostId: input.xPostId },
   });
   return { ok: true as const };
+}
+
+export type ClaimPublication = {
+  url: string | null;
+  publishedAt: string;
+};
+
+export async function publishedByClaim() {
+  const found = new Map<string, ClaimPublication>();
+  const db = serviceClient();
+  if (!db) return found;
+  const posts = await db
+    .from("published_posts")
+    .select("draft_id, x_post_url, published_at")
+    .eq("status", "published")
+    .order("published_at", { ascending: false });
+  if (posts.error || !posts.data?.length) return found;
+  const draftIds = posts.data.map((row) => row.draft_id).filter((id): id is string => typeof id === "string");
+  if (!draftIds.length) return found;
+  const drafts = await db.from("drafts").select("id, claim_id").in("id", draftIds);
+  if (drafts.error || !drafts.data) return found;
+  const claimOf = new Map(drafts.data.map((row) => [row.id as string, row.claim_id as string]));
+  for (const row of posts.data) {
+    const claimId = claimOf.get(row.draft_id as string);
+    if (!claimId || found.has(claimId)) continue;
+    found.set(claimId, {
+      url: typeof row.x_post_url === "string" ? row.x_post_url : null,
+      publishedAt: typeof row.published_at === "string" ? row.published_at : "",
+    });
+  }
+  return found;
 }
 
 export async function failPublication(rowId: string, approvalId: string) {

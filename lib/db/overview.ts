@@ -4,6 +4,7 @@ import { serviceClient } from "@/lib/db/client";
 import { listClaims } from "@/lib/db/claims";
 import { listConversations } from "@/lib/db/conversations";
 import { classificationFor, claimStatusLabel } from "@/lib/db/labels";
+import { editorialTagIn } from "@/lib/desk/tag";
 import { lagosStamp } from "@/lib/format";
 import { rollingMix } from "@/lib/db/research";
 
@@ -96,7 +97,7 @@ export async function loadSnapshot(): Promise<DeskSnapshot> {
           url: row.x_post_url,
           publishedAt: lagosStamp(row.published_at),
           account: row.publishing_account || "desk account",
-          hashtag: draft?.suggested_hashtag ?? null,
+          hashtag: editorialTagIn(approval?.approved_text || ""),
           topic: claim?.topics?.name || "Unsorted",
           style: draft?.style ?? null,
           classification: classificationFor(status),
@@ -147,7 +148,7 @@ export async function listPublished() {
       url: row.x_post_url,
       publishedAt: lagosStamp(row.published_at),
       account: row.publishing_account || "desk account",
-      hashtag: draft?.suggested_hashtag ?? null,
+      hashtag: editorialTagIn(approval?.approved_text || ""),
       topic: claim?.topics?.name || "Unsorted",
       style: draft?.style ?? null,
       classification: classificationFor(status),

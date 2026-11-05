@@ -54,6 +54,7 @@ export async function POST(request: Request) {
     approvalId: approval.approvalId,
     xPostId: posted.id,
     xPostUrl: posted.url,
+    text: body.text as string,
   });
   return Response.json(
     {

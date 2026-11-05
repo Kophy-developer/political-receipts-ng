@@ -19,6 +19,7 @@ export type StoryFacts = {
   verdictRecorded: boolean;
   angleChosen: boolean;
   finalText: string;
+  published?: boolean;
 };
 
 const actionFor: Record<StoryStage, NextAction> = {
@@ -31,6 +32,7 @@ const actionFor: Record<StoryStage, NextAction> = {
 };
 
 export function storyStage(facts: StoryFacts): StoryStage {
+  if (facts.published) return "publish";
   if (!facts.hasConversation) return "discover";
   if (!facts.verdictRecorded && facts.acceptedEvidence === 0) return "investigate";
   if (!facts.verdictRecorded || !facts.angleChosen) return "decide";
@@ -38,7 +40,8 @@ export function storyStage(facts: StoryFacts): StoryStage {
   return "review";
 }
 
-export function nextAction(facts: StoryFacts): NextAction {
+export function nextAction(facts: StoryFacts): NextAction | null {
+  if (facts.published) return null;
   return actionFor[storyStage(facts)];
 }
 

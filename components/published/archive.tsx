@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import type { DeskMode, DeskPost } from "@/lib/desk/types";
 import type { Hashtag } from "@/lib/types";
+import { visiblePublished } from "@/lib/desk/tag";
 import { PageFrame } from "@/components/shell/page-frame";
 import { ClassificationWord, DemoMark, EmptyDesk, OriginNote, SectionHeading } from "@/components/marks";
 import { cn } from "cn";
@@ -12,7 +13,7 @@ const filters: Array<"All" | Hashtag> = ["All", "#CheckAm", "#ShowYourWorking", 
 export function Archive({ posts, mode }: { posts: DeskPost[]; mode: DeskMode }) {
   const [filter, setFilter] = useState<(typeof filters)[number]>("All");
   const visible = useMemo(
-    () => posts.filter((post) => filter === "All" || post.hashtag === filter),
+    () => visiblePublished(posts, filter),
     [filter, posts],
   );
 

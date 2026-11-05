@@ -6,6 +6,9 @@ import { capabilityForSubscription, longFormEntitlements, textFits } from "../li
 import { openingFormat, publishPlan, splitForThread } from "../lib/publish/format";
 import { postCreateBody } from "../lib/publish/payload";
 import { POLLING_UNIT_CLAIM_ID } from "../lib/research/editor-review";
+import { discoveryAction, freshClaimAction, scanConfirmation, scanDeskSummary, selectDeskOpportunities } from "../lib/desk/discover";
+import { editorialTagIn, visiblePublished } from "../lib/desk/tag";
+import { scanBudget } from "../lib/intel/budget";
 import {
   evidenceBrief,
   finalPostRecord,
@@ -38,6 +41,35 @@ const facts = {
   finalText: "",
 };
 check("the 453 story opens at write", storyStage(facts) === "write" && nextAction(facts) === "WRITE POST");
+const publishedFacts = { ...facts, finalText: candidate, published: true };
+check("a published story is not unfinished work", storyStage(publishedFacts) === "publish" && nextAction(publishedFacts) === null);
+const unfinished = { hasConversation: true, acceptedEvidence: 0, verdictRecorded: false, angleChosen: false, finalText: "", published: false };
+check("an unfinished story keeps its next action", nextAction(unfinished) === "REVIEW EVIDENCE");
+
+const publishedRows = [
+  { id: "first", text: `${candidate}`, hashtag: null },
+  { id: "mixed", text: "The photographs were the story.\n\n#checkam", hashtag: null },
+  { id: "plain", text: "A note about the register.\n\n#Nigeria", hashtag: "#Nigeria" },
+];
+check("published text ending #CheckAm is returned by the CheckAm filter", visiblePublished(publishedRows, "#CheckAm").some((post) => post.id === "first") && editorialTagIn(candidate) === "#CheckAm");
+check("mixed-case #checkam is returned by the CheckAm filter", visiblePublished(publishedRows, "#CheckAm").some((post) => post.id === "mixed"));
+check("a post without #CheckAm is left out of the CheckAm filter", visiblePublished(publishedRows, "#CheckAm").every((post) => post.id !== "plain") && editorialTagIn("#Nigeria #Election") === null);
+check("the other signature tags are recognized", editorialTagIn("Working.\n\n#ShowYourWorking") === "#ShowYourWorking" && editorialTagIn("no.\n\n#nottrue") === "#NotTrue");
+
+check("the desk confirmation uses the existing scan budget", scanConfirmation.maximumPosts === scanBudget.maxPostsPerScan && scanConfirmation.estimatedRequests === scanBudget.maxXRequestsPerScan && scanBudget.maxPostsPerScan === 10 && scanBudget.maxXRequestsPerScan === 1);
+const summary = scanDeskSummary({ postsReturned: 10, conversations: 2, claims: 1 });
+check("a scan summary stays on the desk wording", summary.posts === "10 posts reviewed" && summary.conversations === "2 new conversations" && summary.opportunities === "1 opportunity found");
+check("a new scan claim uses the story's next action", freshClaimAction() === "REVIEW EVIDENCE");
+check("a reaction opportunity asks to react", discoveryAction({ type: "opinion", research: "no", status: "open", editorAngle: null, editorTake: null, claim: null }) === "REACT");
+check("a check without a story asks to investigate", discoveryAction({ type: "check", research: "yes", status: "open", editorAngle: null, editorTake: null, claim: null }) === "INVESTIGATE");
+check("a published claim is not offered again", discoveryAction({ type: "check", research: "yes", status: "research", editorAngle: null, editorTake: null, claim: { published: true, facts: publishedFacts } }) === null);
+const picked = selectDeskOpportunities([
+  { id: "published-card", score: "high", status: "research", claimId: "published-story" },
+  { id: "open-check", score: "medium", status: "open", claimId: null },
+  { id: "low", score: "low", status: "open", claimId: null },
+  { id: "working", score: "high", status: "open", claimId: "unfinished-story" },
+], new Set(["published-story", "unfinished-story"]));
+check("desk opportunities keep unfinished stories out of the discover list", picked.length === 1 && picked[0]?.id === "open-check");
 check("the claim id is the existing story", POLLING_UNIT_CLAIM_ID === "82eaadd5-423c-470c-97e8-04138598b727");
 
 const saved = finalPostRecord(candidate, ["https://www.bbc.com/pidgin/articles/c6gelpr1qq29o", "https://dailytrust.com/example"]);
@@ -138,6 +170,15 @@ const account = readFileSync(new URL("../lib/x/account.ts", import.meta.url), "u
 check("the format choice sits with the editor", workspace.includes("Post format") && workspace.includes("Long post") && workspace.includes("Automatic thread publishing: Not enabled") && !workspace.includes("Convert to 2 posts"));
 check("the desk does not promise a second post will be dropped after send", !workspace.includes("is not sent."));
 check("refresh is the explicit profile action", settings.includes("Refresh X account") && !settings.includes("useEffect") && account.includes("subscription_type") && account.includes("profileUrl") && account.includes("identityUrl"));
+const discover = readFileSync(new URL("../components/desk/discover.tsx", import.meta.url), "utf8");
+const deskPage = readFileSync(new URL("../app/desk/page.tsx", import.meta.url), "utf8");
+const archive = readFileSync(new URL("../components/published/archive.tsx", import.meta.url), "utf8");
+const publishing = readFileSync(new URL("../lib/db/publishing.ts", import.meta.url), "utf8");
+check("the published filter reads the text", archive.includes("visiblePublished"));
+check("publication stores the tag and leaves the approved text alone", publishing.includes("editorial_tag: editorialTagIn(input.text)") && !publishing.includes("approved_text:"));
+check("Desk shows Scan X and keeps the three queues apart", discover.includes("Scan X") && discover.includes("Run scan") && deskPage.includes("In progress") && deskPage.includes("Recently published"));
+check("Desk scan delegates to the intelligence route and does not scan on its own", discover.includes('fetch("/api/intel/scan"') && !discover.includes("useEffect") && !discover.includes("api.twitter.com") && !discover.includes("searchRecent") && discover.includes("router.refresh()") && !discover.includes('push("/intelligence")'));
+check("a published story page does not ask for another publish", workspace.includes("This story is finished") && workspace.includes("publication ? null"));
 check("the editor name defaults to PRNG Admin", defaultEditorName === "PRNG Admin");
 
 function sourceOf(dir: string): string {

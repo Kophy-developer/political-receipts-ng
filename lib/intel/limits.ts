@@ -1,15 +1,8 @@
 import "server-only";
+import { scanBudget } from "@/lib/intel/budget";
 
 /** Conservative Phase 1 ceilings. A scan cannot raise these. */
-export const scanLimits = {
-  maxPostsPerScan: 10,
-  maxXRequestsPerScan: 1,
-  minEngagement: 0,
-  lookbackHours: 24,
-  dailyXRequests: 4,
-  dailyPosts: 40,
-  dailyGeminiRequests: 8,
-} as const;
+export const scanLimits = scanBudget;
 
 /** Published X pay-per-use rates as of October 2026. Not a live invoice. */
 export const publishedRates = {

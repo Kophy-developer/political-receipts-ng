@@ -9,6 +9,7 @@ import { getClaim } from "@/lib/db/claims";
 import { loadFinalPost } from "@/lib/db/final-post";
 import { loadClaimDrafts } from "@/lib/db/drafting";
 import { loadStoredCapability } from "@/lib/db/connections";
+import { publishedByClaim } from "@/lib/db/publishing";
 import Loading from "@/app/loading";
 
 export const metadata: Metadata = { title: "Story" };
@@ -33,10 +34,11 @@ async function StoryBody({ params }: { params: Promise<{ id: string }> }) {
     );
   }
   if (!result.claim) notFound();
-  const [finalPost, drafts, capability] = await Promise.all([
+  const [finalPost, drafts, capability, published] = await Promise.all([
     loadFinalPost(result.claim.id),
     loadClaimDrafts(result.claim.id),
     loadStoredCapability(),
+    publishedByClaim(),
   ]);
   const suggestions = drafts
     .filter((draft) => draft.style !== "manual")
@@ -63,6 +65,7 @@ async function StoryBody({ params }: { params: Promise<{ id: string }> }) {
       sources={(finalPost?.sources ?? []).join("\n")}
       suggestions={suggestions}
       capability={capability}
+      publication={published.get(result.claim.id) ?? null}
     />
   );
 }

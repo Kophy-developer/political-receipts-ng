@@ -40,6 +40,7 @@ export function StoryWorkspace({
   sources,
   suggestions,
   capability,
+  publication,
 }: {
   claim: ClaimCard;
   finalPostId: string | null;
@@ -47,6 +48,7 @@ export function StoryWorkspace({
   sources: string;
   suggestions: Suggestion[];
   capability: PublishCapability;
+  publication: { url: string | null; publishedAt: string } | null;
 }) {
   const router = useRouter();
   const editorRef = useRef<HTMLTextAreaElement>(null);
@@ -67,10 +69,11 @@ export function StoryWorkspace({
     verdictRecorded: claim.verdictRecorded,
     angleChosen: claim.angleChosen,
     finalText: savedText,
+    published: Boolean(publication),
   };
   const detected = storyStage(facts);
-  const current: StoryStage = showReview || confirming ? "review" : detected === "review" && !showReview ? "write" : detected;
-  const done = new Set(completedStages(showReview || confirming ? "review" : detected));
+  const current: StoryStage | null = publication ? null : showReview || confirming ? "review" : detected === "review" && !showReview ? "write" : detected;
+  const done = new Set(publication ? storyStages.map((stage) => stage.id) : completedStages(showReview || confirming ? "review" : detected));
   const workingText = format === "thread" && threadPosts ? threadText(threadPosts) : text;
   const count = characterCount(workingText);
   const aboveStandard = count > capability.standardPostLimit;
@@ -181,8 +184,9 @@ export function StoryWorkspace({
           </details>
 
           <section className="border border-ink px-4 py-5 sm:px-5">
-            <h2 className="font-mono text-[11px] tracking-[0.16em] uppercase">Final post</h2>
-            <p className="mt-2 text-sm text-ink-soft">This is the text that can be published. Saving it does not change the AI suggestions.</p>
+            <h2 className="font-mono text-[11px] tracking-[0.16em] uppercase">{publication ? "Published post" : "Final post"}</h2>
+            <p className="mt-2 text-sm text-ink-soft">{publication ? "This story is finished. It is not waiting on another review, rewrite, or post." : "This is the text that can be published. Saving it does not change the AI suggestions."}</p>
+            {publication?.url ? <a href={publication.url} className="mt-3 inline-block text-sm underline">View the post</a> : null}
             <p className={`mt-3 font-mono text-[11px] ${blocked || (aboveStandard && !longRange) ? "text-stamp" : "text-ink-soft"}`}>{count} / {capability.maximum}</p>
             {format === "thread" && threadPosts ? (
               <ol className="mt-4 space-y-3">
@@ -211,10 +215,11 @@ export function StoryWorkspace({
                 rows={10}
                 ref={editorRef}
                 aria-label="Final post"
+                readOnly={Boolean(publication)}
                 className="mt-4 w-full border border-rule bg-paper px-3 py-3 text-sm leading-relaxed outline-none focus:border-ink"
               />
             )}
-            {aboveStandard ? (
+            {publication ? null : aboveStandard ? (
               <div className="mt-4 border border-stamp px-4 py-4">
                 <p className="font-mono text-[11px] tracking-[0.14em] text-stamp uppercase">{blocked ? "Longer than the current limit" : "Post format"}</p>
                 <fieldset className="mt-3">
@@ -239,15 +244,15 @@ export function StoryWorkspace({
             ) : (
               <p className="mt-3 text-sm text-ink-soft">Publishing as a single post.</p>
             )}
-            {/https?:\/\//.test(workingText) ? <p className="mt-3 text-sm text-ink-soft">{urlPriceNote} The text is still sent exactly as written.</p> : null}
-            <div className="mt-3 flex flex-wrap gap-2">
+            {!publication && /https?:\/\//.test(workingText) ? <p className="mt-3 text-sm text-ink-soft">{urlPriceNote} The text is still sent exactly as written.</p> : null}
+            {publication ? null : <div className="mt-3 flex flex-wrap gap-2">
               <button type="button" onClick={() => void save()} disabled={busy || !workingText.trim()} className="inline-flex h-10 items-center bg-ink px-4 text-sm text-paper disabled:opacity-50">
                 {busy ? "Saving…" : "Save final post"}
               </button>
               <button type="button" onClick={() => { setText(""); setFormat("unset"); setThreadPosts(null); }} className="inline-flex h-10 items-center border border-ink px-4 text-sm">
                 Write my own
               </button>
-            </div>
+            </div>}
             {notice ? <p className="mt-3 text-sm">{notice}</p> : null}
 
             <details className="mt-6 border-t border-rule pt-4">
@@ -258,6 +263,7 @@ export function StoryWorkspace({
                 onChange={(event) => setSourceText(event.target.value)}
                 rows={4}
                 aria-label="Supporting sources"
+                readOnly={Boolean(publication)}
                 placeholder="One https link per line"
                 className="mt-3 w-full border border-rule bg-paper px-3 py-2 text-sm outline-none focus:border-ink"
               />
@@ -272,8 +278,8 @@ export function StoryWorkspace({
                       <p className="font-mono text-[10px] tracking-[0.12em] uppercase">{suggestion.label}</p>
                       <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed">{suggestion.text}</p>
                       <div className="mt-3 flex gap-2">
-                        <button type="button" onClick={() => takeSuggestion(suggestion.text)} className="inline-flex h-9 items-center border border-ink px-3 text-sm">Use this</button>
-                        <button type="button" onClick={() => { takeSuggestion(suggestion.text); editorRef.current?.focus(); }} className="inline-flex h-9 items-center border border-rule px-3 text-sm">Edit</button>
+                        {publication ? null : <button type="button" onClick={() => takeSuggestion(suggestion.text)} className="inline-flex h-9 items-center border border-ink px-3 text-sm">Use this</button>}
+                        {publication ? null : <button type="button" onClick={() => { takeSuggestion(suggestion.text); editorRef.current?.focus(); }} className="inline-flex h-9 items-center border border-rule px-3 text-sm">Edit</button>}
                       </div>
                     </li>
                   ))}
@@ -281,6 +287,7 @@ export function StoryWorkspace({
               )}
             </div>
 
+            {publication ? null : (
             <button
               type="button"
               disabled={!savedText.trim() || dirty || (aboveStandard && !longRange && !blocked && format === "unset")}
@@ -289,9 +296,10 @@ export function StoryWorkspace({
             >
               Continue to review
             </button>
+            )}
           </section>
 
-          {showReview ? (
+          {!publication && showReview ? (
             <section className="border border-ink px-4 py-5 sm:px-5">
               <h2 className="font-mono text-[11px] tracking-[0.16em] uppercase">Review</h2>
               <p className="mt-4 font-mono text-[11px] tracking-[0.14em] uppercase">Publishing as</p>

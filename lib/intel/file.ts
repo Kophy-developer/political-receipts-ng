@@ -24,6 +24,7 @@ export async function fileDiscussions(input: {
   let conversations = 0;
   let claims = 0;
   const conversationIds: string[] = [];
+  const filedClaims: Array<{ id: string; title: string }> = [];
   for (const cluster of clusters) {
     const posts = cluster.posts;
     const ids = new Set(posts.map((post) => post.id));
@@ -124,10 +125,13 @@ export async function fileDiscussions(input: {
         claim_types: types,
         research_questions: questionsFor(types, "politics").map((item) => item.question),
       });
-      if (id) claims += 1;
+      if (id) {
+        claims += 1;
+        filedClaims.push({ id, title: claim.claim });
+      }
     }
   }
-  return { conversations, claims, conversationIds };
+  return { conversations, claims, conversationIds, filedClaims };
 }
 
 function majority(values: Array<string | null>) {
