@@ -34,11 +34,13 @@ type Conversation = { id: string; title: string; status: string };
 
 export function OpportunitiesBoard({
   items,
+  history,
   reviews,
   conversations,
   unavailable,
 }: {
   items: OpportunityCard[];
+  history: OpportunityCard[];
   reviews: Review[];
   conversations: Conversation[];
   unavailable: boolean;
@@ -116,6 +118,20 @@ export function OpportunitiesBoard({
           {Object.entries(typeLabel).map(([key, label]) => `${label} ${counts.types[key] ?? 0}`).join(" · ")}
         </p>
         <ManualForm conversations={conversations} busy={busy} onSubmit={(body) => post("/api/opportunities", body, "manual")} />
+        {history.length > 0 ? (
+          <details>
+            <summary className="cursor-pointer text-sm">Previous assessment versions</summary>
+            <p className="mt-2 text-sm text-ink-soft">Older cards. They are not current opportunities.</p>
+            <ul className="mt-3 space-y-2 text-sm">
+              {history.map((item) => (
+                <li key={item.id} className="border border-rule px-3 py-3">
+                  <p>{item.whatHappened}</p>
+                  <p className="mt-1 text-ink-soft">Version {item.version ?? "earlier"} · not current</p>
+                </li>
+              ))}
+            </ul>
+          </details>
+        ) : null}
         {items.length === 0 ? (
           <div className="border border-dashed border-rule bg-paper px-5 py-8">
             <p className="font-serif text-xl">No opportunity cards yet.</p>
@@ -173,6 +189,8 @@ function Card({
         <div>
           <dt className="font-mono text-[10px] tracking-[0.14em] uppercase">What happened?</dt>
           <dd className="mt-1 text-sm leading-relaxed">{item.whatHappened}</dd>
+          {item.premises && item.premises.length > 0 ? <p className="mt-2 text-sm">Factual premise: {item.premises.join(" ")}</p> : null}
+          {item.review ? <p className="mt-2 text-sm">{item.review}</p> : null}
         </div>
         <div>
           <dt className="font-mono text-[10px] tracking-[0.14em] uppercase">Why is it interesting?</dt>

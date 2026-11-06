@@ -434,8 +434,8 @@ check(
 );
 check(
   "the understanding outcome is separate from extraction",
-  understandingOutcomeMessage({ received: 10, understood: 10, unclear: 0, modelCalls: 0, recovered: true }).includes("separate from historical extraction")
-    && understandingOutcomeMessage({ received: 10, understood: 10, unclear: 0, modelCalls: 0, recovered: true }).includes("Model requests for this action: 0"),
+  understandingOutcomeMessage({ received: 10, understood: 10, unclear: 0, modelCalls: 0, recovered: true })
+    === "Recovered from 1 previous AI model response. New model requests during recovery: 0.",
 );
 check("recovery stays on this attempt", readFileSync("lib/editorial/recover.ts", "utf8").includes(recoveredUnderstandingAttemptId) && readFileSync("supabase/migrations/20261106180000_recover_saved_understanding.sql", "utf8").includes("does not insert") && !readFileSync("app/api/intel/recover-understanding/route.ts", "utf8").includes("callProvider"));
 check("the queue is an inbox", readFileSync("components/desk/pipeline.tsx", "utf8").includes("Low value") && readFileSync("components/desk/pipeline.tsx", "utf8").includes("Possible routes"));

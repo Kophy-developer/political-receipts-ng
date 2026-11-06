@@ -6,7 +6,6 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { chicagoStamp } from "@/lib/format";
 import {
-  lifecycleLabel,
   typeLabel,
   type PipelineCard,
 } from "@/lib/editorial/present";
@@ -29,11 +28,13 @@ export function EditorialPipeline({
   ready,
   queue,
   earlier,
+  history,
   migrationPending,
 }: {
   ready: ReadyItem[];
   queue: PipelineCard[];
   earlier: PipelineCard[];
+  history: PipelineCard[];
   migrationPending: boolean;
 }) {
   const router = useRouter();
@@ -115,7 +116,9 @@ export function EditorialPipeline({
       <section>
         <p className="font-mono text-[11px] tracking-[0.16em] text-ink-soft uppercase">Content queue</p>
         <h2 className="mt-2 font-serif text-3xl tracking-[-0.03em]">Understood content.</h2>
-        <p className="mt-2 text-sm text-ink-soft">This is an inbox of conversations the reader could understand. Order comes from the signals. Names of people and parties do not move an item up or down.</p>
+        <p className="mt-2 text-sm text-ink-soft">This is the active understanding inbox. Order comes from the signals. Names of people and parties do not move an item up or down.</p>
+        <p className="mt-2 text-sm">Recovered from 1 previous AI model response.</p>
+        <p className="text-sm">New model requests during recovery: 0.</p>
         <div className="mt-3 flex flex-wrap gap-2" role="group" aria-label="Queue pillar">
           <FilterButton pressed={filter === "all"} onClick={() => setFilter("all")}>All</FilterButton>
           {contentPillars.map((pillar) => (
@@ -137,7 +140,7 @@ export function EditorialPipeline({
             {ranked.some((item) => item.lowValue) ? (
               <details className="mt-4">
                 <summary className="cursor-pointer text-sm">Low value</summary>
-                <p className="mt-2 text-sm text-ink-soft">Understood rhetoric or insult. Kept here, not deleted.</p>
+                <p className="mt-2 text-sm text-ink-soft">Understood rhetoric or insult. Kept here, and kept separate from research and drafting.</p>
                 <ol className="mt-3 space-y-3">
                   {ranked.filter((item) => item.lowValue).map((item) => (
                     <QueueItem key={item.id} item={item} busy={busy === item.id} onPass={() => void post("/api/opportunities/decision", { id: item.id, action: "pass" }, item.id)} />
@@ -147,14 +150,29 @@ export function EditorialPipeline({
             ) : null}
           </>
         )}
+        {history.length > 0 ? (
+          <details className="mt-4">
+            <summary className="cursor-pointer text-sm">Previous assessment versions</summary>
+            <p className="mt-2 text-sm text-ink-soft">Older cards from earlier readings. They are not current opportunities.</p>
+            <ul className="mt-3 space-y-2 text-sm">
+              {history.map((item) => (
+                <li key={item.id} className="border border-rule px-3 py-3">
+                  <p>{item.title}</p>
+                  <p className="mt-1 text-ink-soft">{typeLabel(item.type)} · version {item.version ?? "earlier"} · not current</p>
+                </li>
+              ))}
+            </ul>
+          </details>
+        ) : null}
         {earlier.length > 0 ? (
           <details className="mt-4">
             <summary className="cursor-pointer text-sm">Earlier claim-first cards</summary>
+            <p className="mt-2 text-sm text-ink-soft">These are not part of the active understanding inbox.</p>
             <ul className="mt-3 space-y-2 text-sm">
               {earlier.map((item) => (
                 <li key={item.id} className="border border-rule px-3 py-3">
                   <p>{item.title}</p>
-                  <p className="mt-1 text-ink-soft">{typeLabel(item.type)} · kept from the previous assessment</p>
+                  <p className="mt-1 text-ink-soft">{typeLabel(item.type)} · kept from an earlier pass</p>
                 </li>
               ))}
             </ul>
@@ -230,12 +248,22 @@ function QueueItem({ item, busy, onPass }: { item: PipelineCard; busy: boolean; 
     <li className="border border-rule px-4 py-4">
       <p className="font-mono text-[11px] tracking-[0.14em] uppercase">#{item.rank} · {pillar}</p>
       <p className="mt-2 text-sm leading-relaxed">{item.title}</p>
+      {item.premises.length > 0 ? <p className="mt-2 text-sm">Factual premise: {item.premises.join(" ")}</p> : null}
+      {item.review ? <p className="mt-2 text-sm">{item.review}</p> : null}
       <p className="mt-2 text-sm">Primary kind: {kind}</p>
       {routes ? <p className="mt-1 text-sm">Possible routes: {routes}</p> : null}
       <p className="mt-1 text-sm">Research need: {item.research === "yes" ? "yes" : item.research === "recommended" ? "recommended" : "no"}</p>
       {item.sourceText ? <p className="mt-2 text-sm text-ink-soft">{item.sourceText}</p> : null}
       <p className="mt-1 font-mono text-[11px] text-ink-soft">
-        {item.lowValue ? "Low value" : item.primaryKind ? "In the queue" : lifecycleLabel(item.lifecycle)}
+        {item.review
+          ? item.review
+          : item.lowValue
+            ? "Low value · not a research or drafting candidate"
+            : item.primaryKind === "prediction"
+              ? "Prediction · not a forecast by this desk"
+              : item.research === "yes" || item.research === "recommended"
+                ? "Research candidate · not ready to draft"
+                : "In the queue"}
         {item.discoveredAt ? ` · Discovered ${chicagoStamp(item.discoveredAt)}` : ""}
       </p>
       <button

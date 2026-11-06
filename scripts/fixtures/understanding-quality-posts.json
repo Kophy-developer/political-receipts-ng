@@ -1,0 +1,169 @@
+{
+  "note": "Stored post text from the recovered understanding inbox, plus negation and quoted-speech cases. Expectations are asserted by the text, not by conversation id.",
+  "posts": [
+    {
+      "text": "@_dinomelaye Half of this rented crowd will vote for APC in the coming election",
+      "kind": "prediction",
+      "research": "no",
+      "check": false,
+      "lowValue": false,
+      "drafting": false,
+      "review": false,
+      "summary": ["speculates", "not a result"],
+      "absent": ["the user"]
+    },
+    {
+      "text": "Met a lady at the Abuja Airport this morning. She works at a small grocery store. I engaged her politically as I usually do with random people. I asked if she has voter’s card and her response shows that there is no way Tinubu will survive the tsunami coming for him in 2027.",
+      "kind": "prediction",
+      "research": "no",
+      "check": false,
+      "lowValue": false,
+      "drafting": false,
+      "review": false,
+      "summary": ["speculates", "not a result"],
+      "absent": ["the user", "reports that"]
+    },
+    {
+      "text": "just block person now now e tell me say foreign companies don Dey invest in Nigeria because of tinubu and our economy is the best it has ever been. Na once e chop blocking. I no know the kind school e go wey make am reason like that! https://t.co/9Ra0K0Bj5R",
+      "kind": "opinion",
+      "research": "yes",
+      "check": true,
+      "lowValue": false,
+      "drafting": false,
+      "review": false,
+      "summary": ["rejects another person's claim", "does not assert"],
+      "premise": ["invest", "economy"],
+      "absent": ["the user", "The post states that foreign companies"]
+    },
+    {
+      "text": "@ChuksEricE Good morning to all one Nigeria unity beggars for APC terrorist organization interest",
+      "kind": "rhetoric",
+      "research": "no",
+      "check": false,
+      "lowValue": true,
+      "drafting": false,
+      "review": false,
+      "summary": ["rhetoric"],
+      "absent": ["the user"]
+    },
+    {
+      "text": "Greatness recognizes greatness. Atiku Abubakar led the ADC to the palace of His Eminence, the Sultan Muhammad Sa’ad Abubakar III. This is how you build a Nigeria that respects its roots while reaching for its future. https://t.co/Jr1sVcDeoj",
+      "kind": "event",
+      "research": "recommended",
+      "check": false,
+      "lowValue": false,
+      "drafting": true,
+      "review": false,
+      "summary": ["reports that", "palace", "commentary"],
+      "absent": ["the user"]
+    },
+    {
+      "text": "performance, the jury is out. He has lost all popularity across Nigeria North and south. 'Tinubu Must Go' ringtone is whirling all over Nigeria; APC billboards are being torn down in the north like mad; hardship is driving Nigerians mad to the point that everybody is vowing to",
+      "kind": "opinion",
+      "research": "yes",
+      "check": true,
+      "lowValue": false,
+      "drafting": false,
+      "review": false,
+      "summary": ["ringtone", "billboards", "opinion"],
+      "premise": ["ringtone", "torn down"],
+      "absent": ["the user"]
+    },
+    {
+      "text": "@originalxxm @originalproflle Many don't get it..... Tinubu doesn't believe in ONE NIGERIA, might likely be the last democratic president.",
+      "kind": "prediction",
+      "research": "no",
+      "check": false,
+      "lowValue": false,
+      "drafting": false,
+      "review": false,
+      "summary": ["speculates", "not a result"],
+      "absent": ["the user"]
+    },
+    {
+      "text": "Country tough....soon una go begin share apartment for Yoruba party....kundus o Tinubu & apc have destroyed Nigeria https://t.co/ZNUTxK8RV7",
+      "kind": "rhetoric",
+      "research": "no",
+      "check": false,
+      "lowValue": true,
+      "drafting": false,
+      "review": false,
+      "summary": ["rhetoric"],
+      "absent": ["the user"]
+    },
+    {
+      "text": "Peter Obi is the densest, sharpest, and deepest politician Nigeria has had in two generations. __ Chude Jideonwo https://t.co/aYtogpi7qC",
+      "kind": "opinion",
+      "research": "no",
+      "check": false,
+      "lowValue": false,
+      "drafting": true,
+      "review": false,
+      "summary": ["quotes Chude Jideonwo"],
+      "absent": ["the user", "The post states that Peter"]
+    },
+    {
+      "text": "Tinubu says he drove taxis in the US to fund his university education. 🔗 Full report: https://t.co/7lP3QBkD3B #RBNnews #Tinubu #Education #USA #Nigeria",
+      "kind": "factual_assertion",
+      "research": "yes",
+      "check": true,
+      "lowValue": false,
+      "drafting": false,
+      "review": false,
+      "summary": ["attributes this claim to Tinubu", "drove taxis"],
+      "absent": ["the user"]
+    }
+  ],
+  "extra": [
+    {
+      "name": "negation is not the author's assertion",
+      "text": "He did not say the government paid ₦4 billion for billboards.",
+      "kind": "opinion",
+      "research": "yes",
+      "check": true,
+      "summary": ["denies a claim", "does not assert"],
+      "absent": ["The post states that"]
+    },
+    {
+      "name": "a negated investment claim is not asserted",
+      "text": "Foreign companies do not invest in Nigeria because of Tinubu.",
+      "kind": "opinion",
+      "research": "yes",
+      "check": true,
+      "summary": ["denies a claim", "does not assert"],
+      "absent": ["The post states that"]
+    },
+    {
+      "name": "quoted speech that is rejected stays attributed",
+      "text": "\"We attracted $10 billion in foreign investment,\" the minister said. He calls that a lie.",
+      "kind": "opinion",
+      "research": "yes",
+      "check": true,
+      "summary": ["quotes the minister", "rejects", "does not assert"],
+      "absent": ["the user", "The post states that"]
+    },
+    {
+      "name": "conflicting poles are not resolved into one assertion",
+      "text": "Foreign companies are investing in Nigeria because the economy is the best. Foreign companies do not invest in Nigeria.",
+      "kind": "opinion",
+      "research": "no",
+      "check": false,
+      "review": true,
+      "summary": ["conflicting claims"],
+      "absent": ["The post states that"]
+    },
+    {
+      "name": "a bare billboard complaint is not a spending or demolition premise",
+      "text": "I hate those billboards.",
+      "matched": false
+    },
+    {
+      "name": "a demolition sentence is a premise even beside opinion",
+      "text": "The crowd is angry. APC billboards are being torn down in the north.",
+      "kind": "opinion",
+      "research": "yes",
+      "check": true,
+      "summary": ["torn down", "opinion"]
+    }
+  ]
+}

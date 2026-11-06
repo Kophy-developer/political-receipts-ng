@@ -8,6 +8,8 @@ import type { Pillar, StatementKind } from "@/lib/research/types";
 import { proposeOpportunities, proposeSampleReading, type OpportunityPost } from "@/lib/opportunities/rules";
 import { reclassifyStoredPosts } from "@/lib/intel/reclassify";
 import { extractionOpportunityWrite } from "@/lib/intel/stage";
+import { splitByCurrentVersion } from "@/lib/editorial/history";
+import { describeSource, replaceUserLabel } from "@/lib/editorial/quality";
 import { opportunityTypes, type OpportunityAngle, type OpportunityCard, type OpportunityProposal, type OpportunityScore, type OpportunityType, type ResearchNeed } from "@/lib/opportunities/types";
 import { publicPostUrl, sanitizeText } from "@/lib/intel/text";
 
@@ -493,7 +495,7 @@ export async function syncModelOpportunities(
 export async function listOpportunityDesk() {
   const db = serviceClient();
   if (!db) return { ok: false as const, reason: "unconfigured" as const };
-  const cardColumns = "id, conversation_id, claim_id, opportunity_type, research_required, score, score_reason, what_happened, why_interesting, what_could_add, angles, research_questions, voice, status, editor_angle, editor_take, source, scan_id, post_count, account_count, conversations ( title )";
+  const cardColumns = "id, conversation_id, claim_id, opportunity_type, research_required, score, score_reason, what_happened, why_interesting, what_could_add, angles, research_questions, voice, status, editor_angle, editor_take, source, scan_id, post_count, account_count, assessment_version, understanding, conversations ( title )";
   const cardColumnsNoScan = "id, conversation_id, claim_id, opportunity_type, research_required, score, score_reason, what_happened, why_interesting, what_could_add, angles, research_questions, voice, status, editor_angle, editor_take, source, post_count, account_count, conversations ( title )";
   const cardColumnsFallback = "id, conversation_id, claim_id, opportunity_type, research_required, score, score_reason, what_happened, why_interesting, what_could_add, angles, research_questions, voice, status, editor_angle, editor_take, source, conversations ( title )";
   const primaryCards = await db.from("opportunities").select(cardColumns).order("created_at", { ascending: false });
@@ -508,7 +510,7 @@ export async function listOpportunityDesk() {
     db.from("conversations").select("id, title, status").order("started_at", { ascending: false }),
   ]);
   if (cardResult.error) return { ok: false as const, reason: "unreachable" as const, message: scrubDbMessage(cardResult.error.message) };
-  const items: OpportunityCard[] = (cardResult.data ?? []).map((row) => {
+  const items: Array<OpportunityCard & { sourceText: string | null }> = (cardResult.data ?? []).map((row) => {
     const conversation = Array.isArray(row.conversations) ? row.conversations[0] : row.conversations;
     return {
       id: row.id as string,
@@ -532,12 +534,46 @@ export async function listOpportunityDesk() {
       scanId: typeof (row as unknown as { scan_id?: unknown }).scan_id === "string" ? (row as unknown as { scan_id: string }).scan_id : null,
       postCount: typeof (row as unknown as { post_count?: unknown }).post_count === "number" ? (row as unknown as { post_count: number }).post_count : null,
       accountCount: typeof (row as unknown as { account_count?: unknown }).account_count === "number" ? (row as unknown as { account_count: number }).account_count : null,
+      version: typeof (row as unknown as { assessment_version?: unknown }).assessment_version === "number" ? (row as unknown as { assessment_version: number }).assessment_version : null,
+      sourceText: sourceTextOf((row as unknown as { understanding?: unknown }).understanding),
     };
   });
+  const split = splitByCurrentVersion(items.map((item) => ({ ...item, conversationId: item.conversationId })));
   return {
     ok: true as const,
-    items,
+    items: split.current.map(presentOpportunity),
+    history: split.history,
     reviews: reviews.data ?? [],
     conversations: (conversations.data ?? []).map((row) => ({ id: row.id as string, title: row.title as string, status: row.status as string })),
+  };
+}
+
+function sourceTextOf(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const text = (value as { sourceText?: unknown }).sourceText;
+  return typeof text === "string" ? text : null;
+}
+
+const routeType: Record<string, OpportunityType> = {
+  CHECK: "check",
+  ANALYSIS: "analysis",
+  REACTION: "reaction",
+  OPINION: "opinion",
+  QUESTION: "question",
+  HUMOUR: "humour",
+  ORIGINAL_INSIGHT: "original_insight",
+};
+
+function presentOpportunity<T extends OpportunityCard & { sourceText?: string | null }>(item: T): OpportunityCard {
+  const described = item.sourceText ? describeSource(item.sourceText) : null;
+  if (!described?.matched) return { ...item, whatHappened: replaceUserLabel(item.whatHappened) };
+  return {
+    ...item,
+    whatHappened: described.summary,
+    whyInteresting: described.reason,
+    research: described.researchNeed,
+    type: routeType[described.routes[0] ?? ""] ?? item.type,
+    review: described.review,
+    premises: described.checkableFacts,
   };
 }

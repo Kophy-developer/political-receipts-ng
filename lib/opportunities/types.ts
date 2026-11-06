@@ -46,6 +46,9 @@ export type OpportunityCard = {
   scanId?: string | null;
   postCount: number | null;
   accountCount: number | null;
+  version?: number | null;
+  review?: string | null;
+  premises?: string[];
 };
 
 export type OpportunityProposal = {

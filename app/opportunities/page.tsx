@@ -13,6 +13,7 @@ export default async function OpportunitiesPage() {
   return (
     <OpportunitiesBoard
       items={desk.ok ? desk.items : []}
+      history={desk.ok ? desk.history : []}
       reviews={desk.ok ? desk.reviews : []}
       conversations={desk.ok ? desk.conversations : []}
       unavailable={!desk.ok}

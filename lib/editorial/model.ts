@@ -246,6 +246,9 @@ export type PipelineCard = {
   routes: string[];
   sourceText: string | null;
   lowValue: boolean;
+  review: string | null;
+  draftingCandidate: boolean;
+  premises: string[];
 };
 
 export function postShape(text: string, maximum = 280) {

@@ -1,5 +1,6 @@
 import type { OpportunityType, ResearchNeed } from "@/lib/opportunities/types";
 import { hasCheckableFact } from "@/lib/editorial/assess";
+import { describeSource, replaceUserLabel, type QualityKind } from "@/lib/editorial/quality";
 import { plannedNextStage, type Priority } from "@/lib/editorial/model";
 import { fullConversationText, type ConversationPacket } from "@/lib/editorial/packet";
 import type { ContentPillar } from "@/lib/pillars/catalog";
@@ -69,6 +70,8 @@ export type RoutedConversation = {
   lifecycle: "RANKED" | "PASSED";
   passReason: string | null;
   rank: number | null;
+  review: "Needs editorial review" | null;
+  draftingCandidate: boolean;
   discoveredAt: string;
   index: number;
 };
@@ -129,8 +132,10 @@ export function understandUser(packets: ConversationPacket[]) {
 }
 
 export function understandingOutcomeMessage(input: { received: number; understood: number; unclear: number; modelCalls: number; recovered?: boolean }) {
-  const head = input.recovered ? "Recovered understanding outcome" : "Understanding outcome";
-  return `${head}: ${input.understood} understood and in the queue. ${input.unclear} unclear and passed over. Received ${input.received}. This count is separate from historical extraction. Earlier cards were kept. Model requests for this action: ${input.modelCalls}. No X request or research call was made, and nothing was published.`;
+  if (input.recovered) {
+    return "Recovered from 1 previous AI model response. New model requests during recovery: 0.";
+  }
+  return `Understanding outcome: ${input.understood} understood and in the queue. ${input.unclear} unclear and passed over. Received ${input.received}. This count is separate from historical extraction. Earlier cards were kept. Model requests for this action: ${input.modelCalls}. No X request or research call was made, and nothing was published.`;
 }
 
 export function understandConfirmation(storedConversations: number) {
@@ -606,6 +611,30 @@ export function routeUnderstanding(packet: ConversationPacket, reading: Conversa
       lifecycle: "PASSED",
       passReason: cannotUnderstand,
       rank: null,
+      review: null,
+      draftingCandidate: false,
+    };
+  }
+  const quality = describeSource(sourceText);
+  if (quality.matched) {
+    const checkable = quality.researchNeed === "yes";
+    const event = quality.primaryKind === "event";
+    return {
+      ...base,
+      summary: quality.summary,
+      checkableFacts: quality.checkableFacts,
+      understood: true,
+      lowValue: quality.lowValue,
+      primaryKind: quality.primaryKind as QualityKind,
+      routes: quality.routes,
+      researchNeed: quality.researchNeed,
+      reasonForResearchNeed: quality.reason,
+      band: bandFor({ lowValue: quality.lowValue, checkable, timely, event }),
+      lifecycle: "RANKED",
+      passReason: null,
+      rank: null,
+      review: quality.review,
+      draftingCandidate: quality.draftingCandidate,
     };
   }
   const checkable = reading.primaryKind === "factual_assertion" || (reading.checkableFacts.length > 0 && reading.primaryKind !== "prediction" && reading.primaryKind !== "rhetoric" && reading.primaryKind !== "humour");
@@ -620,6 +649,7 @@ export function routeUnderstanding(packet: ConversationPacket, reading: Conversa
   );
   return {
     ...base,
+    summary: replaceUserLabel(reading.summary),
     understood: true,
     lowValue,
     primaryKind: kind,
@@ -630,6 +660,8 @@ export function routeUnderstanding(packet: ConversationPacket, reading: Conversa
     lifecycle: "RANKED",
     passReason: null,
     rank: null,
+    review: null,
+    draftingCandidate: !lowValue && kind !== "prediction",
   };
 }
 
@@ -704,7 +736,9 @@ export function inboxRecords(item: RoutedConversation, scanId: string, version: 
     lowValue: item.lowValue,
     subjects: item.subjects,
     understood: item.understood,
-    status: item.lifecycle === "PASSED" ? "Passed over" : item.lowValue ? "Low value" : "In the queue",
+    review: item.review,
+    draftingCandidate: item.draftingCandidate,
+    status: item.review ?? (item.lifecycle === "PASSED" ? "Passed over" : item.lowValue ? "Low value" : item.draftingCandidate ? "In the queue" : "Not a drafting candidate"),
   };
   const assessmentShape = {
     worthTalkingAbout: item.understood,

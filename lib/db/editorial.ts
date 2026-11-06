@@ -13,6 +13,8 @@ import { mergeAssessments, nextAssessmentVersion, type Lifecycle, type PipelineC
 import { packetsFromPosts, type StoredAssessmentPost } from "@/lib/editorial/packet";
 import { withUnderstandVersions } from "@/lib/editorial/trace";
 import { understandPackets } from "@/lib/editorial/understand-ai";
+import { splitByCurrentVersion } from "@/lib/editorial/history";
+import { describeSource, replaceUserLabel } from "@/lib/editorial/quality";
 import { inboxRecords, understandingOutcomeMessage } from "@/lib/editorial/understand";
 
 const pipelineColumns = [
@@ -65,7 +67,7 @@ function understandingOf(value: unknown) {
 
 function cardFrom(row: Record<string, unknown>): PipelineCard {
   const understanding = understandingOf(row.understanding);
-  return {
+  const card: PipelineCard = {
     id: String(row.id),
     conversationId: textOf(row.conversation_id),
     claimId: textOf(row.claim_id),
@@ -90,22 +92,35 @@ function cardFrom(row: Record<string, unknown>): PipelineCard {
     routes: understanding?.routes ?? [],
     sourceText: understanding?.sourceText ?? null,
     lowValue: understanding?.lowValue ?? false,
+    review: null,
+    draftingCandidate: true,
+    premises: [],
   };
+  return card;
 }
 
-function latestAssessment(cards: PipelineCard[]) {
-  const chosen = new Map<string, PipelineCard>();
-  for (const card of cards) {
-    const key = card.conversationId ?? card.id;
-    const previous = chosen.get(key);
-    if (!previous || (card.version ?? 0) > (previous.version ?? 0)) chosen.set(key, card);
-  }
-  return [...chosen.values()];
+function presentCurrent(card: PipelineCard): PipelineCard {
+  const described = card.sourceText ? describeSource(card.sourceText) : null;
+  if (!described?.matched) return { ...card, title: replaceUserLabel(card.title) };
+  return {
+    ...card,
+    title: described.summary,
+    type: described.routes[0]?.toLowerCase() ?? card.type,
+    research: described.researchNeed,
+    reason: described.reason,
+    primaryKind: described.primaryKind,
+    routes: described.routes,
+    lowValue: described.lowValue,
+    review: described.review,
+    draftingCandidate: described.draftingCandidate,
+    premises: described.checkableFacts,
+    claimExtractionNeeded: described.routes.includes("CHECK"),
+  };
 }
 
 export async function listPipeline() {
   const db = serviceClient();
-  if (!db) return { ok: false as const, reason: "unconfigured" as const, cards: [] as PipelineCard[], earlier: [] as PipelineCard[] };
+  if (!db) return { ok: false as const, reason: "unconfigured" as const, cards: [] as PipelineCard[], earlier: [] as PipelineCard[], history: [] as PipelineCard[] };
   let primary = await db.from("opportunities").select(pipelineColumns).order("created_at", { ascending: false });
   if (primary.error && columnMissing(primary.error.message) && /understanding/i.test(primary.error.message)) {
     const withoutUnderstanding = pipelineColumns.split(", ").filter((column) => column !== "understanding").join(", ");
@@ -116,21 +131,24 @@ export async function listPipeline() {
       .from("opportunities")
       .select("id, conversation_id, claim_id, opportunity_type, research_required, score, what_happened, why_interesting, what_could_add, status, source, scan_id, content_pillar")
       .order("created_at", { ascending: false });
-    if (fallback.error) return { ok: true as const, reason: "pending" as const, cards: [] as PipelineCard[], earlier: [] as PipelineCard[] };
+    if (fallback.error) return { ok: true as const, reason: "pending" as const, cards: [] as PipelineCard[], earlier: [] as PipelineCard[], history: [] as PipelineCard[] };
     return {
       ok: true as const,
       reason: "pending" as const,
       cards: [] as PipelineCard[],
       earlier: (fallback.data ?? []).map((row) => cardFrom(row as unknown as Record<string, unknown>)),
+      history: [] as PipelineCard[],
     };
   }
-  if (primary.error) return { ok: false as const, reason: "unreachable" as const, cards: [] as PipelineCard[], earlier: [] as PipelineCard[] };
+  if (primary.error) return { ok: false as const, reason: "unreachable" as const, cards: [] as PipelineCard[], earlier: [] as PipelineCard[], history: [] as PipelineCard[] };
   const cards = (primary.data ?? []).map((row) => cardFrom(row as unknown as Record<string, unknown>));
+  const split = splitByCurrentVersion(cards);
   return {
     ok: true as const,
     reason: "ready" as const,
-    cards: latestAssessment(cards.filter((card) => card.source === "assessment")),
-    earlier: cards.filter((card) => card.source !== "assessment"),
+    cards: split.current.filter((card) => card.source === "assessment").map(presentCurrent),
+    earlier: split.current.filter((card) => card.source !== "assessment").map(presentCurrent),
+    history: split.history,
   };
 }
 

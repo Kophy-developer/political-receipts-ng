@@ -119,6 +119,7 @@ async function DeskQueue() {
           ready={ready}
           queue={queue}
           earlier={earlier}
+          history={pipeline.history}
           migrationPending={pipeline.reason === "pending"}
         />
         <section>
