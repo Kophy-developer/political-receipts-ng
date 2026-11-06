@@ -1,4 +1,5 @@
 import "server-only";
+import { tablePassage } from "@/lib/research/extract";
 import { extractPdfDocument } from "@/lib/research/pdf-text";
 import { prepareStoredPassage } from "@/lib/research/passage";
 import { assertPublicUrl } from "@/lib/research/ssrf";
@@ -35,6 +36,7 @@ function focusedPassage(text: string) {
 }
 
 function htmlPassage(html: string) {
+  const table = tablePassage(html);
   const stripped = html
     .replace(/<script[\s\S]*?<\/script>/gi, " ")
     .replace(/<style[\s\S]*?<\/style>/gi, " ")
@@ -43,7 +45,9 @@ function htmlPassage(html: string) {
     .replace(/&amp;/g, "&")
     .replace(/\s+/g, " ")
     .trim();
-  return focusedPassage(stripped);
+  const focused = focusedPassage(stripped);
+  if (!table) return focused;
+  return prepareStoredPassage({ text: `${table}\n${focused}`, empty: "The page was retrieved. No readable text was extracted, so no passage is stored." }).excerpt;
 }
 
 export async function fetchDocument(raw: string) {
@@ -55,7 +59,7 @@ export async function fetchDocument(raw: string) {
     try {
       response = await fetch(current, {
         redirect: "manual",
-        headers: { accept: "text/html,application/pdf,text/plain" },
+        headers: { accept: "text/html,application/pdf,text/plain,text/csv" },
         cache: "no-store",
         signal: AbortSignal.timeout(12_000),
       });
@@ -90,6 +94,22 @@ export async function fetchDocument(raw: string) {
         passage: stored.excerpt,
         pageLabel: stored.pageLabel,
         kind: extracted.passage ? "pdf" : "pdf-empty",
+      };
+    }
+    if (type.includes("csv")) {
+      const csv = decode(bytes);
+      const passage = prepareStoredPassage({ text: csv, empty: "The file was retrieved. No readable rows were extracted, so no series is stored." }).excerpt;
+      if (!passage) return { ok: false as const, attempted: true as const, message: "The file had no readable rows." };
+      return {
+        ok: true as const,
+        attempted: true as const,
+        url: current.toString(),
+        domain,
+        title: current.pathname.split("/").pop() || domain,
+        published: null,
+        passage,
+        pageLabel: null,
+        kind: "csv",
       };
     }
     if (type.includes("html") || type.includes("text/plain") || type === "") {

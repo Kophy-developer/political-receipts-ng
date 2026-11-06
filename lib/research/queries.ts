@@ -13,7 +13,7 @@ export type AuthorityRule = { name: string; domains: string[]; pattern: RegExp }
 /** Hints only choose domains that already sit in the configured source hierarchy. */
 export const authorityRules: AuthorityRule[] = [
   { name: "Independent National Electoral Commission", domains: ["inecnigeria.org"], pattern: /\b(inec|voter register|electoral act|polling unit|\bpvc\b)\b/i },
-  { name: "National Bureau of Statistics", domains: ["nigerianstat.gov.ng"], pattern: /\b(inflation|\bcpi\b|consumer price|national bureau of statistics|\bnbs\b)\b/i },
+  { name: "National Bureau of Statistics", domains: ["nigerianstat.gov.ng"], pattern: /\b(inflation|\bcpi\b|consumer price|capital importation|foreign direct investment|national bureau of statistics|\bnbs\b)\b/i },
   { name: "Central Bank of Nigeria", domains: ["cbn.gov.ng"], pattern: /\b(monetary policy|central bank|\bcbn\b|interest rate|\bmpr\b)\b/i },
   { name: "Debt Management Office", domains: ["dmo.gov.ng"], pattern: /\b(debt management office|public debt|\bdmo\b|\bdebt\b)\b/i },
   { name: "Budget Office of the Federation", domains: ["budgetoffice.gov.ng"], pattern: /\b(budget office|appropriation|federal budget|\bbudget\b)\b/i },
@@ -79,6 +79,9 @@ function conceptQueries(claim: string) {
     queries.push("voter register artificial intelligence photographs", "voter register fake photographs", "voter register generated images");
   } else if (register) {
     queries.push("voter register");
+  }
+  if (/invest|capital importation|foreign direct/.test(lower)) {
+    queries.push("Nigeria capital importation National Bureau of Statistics", "Nigeria foreign direct investment UNCTAD", "Nigeria capital importation Central Bank");
   }
   if (/consumer price|\bcpi\b|inflation/.test(lower)) queries.push("consumer price index", "inflation rate");
   if (/monetary policy|interest rate|\bmpr\b/.test(lower)) queries.push("monetary policy rate");

@@ -4,8 +4,12 @@ import Link from "next/link";
 import { connection } from "next/server";
 import { notFound } from "next/navigation";
 import { PageFrame } from "@/components/shell/page-frame";
+import { SeriesChart } from "@/components/desk/series-chart";
 import { loadSearchResults } from "@/lib/db/search-results";
 import { loadStory } from "@/lib/db/editorial";
+import { describeSource } from "@/lib/editorial/quality";
+import { investigate } from "@/lib/research/investigate";
+import { reviveAnalysis } from "@/lib/research/series";
 import Loading from "@/app/loading";
 
 export const metadata: Metadata = { title: "Story" };
@@ -23,6 +27,10 @@ async function WorkBody({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const story = await loadStory(id);
   if (!story) notFound();
+  const quality = describeSource(story.card.sourceText || "");
+  const plan = investigate(story.card.sourceText || "", quality);
+  const analysis = reviveAnalysis((story.development as { analysis?: unknown } | null)?.analysis);
+  const stage = (story.development as { researchStage?: unknown } | null)?.researchStage;
   const inventory = story.card.claimId ? await loadSearchResults(story.card.claimId) : null;
   const found = inventory?.results.length ?? 0;
   const opened = inventory?.results.filter((item) => item.retrievalStatus === "retrieved").length ?? story.sources.filter((item) => item.opened).length;
@@ -43,12 +51,24 @@ async function WorkBody({ params }: { params: Promise<{ id: string }> }) {
         <section className="border border-rule px-4 py-4">
           <h2 className="font-serif text-2xl">Interpretation</h2>
           <p className="mt-2 text-sm leading-relaxed">{story.card.reason || story.card.title}</p>
-          {story.card.developmentAngle ? <p className="mt-2 text-sm">Angle: {story.card.developmentAngle}</p> : null}
+          {story.card.developmentAngle ? <p className="mt-2 text-sm leading-relaxed">Proposed angle: {story.card.developmentAngle}</p> : <p className="mt-2 text-sm text-ink-soft">No angle is proposed until development reads the evidence.</p>}
           {story.card.pillar ? <p className="mt-2 text-sm text-ink-soft">Pillar: {story.card.pillar}</p> : null}
         </section>
         <section className="border border-rule px-4 py-4">
+          <h2 className="font-serif text-2xl">What we are investigating</h2>
+          <p className="mt-2 text-sm leading-relaxed">{plan.attribution}</p>
+          <ul className="mt-3 space-y-1 text-sm">
+            {plan.questions.map((item) => <li key={item.question}>{item.purpose.replaceAll("_", " ")}: {item.question}</li>)}
+          </ul>
+          {plan.definitions.length ? (
+            <ul className="mt-3 space-y-1 text-sm text-ink-soft">
+              {plan.definitions.map((item) => <li key={item}>{item}</li>)}
+            </ul>
+          ) : null}
+        </section>
+        <section className="border border-rule px-4 py-4">
           <h2 className="font-serif text-2xl">Research</h2>
-          <p className="mt-2 text-sm">{story.card.storyState}. {story.card.storyReason}</p>
+          <p className="mt-2 text-sm">{typeof stage === "string" ? stage : story.card.storyState}. {story.card.storyReason}</p>
           {showInventory ? (
             <div className="mt-3 space-y-2 text-sm">
               <p>{found || story.sources.length} stored results · {opened} opened.</p>
@@ -59,8 +79,37 @@ async function WorkBody({ params }: { params: Promise<{ id: string }> }) {
               </ul>
             </div>
           ) : (
-            <p className="mt-3 text-sm text-ink-soft">No research list is shown because research has not stored a result.</p>
+            <p className="mt-3 text-sm text-ink-soft">{plan.numerical ? "No source has been opened yet. Search snippets are not statistics." : "No research list is shown because research has not stored a result."}</p>
           )}
+          {analysis ? (
+            <div className="mt-4 space-y-2 text-sm">
+              <h3 className="font-serif text-xl">What the evidence shows</h3>
+              {analysis.interpretations.map((item) => <p key={item}>{item}</p>)}
+              <table className="mt-3 w-full border-collapse text-left text-sm">
+                <caption className="pb-2 text-left">{analysis.series} · {analysis.unit} · {analysis.sourceName}</caption>
+                <thead>
+                  <tr className="border-b border-rule">
+                    <th className="py-1 font-normal">Year</th>
+                    <th className="py-1 font-normal">Value</th>
+                    <th className="py-1 font-normal">Basis</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {analysis.observations.map((item) => (
+                    <tr key={`${item.series}-${item.year}`} className="border-b border-rule">
+                      <td className="py-1">{item.year}</td>
+                      <td className="py-1">{item.value}</td>
+                      <td className="py-1">{item.basis}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <h3 className="pt-2 font-serif text-xl">What remains uncertain</h3>
+              {analysis.limitations.map((item) => <p key={item}>{item}</p>)}
+              {analysis.chart ? <SeriesChart chart={analysis.chart} /> : <p>No chart is drawn because the opened series cannot support one.</p>}
+            </div>
+          ) : null}
+          <p className="mt-3 text-sm">{story.card.storyState === "Ready for You" ? "Ready for You: a draft is waiting. Nothing has been published." : `Ready for You: not yet. Current status is ${story.card.storyState}.`}</p>
         </section>
         <section className="border border-rule px-4 py-4">
           <h2 className="font-serif text-2xl">Draft</h2>

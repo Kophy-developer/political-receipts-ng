@@ -1,3 +1,5 @@
+import { extractDocument } from "@/lib/research/extract";
+
 export type SourceStance = "supports" | "contradicts" | "contextualizes" | "does_not_address";
 
 export type EvidenceStatus = "RELEVANT_EVIDENCE_FOUND" | "EVIDENCE_INSUFFICIENT" | "EVIDENCE_READY";
@@ -61,6 +63,35 @@ export function assessSource(input: {
       break;
     }
   }
+  const investmentPremise = /invest|econom|importation/.test(premises.join(" ").toLowerCase());
+  const extracted = opened ? extractDocument({ text: input.text || "", title: input.title, url: input.url }) : null;
+  const relevantSeries = (extracted?.observations ?? []).filter((item) => /capital importation|foreign direct investment|portfolio investment/i.test(item.series));
+  const stateHouse = /statehouse\.gov\.ng$/i.test(input.domain.replace(/^www\./, ""));
+  if (opened && investmentPremise && stateHouse && relevantSeries.length < 3) {
+    return {
+      title: input.title,
+      url: input.url,
+      domain: input.domain,
+      snippet: input.snippet ?? null,
+      opened: true,
+      premise,
+      stance: "does_not_address" as const,
+      limitation: "A State House page is not a statistical dataset. It was not used as evidence of an investment trend.",
+    };
+  }
+  if (opened && investmentPremise && relevantSeries.length >= 3) {
+    return {
+      title: input.title,
+      url: input.url,
+      domain: input.domain,
+      snippet: input.snippet ?? null,
+      opened: true,
+      text: input.text ?? null,
+      premise,
+      stance: "contextualizes" as const,
+      limitation: "An opened document contains a parsed series. Those figures are not a verdict about why they changed.",
+    };
+  }
   if (!matched) {
     return {
       title: input.title,
@@ -93,6 +124,7 @@ export function assessSource(input: {
     domain: input.domain,
     snippet: input.snippet ?? null,
     opened: true,
+    text: input.text ?? null,
     premise,
     stance: (contradicts ? "contradicts" : "contextualizes") as SourceStance,
     limitation: contradicts

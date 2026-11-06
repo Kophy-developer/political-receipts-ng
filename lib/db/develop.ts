@@ -9,6 +9,7 @@ import { recordEvent } from "@/lib/db/events";
 import { isUuid } from "@/lib/db/labels";
 import { publishedByClaim } from "@/lib/db/publishing";
 import { loadSearchResults } from "@/lib/db/search-results";
+import { composeFromAnalysis } from "@/lib/editorial/findings";
 import {
   advanceDevelopment,
   developmentPreview,
@@ -21,6 +22,10 @@ import {
   type EvidenceLabel,
   type RetrievedSource,
 } from "@/lib/editorial/develop";
+import { chooseDocumentIds } from "@/lib/research/examine";
+import { investigate } from "@/lib/research/investigate";
+import { retrieveStoredResults } from "@/lib/research/retrieve-selected";
+import { reviveAnalysis, type SeriesAnalysis } from "@/lib/research/series";
 import { describeSource } from "@/lib/editorial/quality";
 import { draftWithProviders } from "@/lib/drafts/chain";
 import { publicPostUrl, sanitizeText } from "@/lib/intel/text";
@@ -99,6 +104,9 @@ function asState(value: unknown, sourceText: string): DevelopmentState {
     ready: row.ready === true,
     running: false,
     quality: describeSource(sourceText),
+    investigation: null,
+    analysis: reviveAnalysis((row as { analysis?: unknown }).analysis),
+    researchStage: row.researchStage === "SEARCH_COMPLETED" || row.researchStage === "SOURCES_RETRIEVED" || row.researchStage === "EVIDENCE_EXAMINED" || row.researchStage === "EVIDENCE_INSUFFICIENT" || row.researchStage === "EVIDENCE_READY" ? row.researchStage : null,
   };
 }
 
@@ -187,6 +195,30 @@ async function ensureClaim(input: { opportunityId: string; claimId: string | nul
   return { ok: true as const, claimId: claim.data.id as string };
 }
 
+async function passagesByUrl(claimId: string) {
+  const found = new Map<string, string>();
+  const db = serviceClient();
+  if (!db) return found;
+  const evidence = await db.from("evidence").select("excerpt, source_id").eq("claim_id", claimId);
+  const sourceIds = (evidence.data ?? []).map((row) => row.source_id).filter((id): id is string => typeof id === "string");
+  if (!sourceIds.length) return found;
+  const sources = await db.from("sources").select("id, url").in("id", sourceIds);
+  const urls = new Map((sources.data ?? []).flatMap((row) => typeof row.id === "string" && typeof row.url === "string" ? [[row.id, row.url] as const] : []));
+  for (const row of evidence.data ?? []) {
+    const url = typeof row.source_id === "string" ? urls.get(row.source_id) : undefined;
+    if (url && typeof row.excerpt === "string" && row.excerpt.trim()) found.set(url, row.excerpt);
+  }
+  return found;
+}
+
+function draftDomain(analysis: SeriesAnalysis) {
+  try {
+    return analysis.url ? new URL(analysis.url).hostname.replace(/^www\./, "") : analysis.sourceName;
+  } catch {
+    return analysis.sourceName;
+  }
+}
+
 function retrievedSources(results: Array<{ domain: string; url: string; title: string; snippet?: string | null; retrievalStatus?: string }>) {
   return results
     .filter((item) => item.url.startsWith("https://"))
@@ -239,14 +271,24 @@ export async function developContent(id: string) {
       await db.from("opportunities").update({ claim_id: claim.claimId }).eq("id", id);
       const run = await beginResearch(claim.claimId);
       const already = /already been run/i.test(run.message);
-      const listed = await loadSearchResults(claim.claimId);
-      const sources = retrievedSources(listed.results);
       if (!run.ok && !already) {
-        return { ok: false, called: run.started === true, label: "none" as const, sources, message: run.message };
+        const listed = await loadSearchResults(claim.claimId);
+        return { ok: false, called: run.started === true, label: "none" as const, sources: retrievedSources(listed.results), message: run.message };
       }
+      const plan = investigate(loaded.sourceText, describeSource(loaded.sourceText));
+      const listed = await loadSearchResults(claim.claimId);
+      const pending = chooseDocumentIds(listed.results, plan, researchLimits.maxDocumentsPerRun)
+        .filter((resultId) => listed.results.some((item) => item.id === resultId && item.retrievalStatus !== "retrieved"));
+      if (pending.length) await retrieveStoredResults(claim.claimId, pending);
+      const opened = await loadSearchResults(claim.claimId);
+      const passages = await passagesByUrl(claim.claimId);
+      const sources = retrievedSources(opened.results).map((source) => {
+        const passage = passages.get(source.url);
+        return passage ? { ...source, opened: true, text: passage } : source;
+      });
       return { ok: true, called: run.started === true && !already, label: "none" as const, sources, message: run.message };
     },
-    draft: async ({ angle, points, verdict, postText, evidence }) => {
+    draft: async ({ angle, points, verdict, postText, evidence, analysis }) => {
       if (!claimId) {
         const claim = await ensureClaim({
           opportunityId: id,
@@ -265,6 +307,14 @@ export async function developContent(id: string) {
       const used = await calledToday();
       const plans = planDraftProviders(readAiEnv(), used);
       if (!plans.some((plan) => plan.callable)) {
+        if (analysis?.chart && analysis.comparable) {
+          return {
+            ok: true,
+            called: false,
+            drafts: [{ style: "conversational", text: composeFromAnalysis({ quality: state.quality, analysis, domain: draftDomain(analysis) }) }],
+            message: "The draft was written from the opened series. No model request was made.",
+          };
+        }
         return { ok: false, called: false, drafts: [], message: "The draft allowance is used up. Research already stored was kept. No model request was made." };
       }
       const result = await draftWithProviders({
@@ -283,7 +333,9 @@ export async function developContent(id: string) {
           attribution: state.quality.summary,
           interpretation: state.quality.reason,
           premises: state.quality.checkableFacts,
-          limitations: state.unresolved || "Say what this desk has not confirmed. Do not invent a verdict.",
+          limitations: analysis?.chart
+            ? `Use only these opened figures: ${analysis.observations.map((item) => `${item.year} ${item.value} ${item.unit}`).join("; ")}. Do not invent a year or a number. ${analysis.limitations.join(" ")}`
+            : state.unresolved || "Say what this desk has not confirmed. Do not invent a verdict.",
         },
         rules: "development",
         plans,

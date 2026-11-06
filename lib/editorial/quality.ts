@@ -295,6 +295,20 @@ export function describeSource(sourceText: string): SourceQuality {
       review: null,
     };
   }
+  if (/\b(i think|i feel|in my view|personally)\b/i.test(text) && premises.length === 0 && predictions.length === 0 && events.length === 0) {
+    return {
+      matched: true,
+      summary: `The post is a judgment: ${clip(text)}`,
+      primaryKind: "opinion",
+      routes: ["OPINION", "REACTION"],
+      researchNeed: "no",
+      reason: "The sentence is a subjective judgment. It is not scored true or false.",
+      checkableFacts: [],
+      lowValue: false,
+      draftingCandidate: true,
+      review: null,
+    };
+  }
   if (rhetoric.length > 0 && predictions.length === 0 && events.length === 0 && premises.length === 0) {
     return {
       matched: true,

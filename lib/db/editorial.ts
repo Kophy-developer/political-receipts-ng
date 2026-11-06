@@ -169,6 +169,7 @@ export async function loadStory(id: string) {
     : { data: [] as Array<{ id: string; version: string | null; content: string | null; status: string | null }>, error: null };
   return {
     card,
+    development: record.development,
     sources,
     drafts: (drafts.data ?? []).flatMap((item) => (
       typeof item.id === "string" && typeof item.content === "string"

@@ -1,6 +1,10 @@
 import { createHash } from "node:crypto";
+import { angleFromAnalysis, opinionAngle } from "@/lib/editorial/findings";
 import { describeSource, type SourceQuality } from "@/lib/editorial/quality";
+import { examineSources, type ResearchStage } from "@/lib/research/examine";
+import { investigate, type Investigation } from "@/lib/research/investigate";
 import { classifyEvidence, type EvidenceStatus, type FailureKind, type SearchStatus, type SourceStance } from "@/lib/research/relevance";
+import type { SeriesAnalysis } from "@/lib/research/series";
 
 export const editorialReview = "Needs editorial review" as const;
 
@@ -48,6 +52,9 @@ export type DevelopmentState = {
   gateFailed: boolean;
   ready: boolean;
   running: boolean;
+  investigation: Investigation | null;
+  analysis: SeriesAnalysis | null;
+  researchStage: ResearchStage | null;
 };
 
 export type DevelopmentPreview = {
@@ -79,7 +86,7 @@ type DraftResult = {
 
 export type DevelopmentPorts = {
   research: (input: { premises: string[]; context: string }) => Promise<ResearchResult>;
-  draft: (input: { angle: string; points: string[]; verdict: string; postText: string; evidence: RetrievedSource[] }) => Promise<DraftResult>;
+  draft: (input: { angle: string; points: string[]; verdict: string; postText: string; evidence: RetrievedSource[]; analysis: SeriesAnalysis | null }) => Promise<DraftResult>;
 };
 
 const voicePoint = "Write in the desk's voice: conversational, direct, and careful about what is verified. Do not endorse a candidate, attack a party, or forecast an election.";
@@ -224,10 +231,14 @@ export function initialDevelopment(sourceText: string): DevelopmentState {
     gateFailed: false,
     ready: false,
     running: false,
+    investigation: null,
+    analysis: null,
+    researchStage: null,
   };
 }
 
-export function angleFor(quality: SourceQuality, evidence: DevelopmentState["evidence"]) {
+export function angleFor(quality: SourceQuality, evidence: DevelopmentState["evidence"], analysis?: SeriesAnalysis | null) {
+  if (analysis?.chart && analysis.comparable) return angleFromAnalysis(quality, analysis);
   const verified = evidence?.label === "usable";
   if (quality.primaryKind === "prediction") {
     return {
@@ -247,13 +258,13 @@ export function angleFor(quality: SourceQuality, evidence: DevelopmentState["evi
   }
   if (/rejects another person's claim|does not assert/i.test(quality.summary)) {
     return {
-      title: "Keep the rejected claim with the person who made it. Do not treat the author as asserting it.",
-      points: ["The factual sentence still needs a record.", "Do not settle both sides of the argument.", voicePoint],
+      title: "The post rejects another person's claim. No opened statistical series is on file, so this desk cannot say whether the measured flow rose or fell, or why.",
+      points: ["The factual sentence still belongs to the person who said it.", "Do not say the author claimed that foreign companies are not investing.", voicePoint],
     };
   }
   if (/quotes|attributes this claim/i.test(quality.summary)) {
     return {
-      title: "Keep the claim with the speaker the post names. Do not move it onto the posting account.",
+      title: "The claim stays with the speaker the post names. The posting account is not treated as the person who made it.",
       points: [verified ? "Mention a retrieved source only for what that source supports." : "Do not say the claim was independently verified.", voicePoint],
     };
   }
@@ -263,6 +274,7 @@ export function angleFor(quality: SourceQuality, evidence: DevelopmentState["evi
       points: ["The opinion can stay an opinion.", verified ? "Use a retrieved source for the factual sentence, or say it is unresolved." : "Do not state the factual sentence as established.", voicePoint],
     };
   }
+  if (quality.primaryKind === "opinion" && quality.researchNeed === "no") return opinionAngle();
   return {
     title: "Respond to the judgment in the post without adding a factual finding.",
     points: ["Do not invent a record.", "Say that the post was not independently verified.", voicePoint],
@@ -303,6 +315,10 @@ export function judgeDevelopmentDrafts(state: DevelopmentState, drafts: Array<{ 
       if (!/reports|the post says|the post reports/i.test(text) || !unresolvedLanguage(text)) {
         return { ok: false as const, question: "The reported event is not confirmed. The draft has to say the post reports it and that this desk has not confirmed it." };
       }
+    } else if (state.quality.primaryKind === "opinion" && state.quality.researchNeed === "no" && state.quality.checkableFacts.length === 0) {
+      if (!/\b(judgment|opinion)\b/i.test(text) || /\b(this is false|this is true|we verified)\b/i.test(text)) {
+        return { ok: false as const, question: "An opinion draft has to stay a judgment and must not issue a factual verdict." };
+      }
     } else if (!unresolvedLanguage(text) && !cites(text, sources)) {
       return { ok: false as const, question: "The draft implies a finding. It has to say the post was not independently verified, or cite a retrieved source." };
     }
@@ -320,7 +336,7 @@ export type DevelopmentStep =
   | { kind: "review"; question: string }
   | { kind: "research"; premises: string[]; context: string }
   | { kind: "angle" }
-  | { kind: "draft"; angle: string; points: string[]; verdict: string }
+  | { kind: "draft"; angle: string; points: string[]; verdict: string; analysis: SeriesAnalysis | null }
   | { kind: "ready" };
 
 export function nextStep(state: DevelopmentState): DevelopmentStep {
@@ -353,6 +369,7 @@ export function nextStep(state: DevelopmentState): DevelopmentStep {
       kind: "draft",
       angle: state.angle,
       points: state.anglePoints,
+      analysis: state.analysis,
       verdict: state.quality.primaryKind === "prediction"
         ? "This is a prediction, not a result. Do not forecast the election."
         : state.evidenceStatus === "EVIDENCE_READY"
@@ -372,18 +389,29 @@ function withResearch(state: DevelopmentState, result: ResearchResult): Developm
       researchCalls: state.researchCalls + (result.called ? 1 : 0),
     };
   }
+  const investigation = investigate(state.sourceText, state.quality);
+  const examined = investigation.numerical ? examineSources(investigation, result.sources) : null;
   const classified = classifyEvidence({
     premises: state.quality.checkableFacts.length ? state.quality.checkableFacts : [state.quality.summary],
-    sources: result.sources,
+    sources: examined ? examined.sources : result.sources,
     searchCompleted: true,
   });
+  const evidenceStatus = examined?.stage === "EVIDENCE_READY"
+    ? "EVIDENCE_READY" as const
+    : examined
+      ? "EVIDENCE_INSUFFICIENT" as const
+      : classified.evidenceStatus;
+  const readings = examined ? examined.sources : classified.readings;
   return {
     ...state,
     completed: state.completed.includes("research") ? state.completed : [...state.completed, "research"],
-    evidence: { label: classified.label, sources: classified.readings },
-    evidenceStatus: classified.evidenceStatus,
+    investigation,
+    analysis: examined?.analysis ?? null,
+    researchStage: examined?.stage ?? (classified.searchStatus ? "SEARCH_COMPLETED" : null),
+    evidence: { label: evidenceStatus === "EVIDENCE_READY" ? "usable" as const : readings.length ? "insufficient" as const : classified.label, sources: readings },
+    evidenceStatus,
     searchStatus: classified.searchStatus,
-    failureKind: classified.failureKind,
+    failureKind: evidenceStatus === "EVIDENCE_READY" ? null : examined ? "inadequate evidence" as const : classified.failureKind,
     researchFailed: false,
     error: null,
     researchCalls: state.researchCalls + (result.called ? 1 : 0),
@@ -391,7 +419,7 @@ function withResearch(state: DevelopmentState, result: ResearchResult): Developm
 }
 
 function withAngle(state: DevelopmentState): DevelopmentState {
-  const angle = angleFor(state.quality, state.evidence);
+  const angle = angleFor(state.quality, state.evidence, state.analysis);
   return {
     ...state,
     angle: angle.title,
@@ -470,6 +498,7 @@ export async function advanceDevelopment(state: DevelopmentState, ports: Develop
       verdict: next.verdict,
       postText: current.sourceText,
       evidence: (current.evidence?.sources ?? []).filter((source) => source.opened && source.stance !== "does_not_address"),
+      analysis: current.analysis,
     });
     current = withDraft(current, result);
     if (!result.ok) return current;

@@ -53,7 +53,8 @@ async function ReadyBody() {
             <li key={card.id} className="border border-rule px-4 py-4">
               <p className="text-sm">{card.title}</p>
               <p className="mt-1 text-sm">{card.storyState}. {card.storyReason}</p>
-              <Link href={card.claimId ? `/desk/${card.claimId}` : `/desk/work/${card.id}`} className="mt-3 inline-flex h-11 items-center bg-ink px-3 text-sm text-paper">Open the publish gate</Link>
+              {card.developmentDrafts[0] ? <p className="mt-2 text-sm leading-relaxed">{card.developmentDrafts[0]}</p> : null}
+              <Link href={`/desk/work/${card.id}`} className="mt-3 inline-flex h-11 items-center bg-ink px-3 text-sm text-paper">Open this story</Link>
             </li>
           ))}
           {drafts.map((item) => (
