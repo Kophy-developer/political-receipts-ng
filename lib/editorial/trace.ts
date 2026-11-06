@@ -1,7 +1,9 @@
 import type { AttemptRecord } from "@/lib/ai/route";
 import type { StampedAttempt } from "@/lib/drafts/chain";
 import type { EditorialReading } from "@/lib/editorial/reading";
-import type { ConversationUnderstanding } from "@/lib/editorial/understand";
+import { providerLabels } from "@/lib/ai/catalog";
+import { sanitizeProviderMessage } from "@/lib/ai/diagnostics";
+import { understandingFailureMessage, type ConversationUnderstanding, type UnderstandingFieldError } from "@/lib/editorial/understand";
 
 export type EditorialTrace = {
   kind: "editorial-assess-v1";
@@ -193,23 +195,140 @@ export function understandTrace(input: {
   };
 }
 
-export function stampUnderstandAttempt(attempt: AttemptRecord, requestId: string, readings: ConversationUnderstanding[] | null): StampedAttempt {
-  const stamped: StampedAttempt = { ...attempt, requestId, task: "understand" };
-  if (attempt.status !== "success" || !readings) return stamped;
+export const rejectedUnderstandingCharLimit = 16_000;
+export const rejectedUnderstandingErrorLimit = 20;
+
+export type RejectedUnderstanding = {
+  kind: "conversation-understand-v1-rejected";
+  provider: string;
+  model: string;
+  requestId: string;
+  errors: UnderstandingFieldError[];
+  parsed: unknown;
+  truncated: boolean;
+};
+
+function providerName(provider: string) {
+  return provider === "groq" || provider === "openrouter" || provider === "gemini" ? providerLabels[provider] : provider;
+}
+
+function redactParsed(value: unknown, depth: number): unknown {
+  if (depth > 6) return "[depth limited]";
+  if (typeof value === "string") return sanitizeProviderMessage(value);
+  if (typeof value === "number" || typeof value === "boolean" || value == null) return value;
+  if (Array.isArray(value)) return value.slice(0, 30).map((item) => redactParsed(item, depth + 1));
+  if (typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [key, item] of Object.entries(value).slice(0, 40)) {
+      if (/token|secret|password|authorization|cookie|bearer|api[_-]?key/i.test(key)) {
+        out[key] = "[redacted]";
+        continue;
+      }
+      out[key] = redactParsed(item, depth + 1);
+    }
+    return out;
+  }
+  return null;
+}
+
+function storedError(error: UnderstandingFieldError): UnderstandingFieldError {
   return {
-    ...stamped,
-    response: understandTrace({
-      provider: attempt.provider,
-      model: attempt.model,
-      requestId,
-      providerRequestId: attempt.providerRequestId ?? null,
-      finishReason: attempt.finishReason ?? null,
-      inputTokens: attempt.inputTokens,
-      outputTokens: attempt.outputTokens,
-      reasoningTokens: attempt.reasoningTokens,
-      readings,
-    }),
+    conversation_id: error.conversation_id ? error.conversation_id.slice(0, 80) : null,
+    field_path: error.field_path.slice(0, 120),
+    expected: error.expected.slice(0, 180),
+    received_type: error.received_type.slice(0, 40),
+    message: error.message.slice(0, 180),
   };
+}
+
+/** Server-side record of a rejected understanding object. The desk does not render `parsed`. */
+export function rejectedUnderstandingResponse(input: {
+  provider: string;
+  model: string;
+  requestId: string;
+  errors: UnderstandingFieldError[];
+  parsed: unknown;
+}): RejectedUnderstanding {
+  const errors = input.errors.slice(0, rejectedUnderstandingErrorLimit).map(storedError);
+  const redacted = redactParsed(input.parsed, 0);
+  const serialized = JSON.stringify(redacted);
+  const truncated = serialized.length > rejectedUnderstandingCharLimit;
+  return {
+    kind: "conversation-understand-v1-rejected",
+    provider: input.provider.slice(0, 40),
+    model: input.model.slice(0, 120),
+    requestId: input.requestId.slice(0, 80),
+    errors,
+    parsed: truncated ? { truncated: true, characters: serialized.length } : redacted,
+    truncated,
+  };
+}
+
+export type UnderstandingFailureNotice = {
+  explanation: string;
+  completedAt: string;
+  provider: string;
+};
+
+export function understandingFailureNotice(value: unknown, provider: string): string | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const row = value as Record<string, unknown>;
+  if (row.kind !== "conversation-understand-v1-rejected" || !Array.isArray(row.errors) || row.errors.length === 0) return null;
+  const first = row.errors[0];
+  if (!first || typeof first !== "object" || Array.isArray(first)) return null;
+  const field = first as Record<string, unknown>;
+  if (typeof field.field_path !== "string" || typeof field.message !== "string") return null;
+  const error: UnderstandingFieldError = {
+    conversation_id: typeof field.conversation_id === "string" ? field.conversation_id : null,
+    field_path: field.field_path,
+    expected: typeof field.expected === "string" ? field.expected : "",
+    received_type: typeof field.received_type === "string" ? field.received_type : "",
+    message: field.message,
+  };
+  return understandingFailureMessage(providerName(provider), [error]);
+}
+
+export function stampUnderstandAttempt(
+  attempt: AttemptRecord,
+  requestId: string,
+  readings: ConversationUnderstanding[] | null,
+  rejected: { errors: UnderstandingFieldError[]; parsed: unknown } | null = null,
+): StampedAttempt {
+  const { parsedPayload, ...rest } = attempt;
+  void parsedPayload;
+  const stamped: StampedAttempt = { ...rest, requestId, task: "understand" };
+  if (attempt.status === "success" && readings) {
+    return {
+      ...stamped,
+      response: understandTrace({
+        provider: attempt.provider,
+        model: attempt.model,
+        requestId,
+        providerRequestId: attempt.providerRequestId ?? null,
+        finishReason: attempt.finishReason ?? null,
+        inputTokens: attempt.inputTokens,
+        outputTokens: attempt.outputTokens,
+        reasoningTokens: attempt.reasoningTokens,
+        readings,
+      }),
+    };
+  }
+  if (rejected && rejected.errors.length > 0) {
+    const explanation = understandingFailureMessage(providerName(attempt.provider), rejected.errors);
+    return {
+      ...stamped,
+      failureReason: explanation,
+      diagnostic: stamped.diagnostic ? { ...stamped.diagnostic, message: explanation } : stamped.diagnostic,
+      response: rejectedUnderstandingResponse({
+        provider: attempt.provider,
+        model: attempt.model,
+        requestId,
+        errors: rejected.errors,
+        parsed: rejected.parsed,
+      }),
+    };
+  }
+  return stamped;
 }
 
 export function readUnderstandTrace(value: unknown): UnderstandTrace | null {

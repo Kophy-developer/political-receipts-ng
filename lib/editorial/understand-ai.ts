@@ -20,6 +20,7 @@ export type UnderstandRun = {
   modelCalls: number;
   provider: string | null;
   attempts: StampedAttempt[];
+  failureMessage: string | null;
   xRequests: 0;
   researchCalls: 0;
   posted: false;
@@ -46,12 +47,22 @@ export async function understandPackets(input: {
       plans: input.plans,
       rejectionReason: "The conversation understanding did not match the schema.",
       now: input.now,
-      accept: (data) => (parseConversationUnderstanding(data, ids) ? "success" : "malformed"),
+      accept: (data) => (parseConversationUnderstanding(data, ids).success ? "success" : "malformed"),
       call: input.call,
     });
-    const parsed = routed.ok ? parseConversationUnderstanding(routed.data, ids) : null;
-    attempts.push(...routed.attempts.map((attempt) => stampUnderstandAttempt(attempt, input.requestId, parsed)));
+    const validation = routed.ok ? parseConversationUnderstanding(routed.data, ids) : null;
+    const parsed = validation?.success ? validation.validated_output ?? null : null;
+    attempts.push(...routed.attempts.map((attempt) => {
+      const rejected = attempt.parsedPayload === undefined ? null : parseConversationUnderstanding(attempt.parsedPayload, ids);
+      return stampUnderstandAttempt(
+        attempt,
+        input.requestId,
+        parsed,
+        rejected && !rejected.success ? { errors: rejected.errors, parsed: attempt.parsedPayload } : null,
+      );
+    }));
     if (!routed.ok || !parsed) {
+      const failureMessage = attempts.find((attempt) => attempt.response && typeof attempt.response === "object" && (attempt.response as { kind?: unknown }).kind === "conversation-understand-v1-rejected")?.failureReason ?? null;
       return {
         ok: false,
         routed: null,
@@ -59,6 +70,7 @@ export async function understandPackets(input: {
         modelCalls: attempts.filter((attempt) => attempt.called).length,
         provider: routed.provider,
         attempts,
+        failureMessage,
         xRequests: 0,
         researchCalls: 0,
         posted: false,
@@ -74,6 +86,7 @@ export async function understandPackets(input: {
     modelCalls: attempts.filter((attempt) => attempt.called).length,
     provider,
     attempts,
+    failureMessage: null,
     xRequests: 0,
     researchCalls: 0,
     posted: false,

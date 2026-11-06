@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { providerLabels, type ProviderCard, type ProviderId } from "@/lib/ai/catalog";
-import type { EditorialTrace, UnderstandTrace } from "@/lib/editorial/trace";
+import type { EditorialTrace, UnderstandTrace, UnderstandingFailureNotice } from "@/lib/editorial/trace";
 import type { SystemHealth, UsageView } from "@/lib/desk/types";
 import { lagosStamp } from "@/lib/format";
 import type { EditorIdentity } from "@/lib/identity";
@@ -35,6 +35,7 @@ export function SettingsPanel({
   paidUsage,
   identity,
   editorialHistory,
+  understandingFailure,
 }: {
   flags: XFlags;
   health: SystemHealth;
@@ -43,6 +44,7 @@ export function SettingsPanel({
   paidUsage: boolean;
   identity: EditorIdentity;
   editorialHistory: Array<(EditorialTrace | UnderstandTrace) & { completedAt: string }>;
+  understandingFailure: UnderstandingFailureNotice | null;
 }) {
   const [origin, setOrigin] = useState(xProductionOrigin);
 
@@ -110,6 +112,7 @@ export function SettingsPanel({
                 Gemini still extracts claims from posts a scan already retrieved. That path is separate from drafting. The usage section keeps the earlier Gemini request log. This section does not rewrite it.
               </p>
               <EditorialHistory history={editorialHistory} />
+              <UnderstandingFailure notice={understandingFailure} />
             </Section>
             <Section id="usage" kicker="Usage" title="What today has cost">
               <p className="max-w-2xl text-sm leading-relaxed">
@@ -209,6 +212,22 @@ export function SettingsPanel({
         </div>
       </div>
     </PageFrame>
+  );
+}
+
+function UnderstandingFailure({ notice }: { notice: UnderstandingFailureNotice | null }) {
+  return (
+    <div className="mt-4 max-w-3xl border border-rule px-3 py-3">
+      <p className="text-sm">Latest understanding failure</p>
+      <p className="mt-2 text-sm leading-relaxed text-ink-soft">
+        A field name and the rejected value only. The model JSON stays in the server attempt log and is not shown here.
+      </p>
+      {notice ? (
+        <p className="mt-3 text-sm leading-relaxed">{notice.explanation}</p>
+      ) : (
+        <p className="mt-3 text-sm">No failed understanding is stored.</p>
+      )}
+    </div>
   );
 }
 

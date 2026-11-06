@@ -2,7 +2,7 @@ import { Suspense } from "react";
 import type { Metadata } from "next";
 import { connection } from "next/server";
 import { SettingsPanel } from "@/components/settings/panel";
-import { editorialAssessmentHistory, providerBoard } from "@/lib/db/ai-attempts";
+import { editorialAssessmentHistory, latestUnderstandingFailure, providerBoard } from "@/lib/db/ai-attempts";
 import { systemHealth } from "@/lib/db/health";
 import { usageView } from "@/lib/db/usage";
 import { loadEditorIdentity } from "@/lib/db/identity";
@@ -13,12 +13,13 @@ export const metadata: Metadata = {
 };
 
 async function SettingsBody() {
-  const [health, usage, board, identity, editorialHistory] = await Promise.all([
+  const [health, usage, board, identity, editorialHistory, understandingFailure] = await Promise.all([
     systemHealth(),
     usageView(),
     providerBoard(),
     loadEditorIdentity(),
     editorialAssessmentHistory(),
+    latestUnderstandingFailure(),
   ]);
   return (
     <SettingsPanel
@@ -29,6 +30,7 @@ async function SettingsBody() {
       paidUsage={board.paidUsage}
       identity={identity}
       editorialHistory={editorialHistory}
+      understandingFailure={understandingFailure}
     />
   );
 }

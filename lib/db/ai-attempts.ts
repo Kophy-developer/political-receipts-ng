@@ -9,7 +9,7 @@ import { providerReadout, retainedFailure, shownProviderStatus, type ProviderDia
 import { credentialPresent, readAiEnv } from "@/lib/ai/runtime";
 import { columnMissing, schemaMissing, serviceClient } from "@/lib/db/client";
 import type { StampedAttempt } from "@/lib/drafts/chain";
-import { readDiagnosticTrace, type EditorialTrace, type UnderstandTrace } from "@/lib/editorial/trace";
+import { readDiagnosticTrace, understandingFailureNotice, type EditorialTrace, type UnderstandTrace, type UnderstandingFailureNotice } from "@/lib/editorial/trace";
 import { lagosDayStart } from "@/lib/intel/limits";
 import { usageSince } from "@/lib/db/usage";
 
@@ -256,6 +256,31 @@ export async function editorialAssessmentHistory(limit = 5): Promise<EditorialHi
     });
   }
   return items;
+}
+
+/** Latest failed understanding, as a short field error. The rejected JSON stays on the server. */
+export async function latestUnderstandingFailure(): Promise<UnderstandingFailureNotice | null> {
+  const db = serviceClient();
+  if (!db) return null;
+  const selected = await db
+    .from("ai_attempts")
+    .select("provider, failure_reason, response, completed_at")
+    .eq("task", "understand")
+    .eq("status", "failure")
+    .order("completed_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (selected.error || !selected.data) return null;
+  const provider = typeof selected.data.provider === "string" ? selected.data.provider : "";
+  const fromBody = understandingFailureNotice(selected.data.response, provider);
+  const fallback = typeof selected.data.failure_reason === "string" ? selected.data.failure_reason.slice(0, 300) : null;
+  const explanation = fromBody ?? fallback;
+  if (!explanation) return null;
+  return {
+    explanation,
+    completedAt: typeof selected.data.completed_at === "string" ? selected.data.completed_at : "",
+    provider,
+  };
 }
 
 export async function calledToday(): Promise<Record<ProviderId, number>> {

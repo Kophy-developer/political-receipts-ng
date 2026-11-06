@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { planExtractionProviders, type AiEnv, type ProviderId } from "../lib/ai/catalog";
 import type { ProviderCallResult, ProviderPlan, ProviderRequest } from "../lib/ai/route";
 import { assessmentBatches, type ConversationPacket } from "../lib/editorial/packet";
-import { readUnderstandTrace, withUnderstandVersions } from "../lib/editorial/trace";
+import { readUnderstandTrace, rejectedUnderstandingResponse, withUnderstandVersions } from "../lib/editorial/trace";
 import { understandPackets } from "../lib/editorial/understand-ai";
 import {
   cannotUnderstand,
@@ -11,6 +11,7 @@ import {
   routeAll,
   understandConfirmation,
   understandSystem,
+  understandingFailureMessage,
   type ConversationUnderstanding,
 } from "../lib/editorial/understand";
 import { queueLifecycle } from "../lib/editorial/model";
@@ -127,10 +128,11 @@ const readings = [
   reading({ conversationId: "unclear", understood: false, primaryKind: "unclear", summary: "The fragment does not say what performance is being judged." }),
 ];
 const model = { conversations: readings.map(wire) };
-check("a partial understanding is rejected", parseConversationUnderstanding({ conversations: model.conversations.slice(0, 3) }, themed.map((item) => item.id)) === null);
+const partial = parseConversationUnderstanding({ conversations: model.conversations.slice(0, 3) }, themed.map((item) => item.id));
+check("a partial understanding names the missing conversation", partial.success === false && partial.errors.some((error) => error.message === "missing conversation_id" && error.conversation_id === "event"));
 const parsed = parseConversationUnderstanding(model, themed.map((item) => item.id));
-check("every conversation must validate", parsed?.length === themed.length);
-const routed = routeAll(themed, parsed ?? [], now);
+check("every conversation must validate", parsed.success === true && parsed.validated_output?.length === themed.length);
+const routed = routeAll(themed, parsed.validated_output ?? [], now);
 const byId = (id: string) => routed.find((item) => item.id === id);
 check("a checkable assertion stays in the queue and asks for research", Boolean(byId("fact")?.lifecycle === "RANKED" && byId("fact")?.routes.includes("CHECK") && byId("fact")?.researchNeed === "yes" && queueLifecycle(byId("fact")?.lifecycle ?? "")));
 check("a figure can also support analysis or an original insight", byId("economy")?.routes.includes("ORIGINAL_INSIGHT") === true && byId("economy")?.researchNeed === "yes");
@@ -145,6 +147,75 @@ check("low value sits after the other understood items", (byId("insult")?.rank ?
 const factCard = inboxRecords(byId("fact")!, "scan", 3);
 check("a check enters the inbox without an evidence row", factCard.opportunity.claim_id === null && factCard.opportunity.lifecycle === "RANKED" && factCard.opportunity.understanding.primaryKind === "factual_assertion");
 check("ten stored conversations stay one provider request", assessmentBatches(Array.from({ length: 10 }, (_, index) => packet(`c${index}`, `Stored post ${index}.`))).length === 1);
+
+function opinionRow(id: string, primary = " Opinion ") {
+  return {
+    conversation_id: id,
+    summary: "A judgment.",
+    primary_kind: primary,
+    research_need: " NO ",
+    reason_for_research_need: "No record is required.",
+    understood: true,
+    possible_routes: ["opinion", " opinion ", "OPINION"],
+    commentary: "ignored extra field",
+  };
+}
+const normalized = parseConversationUnderstanding({ readings: [opinionRow("one")] }, ["one"]);
+check(
+  "casing, duplicate routes, missing arrays, and extra fields normalize",
+  normalized.success === true
+    && normalized.validated_output?.[0]?.primaryKind === "opinion"
+    && normalized.validated_output[0].researchNeed === "no"
+    && normalized.validated_output[0].subjects.length === 0
+    && normalized.validated_output[0].checkableFacts.length === 0
+    && normalized.validated_output[0].dataOrNumbersInvolved === false
+    && normalized.validated_output[0].possibleRoutes.join(",") === "OPINION",
+);
+const wrapped = parseConversationUnderstanding({ data: { readings: [opinionRow("one")] } }, ["one"]);
+const listed = parseConversationUnderstanding({ result: [opinionRow("one")] }, ["one"]);
+check("a documented wrapper can hold the readings", wrapped.success === true && listed.success === true);
+const ids = ["a", "b", "c", "d"];
+const unknownKind = parseConversationUnderstanding({
+  conversations: ids.map((id, index) => opinionRow(id, index === 3 ? "news" : "opinion")),
+}, ids);
+check(
+  "an unknown kind names the field and value",
+  unknownKind.success === false
+    && understandingFailureMessage("Groq", unknownKind.errors) === "Groq returned JSON but validation failed at readings[3].primary_kind: unsupported value \"news\".",
+);
+const badNeed = parseConversationUnderstanding({ readings: [{ ...opinionRow("one"), research_need: "none" }] }, ["one"]);
+check("research_need is not coerced", badNeed.success === false && badNeed.errors.some((error) => error.field_path === "readings[0].research_need" && error.message === "unsupported value \"none\""));
+const badUnderstood = parseConversationUnderstanding({ readings: [{ ...opinionRow("one"), understood: "true" }] }, ["one"]);
+check("understood is not coerced from a string", badUnderstood.success === false && badUnderstood.errors.some((error) => error.field_path === "readings[0].understood" && error.received_type === "string"));
+const paddedId = parseConversationUnderstanding({ readings: [{ ...opinionRow("one"), conversation_id: " one" }] }, ["one"]);
+check("conversation ids are not trimmed into a match", paddedId.success === false && paddedId.errors.some((error) => error.message === "unknown conversation_id") && paddedId.errors.some((error) => error.message === "missing conversation_id"));
+const duplicated = parseConversationUnderstanding({ readings: [opinionRow("a"), opinionRow("a")] }, ["a", "b"]);
+check("duplicate and missing ids are named", duplicated.success === false && duplicated.errors.some((error) => error.message === "duplicate conversation_id" && error.conversation_id === "a") && duplicated.errors.some((error) => error.message === "missing conversation_id" && error.conversation_id === "b"));
+const badSummary = parseConversationUnderstanding({ readings: [{ ...opinionRow("one"), summary: 12 }] }, ["one"]);
+check("a malformed required value names its field", badSummary.success === false && badSummary.errors.some((error) => error.field_path === "readings[0].summary" && error.received_type === "number"));
+const rejected = rejectedUnderstandingResponse({
+  provider: "groq",
+  model: "openai/gpt-oss-20b",
+  requestId: "req",
+  errors: unknownKind.errors,
+  parsed: { conversations: [{ summary: "bearer abcdefghijklmnop", api_key: "secret-value" }] },
+});
+check(
+  "rejected JSON is redacted before it is stored",
+  rejected.kind === "conversation-understand-v1-rejected"
+    && rejected.errors[0]?.field_path === "readings[3].primary_kind"
+    && JSON.stringify(rejected.parsed).includes("[redacted]")
+    && !JSON.stringify(rejected.parsed).includes("abcdefghijklmnop")
+    && !JSON.stringify(rejected.parsed).includes("secret-value"),
+);
+const bulky = rejectedUnderstandingResponse({
+  provider: "groq",
+  model: "openai/gpt-oss-20b",
+  requestId: "req",
+  errors: unknownKind.errors,
+  parsed: { conversations: Array.from({ length: 30 }, () => Object.fromEntries(Array.from({ length: 40 }, (_, index) => [`field${index}`, "x".repeat(400)]))) },
+});
+check("an oversized rejected object is truncated and the field error remains", bulky.truncated === true && (bulky.parsed as { truncated?: boolean }).truncated === true && bulky.errors.length > 0);
 
 const wires = model.conversations;
 async function main() {
@@ -185,7 +256,14 @@ async function main() {
   const versioned = readUnderstandTrace(withUnderstandVersions(saved?.response, { fact: 4, missing: 9 }));
   check("versions attach only to conversations in the reading", versioned?.assessmentVersions.fact === 4 && versioned.assessmentVersions.missing == null);
   const failed = run.attempts.find((attempt) => attempt.provider === "groq");
-  check("a malformed attempt is not stored as the reading", failed?.status === "failure" && failed.response == null);
+  const failedBody = failed?.response as { kind?: string; errors?: Array<{ message?: string }> } | null;
+  check(
+    "a rejected object is stored with the missing conversation",
+    failed?.status === "failure"
+      && failedBody?.kind === "conversation-understand-v1-rejected"
+      && failed?.failureReason?.includes("missing conversation_id") === true
+      && failedBody.errors?.some((error) => error.message === "missing conversation_id") === true,
+  );
 }
 
 const active = readFileSync("lib/db/editorial.ts", "utf8");
@@ -193,6 +271,8 @@ const discover = readFileSync("components/desk/discover.tsx", "utf8");
 check("the active path understands stored posts", active.includes("understandPackets") && !active.includes("assessPackets("));
 check("understanding does not call X, research, or publish", !/searchRecent|tavily|brave|@\/lib\/research\/execute|@\/lib\/x\/publish/.test(active));
 check("the desk shows the understanding confirmation", discover.includes("understandConfirmation") && discover.includes("Understand saved conversations"));
+check("the desk separates understanding from historical extraction", discover.includes("Historical extraction") && discover.includes("Latest understanding") && !discover.includes("conversation-understand-v1-rejected"));
+check("settings shows the field error without the rejected body", readFileSync("components/settings/panel.tsx", "utf8").includes("Latest understanding failure") && readFileSync("components/settings/panel.tsx", "utf8").includes("not shown here"));
 check("the queue is an inbox", readFileSync("components/desk/pipeline.tsx", "utf8").includes("Low value") && readFileSync("components/desk/pipeline.tsx", "utf8").includes("Possible routes"));
 
 main().then(() => {

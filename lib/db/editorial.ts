@@ -181,7 +181,9 @@ export async function reassessSavedScan(scanId: string) {
     return {
       ...empty,
       modelCalls: understood.modelCalls,
-      message: "The stored conversations could not be understood. Earlier cards were left in place. No X request or research call was made, and nothing was published.",
+      message: understood.failureMessage
+        ? `${understood.failureMessage} Earlier cards were left in place. Nothing was published.`
+        : "The stored conversations could not be understood. Earlier cards were left in place. No X request or research call was made, and nothing was published.",
     };
   }
   const ranked = understood.routed;

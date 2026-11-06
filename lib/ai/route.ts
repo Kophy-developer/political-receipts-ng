@@ -52,6 +52,8 @@ export type AttemptRecord = {
   finishReason?: string | null;
   providerRequestId?: string | null;
   response?: unknown;
+  /** Parsed provider JSON kept only long enough for the caller to store a redacted diagnostic. Not a database column. */
+  parsedPayload?: unknown;
 };
 
 export type RouteResult = {
@@ -199,7 +201,13 @@ export async function generateStructuredContent(input: {
         invalidResponse: true,
         message: "The JSON did not match the requested shape.",
       });
-      await record({ ...base, diagnostic, status: "failure", failureReason: editorMessage(diagnostic) });
+      await record({
+        ...base,
+        diagnostic,
+        status: "failure",
+        failureReason: editorMessage(diagnostic),
+        parsedPayload: raw.data,
+      });
       continue;
     }
     if (verdict === "rejected") {

@@ -121,7 +121,7 @@ export function deskJobView(input: { job: ReprocessJob | null; postsSaved: numbe
         "Reprocess complete",
         `${posts} posts processed`,
         `${input.job.conversations} conversations reviewed`,
-        `${input.job.opportunities} ${input.job.opportunities === 1 ? "opportunity" : "opportunities"} found`,
+        `Historical extraction result: ${input.job.opportunities} ${input.job.opportunities === 1 ? "opportunity" : "opportunities"} found`,
         `AI provider: ${provider}`,
       ],
       trail: phaseTrail("complete"),

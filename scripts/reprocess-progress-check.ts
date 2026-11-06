@@ -61,7 +61,7 @@ const groqDone = job({
 const success = deskJobView({ job: groqDone, postsSaved: 10, now: started + 30_000 });
 check("Groq success updates the desk", success.kind === "complete" && success.lines.includes("Reprocess complete") && success.lines.includes("AI provider: Groq"));
 check("a completed reprocess removes the Gemini failure warning", success.lines.every((line) => !line.includes("The model did not answer in time") && !line.includes("AI analysis incomplete")));
-check("success counts the stored posts", success.lines.includes("10 posts processed") && success.lines.includes("10 conversations reviewed") && success.lines.includes("2 opportunities found"));
+check("success counts the stored posts", success.lines.includes("10 posts processed") && success.lines.includes("10 conversations reviewed") && success.lines.includes("Historical extraction result: 2 opportunities found"));
 
 let steps = noteTrying([], "groq");
 steps = noteFinished(steps, "groq", "failed", "TIMEOUT");

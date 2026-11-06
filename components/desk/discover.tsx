@@ -230,7 +230,7 @@ export function DeskDiscover({
       ) : null}
       {scanId ? (
         <div className="mt-6 border border-rule px-4 py-4 text-sm">
-          <p className="font-mono text-[11px] tracking-[0.16em] text-ink-soft uppercase">Latest scan</p>
+          <p className="font-mono text-[11px] tracking-[0.16em] text-ink-soft uppercase">Historical extraction</p>
           {view.lines.map((line) => <p key={line} className="mt-2">{line}</p>)}
           {view.trail.length > 0 ? (
             <div className="mt-3">
@@ -259,6 +259,7 @@ export function DeskDiscover({
               {view.button}
             </button>
           ) : null}
+          <p className="mt-4 font-mono text-[11px] tracking-[0.16em] text-ink-soft uppercase">Latest understanding</p>
           <dl className="mt-3 space-y-1 text-sm text-ink-soft">
             {understandConfirmation(storedConversations).map((line) => <div key={line}>{line}</div>)}
           </dl>
