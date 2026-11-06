@@ -42,6 +42,7 @@ const pipelineColumns = [
   "possible_angle",
   "content_pillar",
   "understanding",
+  "development",
 ].join(", ");
 
 function textOf(value: unknown) {
@@ -95,8 +96,28 @@ function cardFrom(row: Record<string, unknown>): PipelineCard {
     review: null,
     draftingCandidate: true,
     premises: [],
+    ...developmentOf(row.development),
   };
   return card;
+}
+
+function developmentOf(value: unknown): Pick<PipelineCard, "developmentAngle" | "developmentUnresolved" | "developmentDrafts"> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return { developmentAngle: null, developmentUnresolved: null, developmentDrafts: [] };
+  }
+  const row = value as { angle?: unknown; unresolved?: unknown; drafts?: unknown };
+  const drafts = Array.isArray(row.drafts)
+    ? row.drafts.flatMap((item) => {
+        if (!item || typeof item !== "object") return [];
+        const text = (item as { text?: unknown }).text;
+        return typeof text === "string" && text.trim() ? [text] : [];
+      })
+    : [];
+  return {
+    developmentAngle: typeof row.angle === "string" ? row.angle : null,
+    developmentUnresolved: typeof row.unresolved === "string" ? row.unresolved : null,
+    developmentDrafts: drafts,
+  };
 }
 
 function presentCurrent(card: PipelineCard): PipelineCard {
@@ -122,9 +143,10 @@ export async function listPipeline() {
   const db = serviceClient();
   if (!db) return { ok: false as const, reason: "unconfigured" as const, cards: [] as PipelineCard[], earlier: [] as PipelineCard[], history: [] as PipelineCard[] };
   let primary = await db.from("opportunities").select(pipelineColumns).order("created_at", { ascending: false });
-  if (primary.error && columnMissing(primary.error.message) && /understanding/i.test(primary.error.message)) {
-    const withoutUnderstanding = pipelineColumns.split(", ").filter((column) => column !== "understanding").join(", ");
-    primary = await db.from("opportunities").select(withoutUnderstanding).order("created_at", { ascending: false });
+  if (primary.error && columnMissing(primary.error.message) && /development|understanding/i.test(primary.error.message)) {
+    const missing = /development/i.test(primary.error.message) ? "development" : "understanding";
+    const reduced = pipelineColumns.split(", ").filter((column) => column !== missing).join(", ");
+    primary = await db.from("opportunities").select(reduced).order("created_at", { ascending: false });
   }
   if (primary.error && (columnMissing(primary.error.message) || schemaMissing(primary.error.message))) {
     const fallback = await db

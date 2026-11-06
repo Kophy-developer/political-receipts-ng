@@ -501,7 +501,7 @@ export function draftSchema(only?: GeneratedStyle) {
   };
 }
 
-export function savedDraftFields(piece: DraftPiece, input: { provider: "groq" | "openrouter" | "gemini" | "editor"; model: string | null; editorModified: boolean }) {
+export function savedDraftFields(piece: DraftPiece, input: { provider: "groq" | "openrouter" | "gemini" | "editor"; model: string | null; editorModified: boolean; sourceHash?: string | null }) {
   return {
     version: piece.version,
     content: piece.text,
@@ -520,6 +520,7 @@ export function savedDraftFields(piece: DraftPiece, input: { provider: "groq" | 
       hashtag: piece.hashtag,
       provider: input.provider,
       promptVersion: DRAFT_PROMPT_VERSION,
+      ...(input.sourceHash ? { sourceHash: input.sourceHash } : {}),
     },
   };
 }

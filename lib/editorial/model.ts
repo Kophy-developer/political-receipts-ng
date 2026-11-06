@@ -249,6 +249,9 @@ export type PipelineCard = {
   review: string | null;
   draftingCandidate: boolean;
   premises: string[];
+  developmentAngle: string | null;
+  developmentUnresolved: string | null;
+  developmentDrafts: string[];
 };
 
 export function postShape(text: string, maximum = 280) {

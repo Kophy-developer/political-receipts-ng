@@ -31,6 +31,8 @@ type ClaimCard = {
   angleChosen: boolean;
   evidence: Array<{ review: string; tier: string; title: string; organization: string }>;
   recorded: Array<{ kind: string; label: string }>;
+  interpretation?: string | null;
+  limitation?: string | null;
 };
 
 export function StoryWorkspace({
@@ -181,6 +183,8 @@ export function StoryWorkspace({
             <summary className="cursor-pointer text-sm">Editorial decision</summary>
             <p className="mt-3 text-sm">Verdict {claim.verdict ?? "Not recorded"}. Confidence {claim.confidence ?? "Not recorded"}.</p>
             <p className="mt-1 text-sm">Angle {claim.angle ?? "Not chosen"}.</p>
+            {claim.interpretation ? <p className="mt-2 text-sm">Corrected reading: {claim.interpretation}</p> : null}
+            {claim.limitation ? <p className="mt-2 text-sm">Unresolved: {claim.limitation}</p> : null}
           </details>
 
           <section id="publish" className="border border-ink px-4 py-5 sm:px-5">

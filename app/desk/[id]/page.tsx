@@ -59,6 +59,8 @@ async function StoryBody({ params }: { params: Promise<{ id: string }> }) {
         angleChosen: Boolean(result.claim.editorAngle),
         evidence: result.claim.evidence.map((item) => ({ review: item.review, tier: item.tier, title: item.title, organization: item.organization })),
         recorded: result.claim.verdictEvidenceUsed.map((item) => ({ kind: item.kind, label: item.label })),
+        interpretation: result.claim.attribution,
+        limitation: result.claim.verdictUnknown,
       }}
       finalPostId={finalPost?.id ?? null}
       finalText={finalPost?.text ?? ""}

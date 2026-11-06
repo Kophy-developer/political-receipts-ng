@@ -60,7 +60,7 @@ export async function loadClaimDrafts(claimId: string) {
   });
 }
 
-async function writePiece(claimId: string, piece: DraftPiece, input: { provider: "groq" | "openrouter" | "gemini" | "editor"; model: string | null; editorModified: boolean }) {
+async function writePiece(claimId: string, piece: DraftPiece, input: { provider: "groq" | "openrouter" | "gemini" | "editor"; model: string | null; editorModified: boolean; sourceHash?: string | null }) {
   const db = serviceClient();
   if (!db) return { ok: false as const, message: "The database is not configured." };
   const fields = savedDraftFields(piece, input);
@@ -89,10 +89,10 @@ async function writePiece(claimId: string, piece: DraftPiece, input: { provider:
   return { ok: true as const, id: inserted.data.id as string };
 }
 
-export async function storeGeneratedDrafts(claimId: string, pieces: DraftPiece[], source: { provider: "groq" | "openrouter" | "gemini"; model: string | null }) {
+export async function storeGeneratedDrafts(claimId: string, pieces: DraftPiece[], source: { provider: "groq" | "openrouter" | "gemini"; model: string | null; sourceHash?: string | null }) {
   const ids: string[] = [];
   for (const piece of pieces) {
-    const saved = await writePiece(claimId, piece, { provider: source.provider, model: source.model, editorModified: false });
+    const saved = await writePiece(claimId, piece, { provider: source.provider, model: source.model, editorModified: false, sourceHash: source.sourceHash ?? null });
     if (!saved.ok) return saved;
     ids.push(saved.id);
   }

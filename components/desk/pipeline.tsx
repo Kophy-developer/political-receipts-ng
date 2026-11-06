@@ -22,6 +22,8 @@ export type ReadyItem = {
   count: number;
   shape: string;
   href: string;
+  limitation?: string | null;
+  drafts?: string[];
 };
 
 export function EditorialPipeline({
@@ -82,6 +84,14 @@ export function EditorialPipeline({
                 <h3 className="mt-2 font-serif text-2xl leading-snug">{item.title}</h3>
                 <p className="mt-3 whitespace-pre-wrap text-sm leading-relaxed">{item.text}</p>
                 <p className="mt-3 text-sm">{item.why}</p>
+                {item.limitation ? <p className="mt-2 text-sm">Unresolved: {item.limitation}</p> : null}
+                {item.drafts && item.drafts.length > 0 ? (
+                  <ul className="mt-3 space-y-2 text-sm">
+                    {item.drafts.map((draft) => (
+                      <li key={draft} className="border border-rule px-3 py-2 whitespace-pre-wrap">{draft}</li>
+                    ))}
+                  </ul>
+                ) : null}
                 {item.evidence ? <p className="mt-2 text-sm text-ink-soft">{item.evidence}</p> : null}
                 {item.sources.length > 0 ? (
                   <ul className="mt-2 space-y-1 text-sm">
@@ -266,15 +276,78 @@ function QueueItem({ item, busy, onPass }: { item: PipelineCard; busy: boolean; 
                 : "In the queue"}
         {item.discoveredAt ? ` · Discovered ${chicagoStamp(item.discoveredAt)}` : ""}
       </p>
+      <div className="mt-3 flex flex-wrap gap-2">
+        <DevelopButton id={item.id} busy={busy} />
+        <button
+          type="button"
+          disabled={busy}
+          onClick={onPass}
+          className="inline-flex h-9 items-center border border-ink px-3 text-sm disabled:opacity-50"
+        >
+          Pass
+        </button>
+      </div>
+    </li>
+  );
+}
+
+function DevelopButton({ id, busy }: { id: string; busy: boolean }) {
+  const router = useRouter();
+  const [note, setNote] = useState<string | null>(null);
+  const [preview, setPreview] = useState<{ message: string; blocked: boolean } | null>(null);
+  const [working, setWorking] = useState(false);
+
+  async function send(action: "preview" | "start") {
+    setWorking(true);
+    setNote(null);
+    try {
+      const response = await fetch("/api/desk/develop", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id, action }),
+      });
+      const body = (await response.json()) as { ok?: boolean; message?: string; blocked?: boolean };
+      if (action === "preview") {
+        setPreview({ message: body.message || "The preview could not be read.", blocked: body.blocked !== false });
+        return;
+      }
+      setNote(body.message || (body.ok ? "Development finished. Nothing was published." : "Development stopped. Nothing was published."));
+      setPreview(null);
+      if (body.ok) router.refresh();
+    } catch {
+      setNote("The desk could not reach the server. Nothing was called.");
+    } finally {
+      setWorking(false);
+    }
+  }
+
+  return (
+    <div className="max-w-xl">
       <button
         type="button"
-        disabled={busy}
-        onClick={onPass}
-        className="mt-3 inline-flex h-9 items-center border border-ink px-3 text-sm disabled:opacity-50"
+        disabled={busy || working}
+        onClick={() => void send("preview")}
+        className="inline-flex h-9 items-center bg-ink px-3 text-sm text-paper disabled:opacity-50"
       >
-        Pass
+        {working ? "Working…" : "Develop content"}
       </button>
-    </li>
+      {preview ? (
+        <div className="mt-2 border border-rule px-3 py-2">
+          <p className="text-sm">{preview.message}</p>
+          {preview.blocked ? null : (
+            <button
+              type="button"
+              disabled={busy || working}
+              onClick={() => void send("start")}
+              className="mt-2 inline-flex h-9 items-center border border-ink px-3 text-sm disabled:opacity-50"
+            >
+              Start development
+            </button>
+          )}
+        </div>
+      ) : null}
+      {note ? <p className="mt-2 text-sm">{note}</p> : null}
+    </div>
   );
 }
 
