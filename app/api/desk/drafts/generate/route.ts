@@ -6,6 +6,7 @@ import { getClaim } from "@/lib/db/claims";
 import { loadClaimDrafts, saveClaimDraft, selectClaimDraft, storeEditorDraft, storeGeneratedDrafts } from "@/lib/db/drafting";
 import { isUuid } from "@/lib/db/labels";
 import { draftWithProviders } from "@/lib/drafts/chain";
+import { isPollingUnitStory } from "@/lib/drafts/legacy-polling";
 import { appendSourcePost, DRAFT_UNAVAILABLE, draftBriefFrom, judgeEditorText, judgeSavedText, type GeneratedStyle } from "@/lib/drafts/rules";
 import { draftUnlocked } from "@/lib/research/editor-review";
 import { assertEditorPost } from "@/lib/x/guard";
@@ -32,6 +33,7 @@ export async function POST(request: Request) {
   const claim = loaded.claim;
   const gate = draftUnlocked({ recordedAt: claim.verdictRecordedAt, angle: claim.editorAngle, angleText: claim.editorAngleText });
   if (!gate.open) return Response.json({ ok: false, message: gate.reason }, { status: 400 });
+  const draftRules = isPollingUnitStory(`${claim.claim}\n${claim.postText}`) ? "legacy" as const : "general" as const;
   const brief = draftBriefFrom({
     claim: claim.claim,
     postText: claim.postText,
@@ -55,13 +57,13 @@ export async function POST(request: Request) {
       const sources = typeof body.sources === "string" ? body.sources : "";
       const attached = appendSourcePost(content, sources);
       if (!attached.ok) return Response.json({ ok: false, message: attached.reason }, { status: 400 });
-      const judged = judgeSavedText(current.style, attached.text, hashtagAlreadyUsed);
+      const judged = judgeSavedText(current.style, attached.text, hashtagAlreadyUsed, draftRules);
       if (!judged.ok) return Response.json({ ok: false, message: judged.reason }, { status: 400 });
       const saved = await saveClaimDraft({ claimId, draftId, piece: judged.draft, angle: brief.angleTitle, verdict: brief.verdict });
       if (!saved.ok) return Response.json({ ok: false, message: saved.message }, { status: 400 });
       return Response.json({ ok: true, message: "Draft saved. It was not published." });
     }
-    const judged = judgeEditorText(content, hashtagAlreadyUsed);
+    const judged = judgeEditorText(content, hashtagAlreadyUsed, draftRules);
     if (!judged.ok) return Response.json({ ok: false, message: judged.reason }, { status: 400 });
     const saved = await storeEditorDraft(claimId, judged.draft);
     if (!saved.ok) return Response.json({ ok: false, message: saved.message }, { status: 400 });

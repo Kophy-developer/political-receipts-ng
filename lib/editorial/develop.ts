@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { describeSource, type SourceQuality } from "@/lib/editorial/quality";
+import { classifyEvidence, type EvidenceStatus, type FailureKind, type SearchStatus, type SourceStance } from "@/lib/research/relevance";
 
 export const editorialReview = "Needs editorial review" as const;
 
@@ -9,6 +10,12 @@ export type RetrievedSource = {
   title: string;
   url: string;
   domain: string;
+  snippet?: string | null;
+  opened?: boolean;
+  text?: string | null;
+  premise?: string;
+  stance?: SourceStance;
+  limitation?: string;
 };
 
 export type DevelopmentDraft = {
@@ -23,6 +30,10 @@ export type DevelopmentState = {
   quality: SourceQuality;
   completed: Array<"interpret" | "research" | "angle" | "draft">;
   evidence: { label: EvidenceLabel; sources: RetrievedSource[] } | null;
+  evidenceStatus: EvidenceStatus | null;
+  searchStatus: SearchStatus | null;
+  failureKind: FailureKind | null;
+  nextAction: string | null;
   angle: string | null;
   anglePoints: string[];
   drafts: DevelopmentDraft[];
@@ -77,10 +88,41 @@ export function sourceHash(sourceText: string) {
   return createHash("sha256").update(sourceText.replace(/\s+/g, " ").trim()).digest("hex");
 }
 
-export function labelRetrieved(sources: Array<{ domain: string; social: boolean }>): EvidenceLabel {
-  if (sources.length === 0) return "none";
-  if (sources.some((source) => source.domain && !source.social)) return "usable";
-  return "insufficient";
+export function labelRetrieved(sources: Array<{ domain: string; social: boolean; title?: string; snippet?: string | null; opened?: boolean; text?: string | null }>, premises: string[] = []) {
+  const classified = classifyEvidence({
+    premises: premises.length ? premises : ["the factual premise"],
+    sources: sources.map((source) => ({
+      title: source.title || source.domain,
+      url: `https://${source.domain}`,
+      domain: source.domain,
+      snippet: source.snippet,
+      opened: source.opened,
+      text: source.text,
+    })),
+    searchCompleted: true,
+  });
+  return classified.label;
+}
+
+const furtherSearchNote = "Next action: editorial review. A further search is separate, up to 3 searches, and it does not reset the daily cap. It does not run until you confirm.";
+
+export function revalidateDevelopment(state: DevelopmentState): DevelopmentState {
+  const premises = state.quality.checkableFacts.length ? state.quality.checkableFacts : [state.quality.summary];
+  const classified = classifyEvidence({
+    premises,
+    sources: state.evidence?.sources ?? [],
+    searchCompleted: state.completed.includes("research"),
+  });
+  const required = state.quality.researchNeed === "yes";
+  const ready = state.ready && (!required || classified.evidenceStatus === "EVIDENCE_READY");
+  return {
+    ...state,
+    evidence: { label: classified.label, sources: classified.readings },
+    evidenceStatus: state.completed.includes("research") ? classified.evidenceStatus : state.evidenceStatus,
+    searchStatus: classified.searchStatus,
+    failureKind: required && classified.evidenceStatus !== "EVIDENCE_READY" ? classified.failureKind : state.failureKind,
+    ready,
+  };
 }
 
 export function factualContextNeeded(quality: SourceQuality) {
@@ -164,6 +206,10 @@ export function initialDevelopment(sourceText: string): DevelopmentState {
     quality,
     completed: ["interpret"],
     evidence: null,
+    evidenceStatus: null,
+    searchStatus: null,
+    failureKind: null,
+    nextAction: null,
     angle: null,
     anglePoints: [],
     drafts: [],
@@ -237,7 +283,7 @@ function cites(text: string, sources: RetrievedSource[]) {
 
 export function judgeDevelopmentDrafts(state: DevelopmentState, drafts: Array<{ text: string }>) {
   if (drafts.length === 0) return { ok: false as const, question: "No draft was saved." };
-  const sources = state.evidence?.sources ?? [];
+    const sources = (state.evidence?.sources ?? []).filter((source) => source.opened && source.stance && source.stance !== "does_not_address");
   for (const draft of drafts) {
     const text = draft.text;
     if (/https?:\/\//i.test(text)) return { ok: false as const, question: "A draft contains a link. Sources stay on the card, and the draft was not moved to Ready for You." };
@@ -249,7 +295,7 @@ export function judgeDevelopmentDrafts(state: DevelopmentState, drafts: Array<{ 
       const framed = /not a result|speculation|not a forecast|does not forecast/i.test(text);
       if (!framed) return { ok: false as const, question: "The draft treats a prediction as a result. It needs to say this is speculation." };
     } else if (state.quality.researchNeed === "yes") {
-      if (state.evidence?.label !== "usable") return { ok: false as const, question: "Required research did not produce usable evidence." };
+      if (state.evidenceStatus !== "EVIDENCE_READY") return { ok: false as const, question: "Required research does not have an opened source that addresses the premise." };
       if (!unresolvedLanguage(text) && !cites(text, sources)) {
         return { ok: false as const, question: "A factual draft neither cites the retrieved evidence nor says what is unresolved." };
       }
@@ -294,9 +340,12 @@ export function nextStep(state: DevelopmentState): DevelopmentStep {
       context: state.quality.summary,
     };
   }
-  if (required && state.evidence?.label !== "usable") {
+  if (required && state.evidenceStatus !== "EVIDENCE_READY") {
     const question = state.quality.checkableFacts[0] || state.quality.summary;
-    return { kind: "review", question: `Usable evidence was not retrieved for: ${question}` };
+    const why = state.evidenceStatus === "RELEVANT_EVIDENCE_FOUND"
+      ? `A result mentions the premise, but no page was opened. It is not proof. ${question}`
+      : `No saved result addresses the premise. ${question}`;
+    return { kind: "review", question: `${why} ${furtherSearchNote}` };
   }
   if (!state.completed.includes("angle") || !state.angle) return { kind: "angle" };
   if (!state.completed.includes("draft")) {
@@ -306,8 +355,8 @@ export function nextStep(state: DevelopmentState): DevelopmentStep {
       points: state.anglePoints,
       verdict: state.quality.primaryKind === "prediction"
         ? "This is a prediction, not a result. Do not forecast the election."
-        : state.evidence?.label === "usable"
-          ? "Retrieved sources are context. Do not announce a verdict."
+        : state.evidenceStatus === "EVIDENCE_READY"
+          ? "Opened sources address the premise. Do not announce a verdict they do not support."
           : "The source was not independently verified.",
     };
   }
@@ -323,10 +372,18 @@ function withResearch(state: DevelopmentState, result: ResearchResult): Developm
       researchCalls: state.researchCalls + (result.called ? 1 : 0),
     };
   }
+  const classified = classifyEvidence({
+    premises: state.quality.checkableFacts.length ? state.quality.checkableFacts : [state.quality.summary],
+    sources: result.sources,
+    searchCompleted: true,
+  });
   return {
     ...state,
     completed: state.completed.includes("research") ? state.completed : [...state.completed, "research"],
-    evidence: { label: result.label, sources: result.sources },
+    evidence: { label: classified.label, sources: classified.readings },
+    evidenceStatus: classified.evidenceStatus,
+    searchStatus: classified.searchStatus,
+    failureKind: classified.failureKind,
     researchFailed: false,
     error: null,
     researchCalls: state.researchCalls + (result.called ? 1 : 0),
@@ -378,14 +435,23 @@ function withDraft(state: DevelopmentState, result: DraftResult): DevelopmentSta
 }
 
 export async function advanceDevelopment(state: DevelopmentState, ports: DevelopmentPorts) {
-  let current: DevelopmentState = { ...state, error: state.draftFailed || state.researchFailed ? null : state.error };
+  const checked = revalidateDevelopment(state);
+  let current: DevelopmentState = { ...checked, error: checked.draftFailed || checked.researchFailed ? null : checked.error };
   for (let step = 0; step < 6; step += 1) {
     const next = nextStep(current);
     if (next.kind === "blocked") {
       return { ...current, ready: false, review: current.quality.review, error: null, unresolved: next.message };
     }
     if (next.kind === "review") {
-      return { ...current, ready: false, review: editorialReview, unresolved: next.question, error: null };
+      return {
+        ...current,
+        ready: false,
+        review: editorialReview,
+        unresolved: next.question,
+        nextAction: furtherSearchNote,
+        failureKind: current.failureKind ?? (current.evidenceStatus === "RELEVANT_EVIDENCE_FOUND" ? "inadequate evidence" : "source relevance"),
+        error: null,
+      };
     }
     if (next.kind === "ready") return { ...current, ready: true, review: null };
     if (next.kind === "research") {
@@ -403,7 +469,7 @@ export async function advanceDevelopment(state: DevelopmentState, ports: Develop
       points: next.points,
       verdict: next.verdict,
       postText: current.sourceText,
-      evidence: current.evidence?.sources ?? [],
+      evidence: (current.evidence?.sources ?? []).filter((source) => source.opened && source.stance !== "does_not_address"),
     });
     current = withDraft(current, result);
     if (!result.ok) return current;
@@ -413,9 +479,21 @@ export async function advanceDevelopment(state: DevelopmentState, ports: Develop
 
 export function lifecycleForDevelopment(state: DevelopmentState) {
   if (state.ready) return "READY_FOR_EDITOR" as const;
+  if (state.quality.researchNeed === "yes" && state.completed.includes("research") && state.evidenceStatus !== "EVIDENCE_READY") {
+    return "RESEARCHING" as const;
+  }
   if (state.completed.includes("draft")) return "DRAFTING" as const;
   if (state.completed.includes("angle")) return "ANGLE_READY" as const;
-  if (state.completed.includes("research")) return "EVIDENCE_READY" as const;
+  if (state.evidenceStatus === "EVIDENCE_READY") return "EVIDENCE_READY" as const;
+  if (state.completed.includes("research")) return "RESEARCHING" as const;
   if (state.researchFailed || state.draftFailed) return "RESEARCHING" as const;
   return "RANKED" as const;
+}
+
+export function furtherSearchPreview() {
+  return {
+    searches: 3,
+    modelRequests: 0,
+    message: "A further search can look at the next source tier. Up to 3 searches. The completed search and its usage stay. The daily cap is not reset. Nothing runs until you confirm.",
+  };
 }

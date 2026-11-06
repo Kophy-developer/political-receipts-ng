@@ -260,6 +260,7 @@ function QueueItem({ item, busy, onPass }: { item: PipelineCard; busy: boolean; 
       <p className="mt-2 text-sm leading-relaxed">{item.title}</p>
       {item.premises.length > 0 ? <p className="mt-2 text-sm">Factual premise: {item.premises.join(" ")}</p> : null}
       {item.review ? <p className="mt-2 text-sm">{item.review}</p> : null}
+      {item.developmentUnresolved ? <p className="mt-2 text-sm">{item.developmentUnresolved}</p> : null}
       <p className="mt-2 text-sm">Primary kind: {kind}</p>
       {routes ? <p className="mt-1 text-sm">Possible routes: {routes}</p> : null}
       <p className="mt-1 text-sm">Research need: {item.research === "yes" ? "yes" : item.research === "recommended" ? "recommended" : "no"}</p>

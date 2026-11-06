@@ -1,8 +1,11 @@
 import { readFileSync } from "node:fs";
+import { developmentDraftPrompt, draftPrompt } from "../lib/drafts/rules";
 import { postCreateBody } from "../lib/publish/payload";
+import { classifyEvidence } from "../lib/research/relevance";
 import {
   advanceDevelopment,
   developmentPreview,
+  furtherSearchPreview,
   initialDevelopment,
   type DevelopmentPorts,
   type DevelopmentState,
@@ -26,15 +29,40 @@ const prediction = text("no way Tinubu will survive");
 const rhetoric = text("unity beggars");
 const ambiguous = "Foreign companies are investing in Nigeria because the economy is the best. Foreign companies do not invest in Nigeria.";
 
-const usable: RetrievedSource[] = [{ title: "University records", url: "https://www.example.edu/tinubu", domain: "example.edu" }];
+function openedFor(kind: string): RetrievedSource {
+  if (kind === "investment") {
+    return { title: "Foreign companies investing", url: "https://example.edu/investing", domain: "example.edu", opened: true, snippet: "foreign companies investing", text: "The opened page discusses foreign companies investing and does not settle the economy." };
+  }
+  if (kind === "ringtone") {
+    return { title: "The ringtone and the billboards", url: "https://example.edu/ringtone", domain: "example.edu", opened: true, snippet: "ringtone and billboards", text: "The opened page mentions the ringtone and billboards being torn down." };
+  }
+  return { title: "A file on the taxis he drove", url: "https://www.example.edu/taxis", domain: "example.edu", snippet: "The file mentions the taxis.", opened: true, text: "The opened page discusses the taxis he drove and does not close the question." };
+}
 
-function ports(log: { research: number; draft: number }, behavior: { research?: "usable" | "insufficient" | "fail"; draft?: "good" | "bad" | "fail" | "forecast" }): DevelopmentPorts {
+const usable: RetrievedSource[] = [{
+  title: "A file on the taxis he drove",
+  url: "https://www.example.edu/taxis",
+  domain: "example.edu",
+  snippet: "The file mentions the taxis.",
+  opened: true,
+  text: "The opened page discusses the taxis he drove and does not close the question.",
+}];
+const statehouse: RetrievedSource[] = [
+  "NIGERIA’S EDUCATION BUDGET JUMPS TO ₦3.52TRN UNDER PRESIDENT TINUBU",
+  "President Tinubu Remains Committed to Girl-Child Education",
+  "President Tinubu Appoints Governing Council of 2 Federal Universities",
+  "President Tinubu Approves Renewed Hope Infrastructure Development Fund",
+  "PRESIDENT TINUBU, REBUILDING ECONOMIC PILLARS",
+].map((title, index) => ({ title, url: `https://statehouse.gov.ng/page-${index}`, domain: "statehouse.gov.ng", opened: false, snippet: title }));
+
+function ports(log: { research: number; draft: number }, behavior: { research?: "usable" | "insufficient" | "snippet" | "fail"; draft?: "good" | "bad" | "fail" | "forecast" }): DevelopmentPorts {
   return {
     research: async () => {
       log.research += 1;
       if (behavior.research === "fail") return { ok: false, called: true, label: "none", sources: [], message: "The research provider did not answer." };
-      if (behavior.research === "insufficient") return { ok: true, called: true, label: "insufficient", sources: [{ title: "A social post", url: "https://x.com/example/status/1", domain: "x.com" }], message: "Search results were stored." };
-      return { ok: true, called: true, label: "usable", sources: usable, message: "Search results were stored." };
+      if (behavior.research === "insufficient") return { ok: true, called: true, label: "insufficient", sources: statehouse, message: "Search results were stored." };
+      if (behavior.research === "snippet") return { ok: true, called: true, label: "insufficient", sources: [{ title: "Report of the taxis he drove", url: "https://example.edu/taxis", domain: "example.edu", opened: false, snippet: "A headline mentions the taxis." }], message: "Search results were stored." };
+      return { ok: true, called: true, label: "usable", sources: [openedFor(currentKind)], message: "Search results were stored." };
     },
     draft: async () => {
       log.draft += 1;
@@ -51,7 +79,7 @@ function ports(log: { research: number; draft: number }, behavior: { research?: 
 
 let currentKind = "";
 function goodDraft(log: { research: number }) {
-  if (currentKind === "taxi") return "Tinubu says he drove taxis to fund university. example.edu has a page on file. This is not a closed verdict.";
+  if (currentKind === "taxi") return "Tinubu says he drove taxis to fund university. example.edu has an opened page on the taxis. This is not a closed verdict.";
   if (currentKind === "investment") return "The post rejects another person's claim that foreign companies are investing because of Tinubu. example.edu is the page on file, and this is not a verdict.";
   if (currentKind === "ringtone") return "The post pairs an opinion with a ringtone and billboards being torn down. example.edu is the page on file. The opinion was not independently verified.";
   if (currentKind === "atiku") return "The post reports that Atiku led the ADC to the Sultan's palace. This desk has not confirmed the visit. The other lines are commentary.";
@@ -123,6 +151,51 @@ check("a published story is not developed again", publishedRun.ready === false &
 
 const exact = postCreateBody("The editor approved this sentence.");
 check("publishing sends the approved text unchanged", exact.text === "The editor approved this sentence." && !("hashtag" in exact) && !JSON.stringify(exact).includes("#"));
+
+const savedTaxi = classifyEvidence({
+  premises: ["Tinubu says he drove taxis in the US to fund his university education."],
+  sources: statehouse,
+  searchCompleted: true,
+});
+check("the five statehouse pages do not address the taxi premise", savedTaxi.evidenceStatus === "EVIDENCE_INSUFFICIENT" && savedTaxi.searchStatus === "SEARCH_COMPLETED" && savedTaxi.readings.every((item) => item.stance === "does_not_address" && item.opened === false));
+const mentioned = await run(taxi, "taxi", { research: "snippet", draft: "good" });
+check("an unopened relevant snippet is not evidence ready and is not drafted", mentioned.state.evidenceStatus === "RELEVANT_EVIDENCE_FOUND" && mentioned.state.ready === false && mentioned.log.draft === 0 && mentioned.state.failureKind === "inadequate evidence");
+const stale: DevelopmentState = {
+  ...initialDevelopment(taxi),
+  completed: ["interpret", "research", "angle"],
+  angle: "Keep the claim with the speaker the post names. Do not move it onto the posting account.",
+  anglePoints: ["Do not say the claim was independently verified."],
+  evidence: { label: "usable", sources: statehouse },
+  evidenceStatus: "EVIDENCE_READY",
+  searchStatus: "SEARCH_COMPLETED",
+  draftFailed: true,
+  error: "AI OUTPUT REJECTED BY EDITORIAL VALIDATOR",
+};
+const staleLog = { research: 0, draft: 0 };
+const revalidated = await advanceDevelopment(stale, ports(staleLog, { research: "usable", draft: "good" }));
+check("retry revalidates stored evidence before any draft call", revalidated.ready === false && revalidated.review === "Needs editorial review" && staleLog.draft === 0 && staleLog.research === 0 && revalidated.completed.includes("research") && revalidated.angle === stale.angle);
+const openedLater: DevelopmentState = { ...revalidated, evidence: { label: "insufficient", sources: usable }, draftFailed: false, review: null, gateFailed: false };
+const resumedLog = { research: 0, draft: 0 };
+const resumed = await advanceDevelopment(openedLater, ports(resumedLog, { draft: "good" }));
+check("opened relevant evidence resumes drafting without a new search", resumed.ready === true && resumedLog.research === 0 && resumedLog.draft === 1);
+const taxiPrompt = developmentDraftPrompt({
+  claim: "Tinubu says he drove taxis in the US to fund his university education.",
+  postText: taxi,
+  verdict: "UNVERIFIED",
+  confidence: "low",
+  angleTitle: "Keep the claim with Tinubu.",
+  anglePoints: ["Do not forecast an election."],
+  take: null,
+  evidence: [],
+  attribution: "The post attributes this claim to Tinubu.",
+  interpretation: "The post attributes this claim to Tinubu: he drove taxis in the US to fund his university education.",
+  premises: ["Tinubu says he drove taxis in the US to fund his university education."],
+  limitations: "No opened source addresses the taxi premise.",
+});
+check("the development prompt is built from this post and not the 453 story", taxiPrompt.user.includes("Tinubu") && taxiPrompt.user.includes("taxis") && !taxiPrompt.system.includes("453 is false") && !taxiPrompt.system.includes("AI-generated photographs"));
+check("the desk prompt for the same post also leaves the 453 story out", !draftPrompt({ claim: "Tinubu says he drove taxis in the US to fund his university education.", postText: taxi, verdict: "UNVERIFIED", confidence: "low", angleTitle: "Angle", anglePoints: [], take: null, evidence: [] }).system.includes("176,846"));
+const further = furtherSearchPreview();
+check("a further search is previewed and not started", further.searches === 3 && further.modelRequests === 0 && /until you confirm/i.test(further.message));
 
 const route = readFileSync("app/api/desk/develop/route.ts", "utf8");
 const machine = readFileSync("lib/editorial/develop.ts", "utf8");

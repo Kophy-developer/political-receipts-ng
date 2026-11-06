@@ -69,6 +69,18 @@ function stamp(ms: number) {
   return new Date(ms).toISOString();
 }
 
+/** Restricted diagnostic copy of a rejected draft. Credentials are not kept. */
+export function diagnosticDraft(data: unknown) {
+  try {
+    const json = JSON.stringify(data);
+    if (/sk-|bearer\s|api[_-]?key|authorization/i.test(json)) return { retained: false, redacted: true };
+    if (json.length > 8000) return { retained: true, truncated: json.slice(0, 8000) };
+    return data ?? null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * One editor action. Providers are tried in the order given.
  * A provider is called at most once. The first accepted result stops the chain.
@@ -84,6 +96,7 @@ export async function generateStructuredContent(input: {
   plans: ProviderPlan[];
   accept: (data: unknown) => AcceptVerdict;
   rejectionReason: string;
+  rejectionDetail?: (data: unknown) => string;
   now?: () => number;
   onStart?: (plan: ProviderPlan) => Promise<void> | void;
   onAttempt?: (attempt: AttemptRecord) => Promise<void> | void;
@@ -211,7 +224,15 @@ export async function generateStructuredContent(input: {
       continue;
     }
     if (verdict === "rejected") {
-      await record({ ...base, diagnostic: null, status: "rejected", failureReason: input.rejectionReason });
+      const detail = input.rejectionDetail?.(raw.data) || input.rejectionReason;
+      await record({
+        ...base,
+        diagnostic: null,
+        status: "rejected",
+        failureReason: detail,
+        parsedPayload: raw.data,
+        response: diagnosticDraft(raw.data),
+      });
       return { ok: false, rejected: true, provider: plan.id, model: plan.model, data: raw.data, attempts };
     }
     await record({

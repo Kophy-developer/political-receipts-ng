@@ -136,6 +136,8 @@ async function DeskQueue() {
                 <li key={item.id} className="border border-rule px-5 py-5">
                   <p className="font-serif text-2xl leading-snug tracking-[-0.02em]">{item.title}</p>
                   <p className="mt-2 text-sm text-ink-soft">{lifecycleLabel(item.lifecycle)} · {researchLabel(item.research)}</p>
+                  {item.developmentUnresolved ? <p className="mt-2 text-sm">{item.developmentUnresolved}</p> : null}
+                  {item.developmentNext ? <p className="mt-2 text-sm text-ink-soft">{item.developmentNext}</p> : null}
                 </li>
               ))}
               {inProgress.map(({ claim, action }) => (

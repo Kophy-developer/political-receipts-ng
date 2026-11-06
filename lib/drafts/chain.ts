@@ -1,7 +1,9 @@
 import { EDITORIAL_REJECTION, type ProviderId } from "@/lib/ai/catalog";
 import { generateStructuredContent, type AttemptRecord, type ProviderCaller, type ProviderPlan } from "@/lib/ai/route";
+import { isPollingUnitStory } from "@/lib/drafts/legacy-polling";
 import {
   DRAFT_UNAVAILABLE,
+  developmentDraftPrompt,
   draftPrompt,
   draftSchema,
   draftStyles,
@@ -10,6 +12,7 @@ import {
   type DraftBrief,
   type DraftPiece,
   type DraftProblem,
+  type DraftRules,
   type GeneratedStyle,
 } from "@/lib/drafts/rules";
 
@@ -34,7 +37,7 @@ function styleObject(value: unknown) {
 }
 
 /** Structural acceptance. Wording that fails the editorial rules is rejected, not retried. */
-export function acceptDraftPayload(data: unknown, style?: GeneratedStyle, hashtagAlreadyUsed = false) {
+export function acceptDraftPayload(data: unknown, style?: GeneratedStyle, hashtagAlreadyUsed = false, rules: DraftRules = "legacy") {
   if (!data || typeof data !== "object") return "malformed" as const;
   const record = data as Record<string, unknown>;
   if (style === "thread") {
@@ -45,12 +48,12 @@ export function acceptDraftPayload(data: unknown, style?: GeneratedStyle, hashta
     const present = style === "thread" ? typeof record.opening === "string" || Array.isArray(record.posts) : typeof record.text === "string";
     if (!present) return "malformed" as const;
     const wrapped = style === "thread" ? { thread: data } : { [style]: data };
-    const judged = judgeModelDrafts(wrapped, hashtagAlreadyUsed);
+    const judged = judgeModelDrafts(wrapped, hashtagAlreadyUsed, rules);
     return judged.drafts.some((draft) => draft.style === style) ? ("success" as const) : ("rejected" as const);
   }
   const present = draftStyles.filter((item) => styleObject(record[item.id]));
   if (present.length === 0) return "malformed" as const;
-  const judged = judgeModelDrafts(data, hashtagAlreadyUsed);
+  const judged = judgeModelDrafts(data, hashtagAlreadyUsed, rules);
   if (judged.drafts.length > 0) return "success" as const;
   const onlyMissing = judged.problems.every((problem) => /did not return this style|was not a draft set/i.test(problem.reason));
   return onlyMissing ? ("malformed" as const) : ("rejected" as const);
@@ -62,13 +65,29 @@ export async function draftWithProviders(input: {
   brief: DraftBrief;
   style?: GeneratedStyle;
   hashtagAlreadyUsed?: boolean;
+  /** Development drafts never use the polling-unit validator. */
+  rules?: "development" | "desk";
   plans: ProviderPlan[];
   timeoutMs: number;
   now?: () => number;
   call: ProviderCaller;
 }): Promise<DraftChainResult> {
-  const prompt = draftPrompt(input.brief, input.style);
+  const draftRules: DraftRules = input.rules === "development"
+    ? "general"
+    : isPollingUnitStory(`${input.brief.claim}\n${input.brief.postText}`)
+      ? "legacy"
+      : "general";
+  const prompt = input.rules === "development" && "attribution" in input.brief
+    ? developmentDraftPrompt(input.brief as DraftBrief & { attribution: string; interpretation: string; premises: string[]; limitations: string }, input.style)
+    : draftPrompt(input.brief, input.style);
   const hashtagAlreadyUsed = input.hashtagAlreadyUsed ?? false;
+  const detailFor = (data: unknown) => {
+    const wrapped = input.style ? (input.style === "thread" ? { thread: data } : { [input.style]: data }) : data;
+    const judged = judgeModelDrafts(wrapped, hashtagAlreadyUsed, draftRules);
+    const problem = judged.problems.find((item) => !item.reason.startsWith("THREAD_NOT_NEEDED"));
+    if (!problem) return EDITORIAL_REJECTION;
+    return `${problem.kind ?? "unsupported statement"}: ${problem.reason}`;
+  };
   const routed = await generateStructuredContent({
     task: input.task,
     systemPrompt: prompt.system,
@@ -78,8 +97,9 @@ export async function draftWithProviders(input: {
     timeoutMs: input.timeoutMs,
     plans: input.plans,
     rejectionReason: EDITORIAL_REJECTION,
+    rejectionDetail: detailFor,
     now: input.now,
-    accept: (data) => acceptDraftPayload(data, input.style, hashtagAlreadyUsed),
+    accept: (data) => acceptDraftPayload(data, input.style, hashtagAlreadyUsed, draftRules),
     call: input.call,
   });
   const attempts = routed.attempts.map((attempt) => ({ ...attempt, requestId: input.requestId, task: input.task }));
@@ -92,19 +112,19 @@ export async function draftWithProviders(input: {
   };
   if (routed.rejected) {
     const wrapped = input.style ? (input.style === "thread" ? { thread: routed.data } : { [input.style]: routed.data }) : routed.data;
-    const judged = judgeModelDrafts(wrapped, hashtagAlreadyUsed);
+    const judged = judgeModelDrafts(wrapped, hashtagAlreadyUsed, draftRules);
     return {
       ...empty,
       outcome: "rejected",
       problems: judged.problems,
-      message: EDITORIAL_REJECTION,
+      message: routed.attempts.find((attempt) => attempt.status === "rejected")?.failureReason || detailFor(routed.data),
     };
   }
   if (!routed.ok || routed.data === undefined) {
     return { ...empty, outcome: "unavailable", problems: [], message: DRAFT_UNAVAILABLE };
   }
   const wrapped = input.style ? (input.style === "thread" ? { thread: routed.data } : { [input.style]: routed.data }) : routed.data;
-  const judged = judgeModelDrafts(wrapped, hashtagAlreadyUsed);
+  const judged = judgeModelDrafts(wrapped, hashtagAlreadyUsed, draftRules);
   const drafts = input.style ? judged.drafts.filter((draft) => draft.style === input.style) : judged.drafts;
   if (drafts.length === 0) {
     const note = judged.problems.find((item) => item.reason.startsWith("THREAD_NOT_NEEDED"));
@@ -112,7 +132,7 @@ export async function draftWithProviders(input: {
     if (note && onlyThatChoice) {
       return { ...empty, outcome: "saved", problems: judged.problems, message: `${note.reason} Nothing was published.` };
     }
-    return { ...empty, outcome: "rejected", problems: judged.problems, message: EDITORIAL_REJECTION };
+    return { ...empty, outcome: "rejected", problems: judged.problems, message: judged.problems[0] ? `${judged.problems[0].kind ?? "unsupported statement"}: ${judged.problems[0].reason}` : EDITORIAL_REJECTION };
   }
   const notes = judged.problems.map((item) => (item.reason.startsWith("THREAD_NOT_NEEDED") ? item.reason : `${item.style}: ${item.reason}`));
   const missing = notes.length ? ` ${notes.join(" ")}` : "";

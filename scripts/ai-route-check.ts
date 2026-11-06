@@ -188,7 +188,7 @@ async function main() {
     openrouter: () => Promise.resolve(ok(good)),
   });
   check("editorial rejection does not shop for wording", rejected.seen.join(",") === "groq" && rejected.result.outcome === "rejected");
-  check("the rejection uses the required mark", rejected.result.message === EDITORIAL_REJECTION && rejected.result.attempts[0]?.status === "rejected");
+  check("the rejection names the failed rule", /unsupported statement|story-specific validation/.test(rejected.result.message) && rejected.result.attempts[0]?.status === "rejected" && rejected.result.message !== EDITORIAL_REJECTION);
   check("not-true wording is part of that rejection", rejected.result.problems.some((problem) => /#NotTrue|453 is false|lied|never created|voted|final certified/i.test(problem.reason)));
 
   const paidBlocked = await run(baseEnv({ openrouterModel: "openai/gpt-4o" }), zero, {

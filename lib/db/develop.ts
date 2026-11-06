@@ -13,18 +13,19 @@ import {
   advanceDevelopment,
   developmentPreview,
   factualContextNeeded,
+  furtherSearchPreview,
   initialDevelopment,
-  labelRetrieved,
   lifecycleForDevelopment,
   sourceHash,
   type DevelopmentState,
   type EvidenceLabel,
+  type RetrievedSource,
 } from "@/lib/editorial/develop";
 import { describeSource } from "@/lib/editorial/quality";
 import { draftWithProviders } from "@/lib/drafts/chain";
 import { publicPostUrl, sanitizeText } from "@/lib/intel/text";
-import { isSocialHost } from "@/lib/research/filter";
 import { researchLimits } from "@/lib/research/limits";
+import { reviseResearchPlan } from "@/lib/research/plan";
 import { beginResearch } from "@/lib/research/run";
 import type { Pillar, StatementKind } from "@/lib/research/types";
 
@@ -52,9 +53,20 @@ function asState(value: unknown, sourceText: string): DevelopmentState {
         sources: Array.isArray(row.evidence.sources)
           ? row.evidence.sources.flatMap((item) => {
               if (!item || typeof item !== "object") return [];
-              const source = item as { title?: unknown; url?: unknown; domain?: unknown };
+              const source = item as { title?: unknown; url?: unknown; domain?: unknown; snippet?: unknown; opened?: unknown; text?: unknown; premise?: unknown; stance?: unknown; limitation?: unknown };
               if (typeof source.title !== "string" || typeof source.url !== "string" || typeof source.domain !== "string") return [];
-              return [{ title: source.title, url: source.url, domain: source.domain }];
+              const stance: RetrievedSource["stance"] = source.stance === "supports" || source.stance === "contradicts" || source.stance === "contextualizes" || source.stance === "does_not_address" ? source.stance : undefined;
+              return [{
+                title: source.title,
+                url: source.url,
+                domain: source.domain,
+                snippet: typeof source.snippet === "string" ? source.snippet : null,
+                opened: source.opened === true,
+                text: typeof source.text === "string" ? source.text : null,
+                premise: typeof source.premise === "string" ? source.premise : undefined,
+                stance,
+                limitation: typeof source.limitation === "string" ? source.limitation : undefined,
+              }];
             })
           : [],
       }
@@ -63,6 +75,10 @@ function asState(value: unknown, sourceText: string): DevelopmentState {
     ...fresh,
     completed: completed.includes("interpret") ? completed : ["interpret", ...completed],
     evidence,
+    evidenceStatus: row.evidenceStatus === "EVIDENCE_READY" || row.evidenceStatus === "RELEVANT_EVIDENCE_FOUND" || row.evidenceStatus === "EVIDENCE_INSUFFICIENT" ? row.evidenceStatus : null,
+    searchStatus: row.searchStatus === "SEARCH_COMPLETED" ? row.searchStatus : null,
+    failureKind: row.failureKind === "story-specific validation" || row.failureKind === "source relevance" || row.failureKind === "inadequate evidence" || row.failureKind === "unsupported statement" || row.failureKind === "invalid draft structure" ? row.failureKind : null,
+    nextAction: typeof row.nextAction === "string" ? row.nextAction : null,
     angle: typeof row.angle === "string" ? row.angle : null,
     anglePoints: Array.isArray(row.anglePoints) ? row.anglePoints.filter((item): item is string => typeof item === "string") : [],
     drafts: Array.isArray(row.drafts)
@@ -171,15 +187,17 @@ async function ensureClaim(input: { opportunityId: string; claimId: string | nul
   return { ok: true as const, claimId: claim.data.id as string };
 }
 
-function retrievedLabel(results: Array<{ domain: string; url: string; title: string }>) {
-  const sources = results
+function retrievedSources(results: Array<{ domain: string; url: string; title: string; snippet?: string | null; retrievalStatus?: string }>) {
+  return results
     .filter((item) => item.url.startsWith("https://"))
-    .slice(0, 6)
-    .map((item) => ({ title: item.title, url: item.url, domain: item.domain, social: isSocialHost(item.domain) }));
-  return {
-    label: labelRetrieved(sources.map((item) => ({ domain: item.domain, social: item.social }))),
-    sources: sources.map(({ title, url, domain }) => ({ title, url, domain })),
-  };
+    .slice(0, 8)
+    .map((item) => ({
+      title: item.title,
+      url: item.url,
+      domain: item.domain,
+      snippet: item.snippet ?? null,
+      opened: item.retrievalStatus === "retrieved",
+    }));
 }
 
 export async function developContent(id: string) {
@@ -222,11 +240,11 @@ export async function developContent(id: string) {
       const run = await beginResearch(claim.claimId);
       const already = /already been run/i.test(run.message);
       const listed = await loadSearchResults(claim.claimId);
-      const pack = retrievedLabel(listed.results);
+      const sources = retrievedSources(listed.results);
       if (!run.ok && !already) {
-        return { ok: false, called: run.started === true, label: pack.label, sources: pack.sources, message: run.message };
+        return { ok: false, called: run.started === true, label: "none" as const, sources, message: run.message };
       }
-      return { ok: true, called: run.started === true && !already, label: pack.label, sources: pack.sources, message: run.message };
+      return { ok: true, called: run.started === true && !already, label: "none" as const, sources, message: run.message };
     },
     draft: async ({ angle, points, verdict, postText, evidence }) => {
       if (!claimId) {
@@ -260,9 +278,14 @@ export async function developContent(id: string) {
           angleTitle: angle,
           anglePoints: points,
           take: null,
-          evidence: evidence.map((item) => ({ kind: "retrieved source", label: item.domain || item.title, note: item.title, url: item.url })),
+          evidence: evidence.map((item) => ({ kind: "opened source", label: item.domain || item.title, note: item.limitation || item.title, url: item.url })),
           contentPillar: loaded.pillar,
+          attribution: state.quality.summary,
+          interpretation: state.quality.reason,
+          premises: state.quality.checkableFacts,
+          limitations: state.unresolved || "Say what this desk has not confirmed. Do not invent a verdict.",
         },
+        rules: "development",
         plans,
         timeoutMs: 18_000,
         call: (plan, request) => callProvider(plan, request),
@@ -332,5 +355,20 @@ export async function developContent(id: string) {
     review: finished.review,
     lifecycle,
     deferred: !factualContextNeeded(finished.quality) && finished.quality.researchNeed !== "yes",
+    failureKind: finished.failureKind,
   };
+}
+
+export async function furtherResearch(id: string, confirm: boolean) {
+  const preview = furtherSearchPreview();
+  if (!confirm) return { ok: true as const, ...preview, called: false as const };
+  const loaded = await loadOpportunity(id);
+  if (!loaded.ok) return { ok: false as const, message: loaded.message, called: false as const };
+  if (!loaded.claimId) return { ok: false as const, message: "There is no saved research to continue. No search was sent.", called: false as const };
+  const advanced = await reviseResearchPlan(loaded.claimId, "advance");
+  if (!advanced.ok) return { ok: false as const, message: advanced.message, called: false as const };
+  const accepted = await reviseResearchPlan(loaded.claimId, "accept");
+  if (!accepted.ok) return { ok: false as const, message: accepted.message, called: false as const };
+  const run = await beginResearch(loaded.claimId);
+  return { ok: run.ok, message: run.message, called: run.started === true, searches: "searches" in run ? run.searches : 0 };
 }

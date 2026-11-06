@@ -102,6 +102,15 @@ check("prompt leads with the angle", prompt.system.includes("selected angle") &&
 check("prompt refuses a bibliography and a register total", prompt.system.includes("bibliography") && prompt.system.includes("176,846") && prompt.system.includes("Do not put URLs"));
 check("prompt allows two posts and a declined thread", prompt.system.includes("blank line") && prompt.system.includes("thread.needed to false"));
 check("prompt version moved to draft-v2", prompt.promptVersion === DRAFT_PROMPT_VERSION && DRAFT_PROMPT_VERSION === "draft-v2");
+const unrelated = draftPrompt({ ...brief, claim: "Tinubu says he drove taxis in the US to fund his university education.", postText: "Tinubu says he drove taxis in the US to fund his university education." });
+check("an unrelated story is not briefed as the 453 case", !unrelated.system.includes("453 is false") && !unrelated.system.includes("AI-generated photographs") && !unrelated.system.includes("176,846"));
+const taxiDraft = judgeModelDrafts({
+  conversational: { text: "Tinubu says he drove taxis to fund university. That account was not independently verified.", hashtag: "" },
+  punchy: { text: "The taxi story is Tinubu's own account, and it was not independently verified.", hashtag: "" },
+  analytical: { text: "The post attributes the taxi-and-university line to Tinubu. This desk has not confirmed it.", hashtag: "" },
+  thread: { needed: false, reason: "One post is enough." },
+}, false, "general");
+check("a taxi draft is not judged by the 453 rules", taxiDraft.drafts.length >= 3 && taxiDraft.problems.every((problem) => problem.kind !== "story-specific validation"));
 const fullSchema = draftSchema();
 check("full schema does not require a thread", "required" in fullSchema && !fullSchema.required.includes("thread"));
 

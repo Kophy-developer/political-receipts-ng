@@ -1,5 +1,7 @@
 import { characterCount, POST_LIMIT } from "@/lib/format";
+import { isPollingUnitStory, legacyPollingLines, legacyTopicProblem, legacyWordingProblem } from "@/lib/drafts/legacy-polling";
 import { contentPillarFromStorage, maySuggestEditorialTag, pillarVoice, researchSources } from "@/lib/pillars/catalog";
+import type { FailureKind } from "@/lib/research/relevance";
 import type { EditorReviewPacket } from "@/lib/research/editor-review";
 
 export const DRAFT_UNAVAILABLE = "DRAFT GENERATION UNAVAILABLE";
@@ -66,9 +68,12 @@ export type DraftPiece = {
   hashtag: "#CheckAm" | null;
 };
 
+export type DraftRules = "legacy" | "general";
+
 export type DraftProblem = {
   style: string;
   reason: string;
+  kind?: FailureKind;
 };
 
 export type DraftBrief = {
@@ -81,28 +86,21 @@ export type DraftBrief = {
   take: string | null;
   evidence: Array<{ kind: string; label: string; note: string; url: string }>;
   contentPillar?: "politics" | "football" | "finance" | null;
+  attribution?: string;
+  interpretation?: string;
+  premises?: string[];
+  limitations?: string;
 };
 
-const forbiddenBody = [
+const genericForbidden = [
   [/^\s*our investigation found\b/i, "It opens like an institutional report."],
   [/^\s*according to our research\b/i, "It opens like an institutional report."],
   [/^\s*we conducted\b/i, "It opens like an institutional report."],
   [/^\s*fact[\s-]?check\s*:/i, "It opens like a formal fact-check."],
   [/#nottrue\b/i, "This claim does not use #NotTrue."],
-  [/\b453 is false\b/i, "The drafts may not call 453 false."],
   [/\bthe (post|claim|allegation) is false\b/i, "The drafts may not call the whole post false."],
-  [/\bnever created 453\b/i, "The drafts may not say INEC never created 453 polling units."],
-  [/\b(did not|didn't) create 453\b/i, "The drafts may not say INEC did not create 453 polling units."],
   [/\b(lied|lying)\b/i, "The drafts may not say the account lied."],
-  [/\bdefinitely voted\b/i, "The drafts may not say AI-generated voters voted."],
-  [/\bai-generated voters (have |had )?voted\b/i, "The drafts may not say AI-generated voters voted."],
-  [/\bfinal certified register contained\b/i, "The drafts may not put the irregularities in the final certified register."],
-  [/\bfinal register contained\b/i, "The drafts may not put the irregularities in the final register."],
-  [/\bcriminal organisation\b/i, "The insult about INEC is outside this verdict."],
-  [/\bno extra 453\b/i, "Do not treat a register total as proof that a 453-unit batch does not exist."],
-  [/\b176,?846\b/i, "Do not cite 176,846 as if it disproves a 453-unit batch."],
-  [/\b453\b[^.]{0,90}\b(do not|don't|doesn't|does not) exist\b/i, "The research did not establish 453. It did not prove that a 453-unit batch does not exist."],
-  [/\b(do not|don't|doesn't|does not) exist\b[^.]{0,90}\b453\b/i, "The research did not establish 453. It did not prove that a 453-unit batch does not exist."],
+  [/\b(we verified|we confirmed|the record proves|this is confirmed)\b/i, "The drafts may not announce a verdict the desk has not accepted."],
 ] as const;
 
 export function styleMeta(style: string) {
@@ -123,14 +121,10 @@ export function stripHashtags(input: string) {
 }
 
 function problemFor(text: string) {
-  for (const [pattern, reason] of forbiddenBody) {
+  for (const [pattern, reason] of genericForbidden) {
     if (pattern.test(text)) return reason;
   }
   return null;
-}
-
-function onTopic(text: string) {
-  return /photograph|ai-generated|453|voter register|polling unit/i.test(text);
 }
 
 export function isSourcePost(part: string) {
@@ -155,40 +149,40 @@ export function appendSourcePost(text: string, raw: string) {
   return { ok: true as const, text: `${cleanDraftText(text)}\n\n${post}` };
 }
 
-export function validateParts(style: DraftStyle, parts: string[]) {
+export function validateParts(style: DraftStyle, parts: string[], rules: DraftRules = "legacy") {
   const cleaned = parts.map((part) => cleanDraftText(part)).filter(Boolean);
-  if (cleaned.length === 0) return { ok: false as const, reason: "The draft is empty." };
+  if (cleaned.length === 0) return { ok: false as const, reason: "The draft is empty.", kind: "invalid draft structure" as const };
   const { body, source } = splitSource(cleaned);
-  if (body.length === 0) return { ok: false as const, reason: "The draft is empty." };
+  if (body.length === 0) return { ok: false as const, reason: "The draft is empty.", kind: "invalid draft structure" as const };
   if (source && characterCount(source) > POST_LIMIT) {
-    return { ok: false as const, reason: `The source post is ${characterCount(source)} characters. The limit is ${POST_LIMIT}.` };
+    return { ok: false as const, reason: `The source post is ${characterCount(source)} characters. The limit is ${POST_LIMIT}.`, kind: "invalid draft structure" as const };
   }
   if (style === "thread" && (body.length < 2 || body.length > (source ? 4 : 5))) {
-    return { ok: false as const, reason: "A thread needs an opening post and at least one follow-up, and no more than four follow-ups." };
+    return { ok: false as const, reason: "A thread needs an opening post and at least one follow-up, and no more than four follow-ups.", kind: "invalid draft structure" as const };
   }
-  if (style === "punchy" && body.length !== 1) return { ok: false as const, reason: "Punchy stays one post." };
+  if (style === "punchy" && body.length !== 1) return { ok: false as const, reason: "Punchy stays one post.", kind: "invalid draft structure" as const };
   if ((style === "conversational" || style === "analytical") && (body.length < 1 || body.length > 2)) {
-    return { ok: false as const, reason: "This style is one post, or two when the point needs the room." };
+    return { ok: false as const, reason: "This style is one post, or two when the point needs the room.", kind: "invalid draft structure" as const };
   }
   for (const part of body) {
     const count = characterCount(part);
-    if (count > POST_LIMIT) return { ok: false as const, reason: `One post is ${count} characters. The limit is ${POST_LIMIT}.` };
+    if (count > POST_LIMIT) return { ok: false as const, reason: `One post is ${count} characters. The limit is ${POST_LIMIT}.`, kind: "invalid draft structure" as const };
     if (count < 40) {
       const reason = style === "thread"
         ? "A thread post is under 40 characters. That stub was not saved. A thread that is not needed should be marked THREAD_NOT_NEEDED instead."
         : "That post is too thin to carry the point.";
-      return { ok: false as const, reason };
+      return { ok: false as const, reason, kind: "invalid draft structure" as const };
     }
   }
   const text = body.join("\n\n");
   const blocked = problemFor(text);
-  if (blocked) return { ok: false as const, reason: blocked };
-  if (!onTopic(text)) return { ok: false as const, reason: "The draft does not stay on the photographs or the 453 claim." };
-  if (style !== "punchy" && style !== "manual" && !/inec/i.test(text)) {
-    return { ok: false as const, reason: "This style still needs INEC's response in the wording." };
+  if (blocked) {
+    const kind: FailureKind = /empty|characters|too thin|stub/i.test(blocked) ? "invalid draft structure" : "unsupported statement";
+    return { ok: false as const, reason: blocked, kind };
   }
-  if ((style === "conversational" || style === "analytical" || style === "thread") && !/453/.test(text)) {
-    return { ok: false as const, reason: "This style still needs the 453 claim, as something the evidence did not establish." };
+  if (rules === "legacy") {
+    const story = legacyWordingProblem(text) ?? legacyTopicProblem(style, text);
+    if (story) return { ok: false as const, reason: story, kind: "story-specific validation" as const };
   }
   return { ok: true as const, parts: cleaned, text: cleaned.join("\n\n") };
 }
@@ -295,7 +289,7 @@ function pieceFrom(style: DraftStyle, parts: string[], hashtag: "#CheckAm" | nul
   };
 }
 
-export function judgeModelDrafts(data: unknown, hashtagAlreadyUsed = false): { drafts: DraftPiece[]; problems: DraftProblem[] } {
+export function judgeModelDrafts(data: unknown, hashtagAlreadyUsed = false, rules: DraftRules = "legacy"): { drafts: DraftPiece[]; problems: DraftProblem[] } {
   const problems: DraftProblem[] = [];
   const drafts: DraftPiece[] = [];
   if (!data || typeof data !== "object") {
@@ -331,9 +325,9 @@ export function judgeModelDrafts(data: unknown, hashtagAlreadyUsed = false): { d
       continue;
     }
     const stripped = parts.map((part) => stripHashtags(part));
-    const checked = validateParts(style.id, stripped);
+    const checked = validateParts(style.id, stripped, rules);
     if (!checked.ok) {
-      problems.push({ style: style.id, reason: checked.reason });
+      problems.push({ style: style.id, reason: checked.reason, kind: checked.kind });
       continue;
     }
     let nextParts = checked.parts;
@@ -359,7 +353,7 @@ export function judgeModelDrafts(data: unknown, hashtagAlreadyUsed = false): { d
   return { drafts, problems };
 }
 
-export function judgeSavedText(style: string, text: string, hashtagAlreadyUsed: boolean): { ok: true; draft: DraftPiece } | { ok: false; reason: string } {
+export function judgeSavedText(style: string, text: string, hashtagAlreadyUsed: boolean, rules: DraftRules = "legacy"): { ok: true; draft: DraftPiece } | { ok: false; reason: string } {
   const meta = styleMeta(style);
   if (!meta) return { ok: false, reason: "That draft style is not on the desk." };
   if (/#nottrue/i.test(text)) return { ok: false, reason: "This claim does not use #NotTrue." };
@@ -367,7 +361,7 @@ export function judgeSavedText(style: string, text: string, hashtagAlreadyUsed: 
     .split(/\n\s*\n/)
     .map((part) => stripHashtags(part))
     .filter(Boolean);
-  const checked = validateParts(meta.id, parts);
+  const checked = validateParts(meta.id, parts, rules);
   if (!checked.ok) return checked;
   let nextParts = checked.parts;
   let hashtag: "#CheckAm" | null = null;
@@ -383,8 +377,8 @@ export function judgeSavedText(style: string, text: string, hashtagAlreadyUsed: 
   return { ok: true, draft: pieceFrom(meta.id, nextParts, hashtag) };
 }
 
-export function judgeEditorText(text: string, hashtagAlreadyUsed: boolean) {
-  return judgeSavedText("manual", text, hashtagAlreadyUsed);
+export function judgeEditorText(text: string, hashtagAlreadyUsed: boolean, rules: DraftRules = "legacy") {
+  return judgeSavedText("manual", text, hashtagAlreadyUsed, rules);
 }
 
 export function draftBriefFrom(input: {
@@ -429,7 +423,7 @@ function pillarVoiceLines(value: DraftBrief["contentPillar"]) {
   return [pillarVoice[pillar], researchSources[pillar], tag];
 }
 
-export function draftPrompt(brief: DraftBrief, only?: GeneratedStyle) {
+export function draftPrompt(brief: DraftBrief, only?: GeneratedStyle, includeLegacy = isPollingUnitStory(`${brief.claim}\n${brief.postText}`)) {
   const styles = only ? draftStyles.filter((style) => style.id === only) : draftStyles;
   const evidence = brief.evidence
     .map((source) => `${source.kind.toUpperCase()} — ${source.label}: ${source.note} ${source.url}`)
@@ -441,11 +435,10 @@ export function draftPrompt(brief: DraftBrief, only?: GeneratedStyle) {
     "Sound like a person on X. Fragments are fine. Rhythm can change. A rhetorical question is fine. Mild humour is fine when it stays fair. Be strong only where the point can stand.",
     "Do not write a compressed fact-check or a bibliography. Do not force a source name into every post. Evidence can sit under the sentence without naming every outlet.",
     "Do not put URLs in the draft. The editor attaches sources later, including on a #CheckAm follow-up.",
-    "Do not reach for: I checked INEC sites. The record shows. BBC and Daily Trust talk about. The Electoral Act and reports. The claim lacks evidence. Use one of those only if the sentence truly needs it.",
-    "The 453-polling-unit claim was not established. That is not proof that a batch of 453 units does not exist. Do not use a register total, including 176,846, to close that question. The fair thought is that you went looking for the figure and could not establish it.",
-    "Keep the real reported controversy separate from the extra claim. Credible reporting describes suspected AI-generated photographs in the preliminary voter register, and INEC responded. The 453 figure is the part that was not established. Do not paste a template sentence.",
-    "You must not say: 453 is false; INEC never created 453; the account lied; AI-generated voters voted; the final certified register contained the irregularities; #NotTrue; criminal organisation.",
+    "Do not invent a source, a figure, or a verdict. Do not forecast an election. Keep a quoted or attributed claim with the speaker the post names.",
+    "If the evidence does not settle the point, say what is unresolved. Do not write as if it were confirmed.",
     "Do not open with: Our investigation found. According to our research. We conducted. Fact check:",
+    ...(includeLegacy ? legacyPollingLines() : []),
     "#CheckAm on at most one version.",
     "Each post is at most 280 characters. Do not ruin a clear thought just to stay inside one post.",
     "Conversational and analytical may be one post, or two posts separated by a blank line. Punchy is one short post. A thread exists only when the story needs the sequence. If it does not, set thread.needed to false and give a short reason. Do not send a stub thread.",
@@ -465,7 +458,31 @@ export function draftPrompt(brief: DraftBrief, only?: GeneratedStyle) {
       ? `Write only the ${only} style. ${styles[0]?.brief ?? ""}`
       : `Write the styles below.\n${styles.map((style) => `${style.label}: ${style.brief}`).join("\n")}`,
   ].join("\n\n");
-  return { system, user, promptVersion: DRAFT_PROMPT_VERSION };
+  return { system, user, promptVersion: includeLegacy ? DRAFT_PROMPT_VERSION : "draft-v3" };
+}
+
+/** Development drafts are briefed from the current post. The polling-unit instructions are not added. */
+export function developmentDraftPrompt(brief: DraftBrief & {
+  attribution: string;
+  interpretation: string;
+  premises: string[];
+  limitations: string;
+}, only?: GeneratedStyle) {
+  const base = draftPrompt({
+    ...brief,
+    claim: brief.premises.join(" ") || brief.claim,
+  }, only, false);
+  const user = [
+    `Original post:\n${brief.postText}`,
+    `Attribution: ${brief.attribution}`,
+    `Corrected reading: ${brief.interpretation}`,
+    brief.premises.length ? `Factual premises:\n${brief.premises.map((premise) => `- ${premise}`).join("\n")}` : "No separate factual premise was extracted.",
+    `Selected angle: ${brief.angleTitle}`,
+    brief.anglePoints.length ? brief.anglePoints.map((point) => `- ${point}`).join("\n") : "",
+    `Unresolved limitation: ${brief.limitations}`,
+    base.user,
+  ].filter(Boolean).join("\n\n");
+  return { ...base, user, promptVersion: "develop-v1" };
 }
 
 export function draftSchema(only?: GeneratedStyle) {

@@ -101,11 +101,11 @@ function cardFrom(row: Record<string, unknown>): PipelineCard {
   return card;
 }
 
-function developmentOf(value: unknown): Pick<PipelineCard, "developmentAngle" | "developmentUnresolved" | "developmentDrafts"> {
+function developmentOf(value: unknown): Pick<PipelineCard, "developmentAngle" | "developmentUnresolved" | "developmentDrafts" | "developmentNext"> {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return { developmentAngle: null, developmentUnresolved: null, developmentDrafts: [] };
+    return { developmentAngle: null, developmentUnresolved: null, developmentDrafts: [], developmentNext: null };
   }
-  const row = value as { angle?: unknown; unresolved?: unknown; drafts?: unknown };
+  const row = value as { angle?: unknown; unresolved?: unknown; drafts?: unknown; nextAction?: unknown };
   const drafts = Array.isArray(row.drafts)
     ? row.drafts.flatMap((item) => {
         if (!item || typeof item !== "object") return [];
@@ -117,6 +117,7 @@ function developmentOf(value: unknown): Pick<PipelineCard, "developmentAngle" | 
     developmentAngle: typeof row.angle === "string" ? row.angle : null,
     developmentUnresolved: typeof row.unresolved === "string" ? row.unresolved : null,
     developmentDrafts: drafts,
+    developmentNext: typeof row.nextAction === "string" ? row.nextAction : null,
   };
 }
 

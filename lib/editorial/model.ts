@@ -252,6 +252,7 @@ export type PipelineCard = {
   developmentAngle: string | null;
   developmentUnresolved: string | null;
   developmentDrafts: string[];
+  developmentNext: string | null;
 };
 
 export function postShape(text: string, maximum = 280) {
