@@ -1,4 +1,5 @@
 import type { OpportunityType, ResearchNeed } from "@/lib/opportunities/types";
+import { hasCheckableFact } from "@/lib/editorial/assess";
 import { plannedNextStage, type Priority } from "@/lib/editorial/model";
 import { fullConversationText, type ConversationPacket } from "@/lib/editorial/packet";
 import type { ContentPillar } from "@/lib/pillars/catalog";
@@ -96,9 +97,7 @@ export function understandSystem() {
   return [
     "You read stored conversations for one human account. Your only job is to understand what each conversation contains.",
     "Do not decide whether a conversation is worth talking about, worth publishing, or likely to perform. Do not score its quality. Do not invent the account's belief. Do not forecast who wins an election.",
-    "understood means only: can you tell what the stored posts are saying? It is not a quality score. A single clear post can be understood. Not knowing whether a claim is true does not make the post unclear.",
-    "understood is required on every reading. Use a JSON boolean, true or false. Do not omit it. A missing understood value is not false.",
-    "If the text genuinely cannot be understood, set understood to false and primary_kind to unclear. Do not invent missing context.",
+    "Do not include an extra status field. If you cannot tell what the stored posts are saying, set primary_kind to unclear and use the summary to say what is missing. Do not invent missing context.",
     "primary_kind classifies what the conversation contains. Allowed primary_kind values are only: factual_assertion, event, opinion, prediction, question, reaction, humour, rhetoric, unclear.",
     "A sentence about what someone did, spent, or claimed is a factual_assertion even when you have not verified it. Copy those sentences into checkable_facts.",
     "An event is a visit, meeting, or other development that is being reported. An opinion is a judgment. Humour is a joke. Rhetoric is insult, slogan, or heat with no proposition you can restate. A prediction says something will happen later. Leave it as a prediction.",
@@ -110,7 +109,7 @@ export function understandSystem() {
     "summary is one or two non-empty sentences using only the stored posts. subjects and checkable_facts are arrays of strings and may be empty. Do not invent subjects or facts.",
     "data_or_numbers_involved, event_or_development, prediction_present, and opinion_present are booleans. Use JSON true or false. Omit one of these four only when that signal is not asserted.",
     "Return JSON only. No markdown. No commentary. Return every conversation_id you were given, once.",
-    '{"conversations":[{"conversation_id":"id","summary":"What the stored posts say.","subjects":["topic"],"primary_kind":"opinion","checkable_facts":[],"data_or_numbers_involved":false,"event_or_development":false,"prediction_present":false,"opinion_present":true,"possible_routes":["OPINION","REACTION"],"research_need":"no","reason_for_research_need":"","understood":true}]}',
+    '{"conversations":[{"conversation_id":"id","summary":"What the stored posts say.","subjects":["topic"],"primary_kind":"opinion","checkable_facts":[],"data_or_numbers_involved":false,"event_or_development":false,"prediction_present":false,"opinion_present":true,"possible_routes":["OPINION","REACTION"],"research_need":"no","reason_for_research_need":""}]}',
   ].join("\n");
 }
 
@@ -127,6 +126,11 @@ export function understandUser(packets: ConversationPacket[]) {
       })),
     })),
   });
+}
+
+export function understandingOutcomeMessage(input: { received: number; understood: number; unclear: number; modelCalls: number; recovered?: boolean }) {
+  const head = input.recovered ? "Recovered understanding outcome" : "Understanding outcome";
+  return `${head}: ${input.understood} understood and in the queue. ${input.unclear} unclear and passed over. Received ${input.received}. This count is separate from historical extraction. Earlier cards were kept. Model requests for this action: ${input.modelCalls}. No X request or research call was made, and nothing was published.`;
 }
 
 export function understandConfirmation(storedConversations: number) {
@@ -171,9 +175,11 @@ export type UnderstandingValidation = {
  * A missing data_or_numbers_involved, event_or_development, prediction_present, or opinion_present
  * key is false: the model did not assert that signal. Null, blank, and other strings are not false.
  * Boolean fields accept true, false, and the strings true, false, yes, and no, ignoring case and surrounding space.
- * understood is required. A missing understood value is an error.
+ * understood is not requested. A clear primary_kind other than unclear, with a meaningful summary, is understood.
+ * primary_kind unclear is passed over. A missing id, kind, or summary is a validation failure.
+ * An explicit understood false on an otherwise clear reading is a contradiction and is not overridden.
  * reason_for_research_need may be empty only when research_need is no.
- * primary_kind, research_need, understood, and conversation_id are never guessed.
+ * primary_kind, research_need, and conversation_id are never guessed.
  * Subjects and checkable facts are never filled in.
  * PREDICTION is not a route. On a prediction record it is removed from possible_routes.
  * If that record then has no route left, the route is QUESTION. Any other unknown route still fails.
@@ -203,6 +209,11 @@ function fieldError(conversationId: string | null, fieldPath: string, expected: 
     received_type: received,
     message,
   };
+}
+
+function meaningfulSummary(value: string) {
+  const words = value.split(/\s+/).filter((word) => /[A-Za-z0-9]/.test(word));
+  return words.length >= 2 && value.length >= 8;
 }
 
 function strictBoolean(value: unknown): boolean | null {
@@ -279,22 +290,10 @@ function readingFrom(row: Record<string, unknown>, index: number, errors: Unders
   if (typeof rawId !== "string" || rawId.length === 0) {
     errors.push(fieldError(null, `${path}.conversation_id`, "stored conversation id", receivedType(rawId), "expected a conversation_id string"));
   }
-  const understood = "understood" in row ? strictBoolean(row.understood) : null;
-  if (!("understood" in row)) {
-    errors.push(fieldError(conversationId, `${path}.understood`, "boolean", "undefined", "missing boolean"));
-  } else if (understood == null) {
-    const shown = typeof row.understood === "string" ? safeToken(row.understood) : null;
-    errors.push(fieldError(
-      conversationId,
-      `${path}.understood`,
-      "boolean",
-      receivedType(row.understood),
-      shown ? `expected a boolean, received "${shown}"` : "expected a boolean",
-    ));
-  }
-  const summary = typeof row.summary === "string" ? clip(row.summary, 500) : "";
+  const summaryText = typeof row.summary === "string" ? clip(row.summary, 500) : "";
+  const summary = meaningfulSummary(summaryText) ? summaryText : "";
   if (!summary) {
-    errors.push(fieldError(conversationId, `${path}.summary`, "non-empty string", receivedType(row.summary), "expected a non-empty string"));
+    errors.push(fieldError(conversationId, `${path}.summary`, "meaningful summary", receivedType(row.summary), summaryText ? "expected a meaningful summary" : "expected a non-empty string"));
   }
   let reason = "";
   if (!("reason_for_research_need" in row)) {
@@ -316,6 +315,29 @@ function readingFrom(row: Record<string, unknown>, index: number, errors: Unders
       "string",
       shown ? `unsupported value "${shown}"` : "unsupported value",
     ));
+  }
+  const derivedUnderstood = primaryToken && kindSet.has(primaryToken) && summary ? primaryToken !== "unclear" : null;
+  let understood: boolean | null = null;
+  if (!("understood" in row)) {
+    understood = derivedUnderstood;
+  } else {
+    const explicit = strictBoolean(row.understood);
+    const shown = typeof row.understood === "string" ? safeToken(row.understood) : null;
+    if (explicit == null) {
+      errors.push(fieldError(
+        conversationId,
+        `${path}.understood`,
+        "omitted or boolean",
+        receivedType(row.understood),
+        shown ? `expected the field to be omitted or a boolean, received "${shown}"` : "expected the field to be omitted or a boolean",
+      ));
+    } else if (derivedUnderstood === true && explicit === false) {
+      errors.push(fieldError(conversationId, `${path}.understood`, "omitted or true", "boolean", "understood is false while the reading is clear. Not overridden."));
+    } else if (derivedUnderstood === false && explicit === true) {
+      errors.push(fieldError(conversationId, `${path}.understood`, "omitted or false", "boolean", "understood is true while primary_kind is unclear. Not overridden."));
+    } else if (derivedUnderstood != null) {
+      understood = explicit;
+    }
   }
   const needToken = enumToken(row.research_need, "lower");
   if (needToken == null) {
@@ -534,6 +556,19 @@ function routesFor(kind: PrimaryKind, checkable: boolean, data: boolean): Unders
   return ["REACTION"];
 }
 
+export function applyResearchFloor(
+  current: { need: ResearchNeed; reason: string },
+  sourceText: string,
+  facts: string[],
+): { need: ResearchNeed; reason: string } {
+  const premise = hasCheckableFact(sourceText) || facts.some((fact) => hasCheckableFact(fact));
+  if (!premise || current.need === "yes") return current;
+  return {
+    need: "yes",
+    reason: "A checkable factual premise is in the stored text or the extracted facts. Research is required.",
+  };
+}
+
 function researchFor(kind: PrimaryKind, checkable: boolean): { need: ResearchNeed; reason: string } {
   if (kind === "prediction") return { need: "no", reason: "This is a prediction, not a result. Do not forecast the election." };
   if (checkable || kind === "factual_assertion") return { need: "yes", reason: "A record outside the post would be needed to confirm or contradict the assertion." };
@@ -578,7 +613,11 @@ export function routeUnderstanding(packet: ConversationPacket, reading: Conversa
   const data = reading.dataOrNumbersInvolved || reading.checkableFacts.some((fact) => /\d/.test(fact));
   const event = reading.primaryKind === "event" || (reading.eventOrDevelopment && !checkable && reading.primaryKind !== "prediction");
   const kind = reading.primaryKind;
-  const research = researchFor(checkable && kind !== "prediction" ? "factual_assertion" : kind, checkable);
+  const research = applyResearchFloor(
+    researchFor(checkable && kind !== "prediction" ? "factual_assertion" : kind, checkable),
+    sourceText,
+    reading.checkableFacts,
+  );
   return {
     ...base,
     understood: true,

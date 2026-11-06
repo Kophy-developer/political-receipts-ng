@@ -36,6 +36,7 @@ export function SettingsPanel({
   identity,
   editorialHistory,
   understandingFailure,
+  canRecoverUnderstanding,
 }: {
   flags: XFlags;
   health: SystemHealth;
@@ -45,6 +46,7 @@ export function SettingsPanel({
   identity: EditorIdentity;
   editorialHistory: Array<(EditorialTrace | UnderstandTrace) & { completedAt: string }>;
   understandingFailure: UnderstandingFailureNotice | null;
+  canRecoverUnderstanding: boolean;
 }) {
   const [origin, setOrigin] = useState(xProductionOrigin);
 
@@ -112,7 +114,7 @@ export function SettingsPanel({
                 Gemini still extracts claims from posts a scan already retrieved. That path is separate from drafting. The usage section keeps the earlier Gemini request log. This section does not rewrite it.
               </p>
               <EditorialHistory history={editorialHistory} />
-              <UnderstandingFailure notice={understandingFailure} />
+              <UnderstandingFailure notice={understandingFailure} canRecover={canRecoverUnderstanding} />
             </Section>
             <Section id="usage" kicker="Usage" title="What today has cost">
               <p className="max-w-2xl text-sm leading-relaxed">
@@ -215,7 +217,22 @@ export function SettingsPanel({
   );
 }
 
-function UnderstandingFailure({ notice }: { notice: UnderstandingFailureNotice | null }) {
+function UnderstandingFailure({ notice, canRecover }: { notice: UnderstandingFailureNotice | null; canRecover: boolean }) {
+  const [note, setNote] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
+  async function recover() {
+    setPending(true);
+    setNote(null);
+    try {
+      const response = await fetch("/api/intel/recover-understanding", { method: "POST" });
+      const body = (await response.json()) as { message?: string };
+      setNote(body.message || "Recovery did not finish.");
+    } catch {
+      setNote("Recovery did not finish. No model request was sent.");
+    } finally {
+      setPending(false);
+    }
+  }
   return (
     <div className="mt-4 max-w-3xl border border-rule px-3 py-3">
       <p className="text-sm">Latest understanding failure</p>
@@ -227,6 +244,23 @@ function UnderstandingFailure({ notice }: { notice: UnderstandingFailureNotice |
       ) : (
         <p className="mt-3 text-sm">No failed understanding is stored.</p>
       )}
+      {canRecover ? (
+        <div className="mt-4 border-t border-rule pt-4">
+          <p className="text-sm">Recover saved understanding</p>
+          <p className="mt-2 text-sm leading-relaxed text-ink-soft">
+            Loads the stored Groq reading for this failed attempt and its scan, then saves one new understanding version. It does not call a model, X, research, or publish. A second click does not add rows.
+          </p>
+          <button
+            type="button"
+            onClick={() => void recover()}
+            disabled={pending}
+            className="mt-3 inline-flex h-10 items-center border border-ink px-4 text-sm disabled:opacity-50"
+          >
+            {pending ? "Recovering…" : "Recover saved understanding"}
+          </button>
+          {note ? <p className="mt-2 text-sm">{note}</p> : null}
+        </div>
+      ) : null}
     </div>
   );
 }

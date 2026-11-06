@@ -4,14 +4,17 @@ import type { ProviderCallResult, ProviderPlan, ProviderRequest } from "../lib/a
 import { assessmentBatches, type ConversationPacket } from "../lib/editorial/packet";
 import { readUnderstandTrace, rejectedUnderstandingResponse, withUnderstandVersions } from "../lib/editorial/trace";
 import { understandPackets } from "../lib/editorial/understand-ai";
+import { planSavedUnderstandingRecovery, recoveredUnderstandingAttemptId, recoveredUnderstandingScanId } from "../lib/editorial/recover";
 import {
   cannotUnderstand,
   inboxRecords,
   parseConversationUnderstanding,
   routeAll,
+  routeUnderstanding,
   understandConfirmation,
   understandSystem,
   understandingFailureMessage,
+  understandingOutcomeMessage,
   type ConversationUnderstanding,
 } from "../lib/editorial/understand";
 import { queueLifecycle } from "../lib/editorial/model";
@@ -78,7 +81,7 @@ function packet(id: string, text: string, postedAt: string | null = "2026-11-05T
 const now = Date.parse("2026-11-05T12:00:00.000Z");
 const system = understandSystem();
 check("understanding does not ask for an editorial verdict", !system.includes("worth_talking_about") && /only job is to understand/i.test(system));
-check("understood is not a quality score", /not a quality score/i.test(system));
+check("the prompt does not ask for an understood field", !system.includes("understood") && system.includes("primary_kind to unclear"));
 check(
   "the prompt keeps PREDICTION as a classification and not a route",
   system.includes("factual_assertion, event, opinion, prediction, question, reaction, humour, rhetoric, unclear")
@@ -192,19 +195,31 @@ check(
 );
 const badNeed = parseConversationUnderstanding({ readings: [{ ...opinionRow("one"), research_need: "none" }] }, ["one"]);
 check("research_need is not coerced", badNeed.success === false && badNeed.errors.some((error) => error.field_path === "readings[0].research_need" && error.message === "unsupported value \"none\""));
-const yesUnderstood = parseConversationUnderstanding({ readings: [{ ...opinionRow("one"), understood: " YES " }] }, ["one"]);
-const noUnderstood = parseConversationUnderstanding({ readings: [{ ...opinionRow("one"), understood: "FALSE" }] }, ["one"]);
+const omittedSource = opinionRow("one");
+const { understood: _kept, ...omittedFields } = omittedSource;
+void _kept;
+const omittedUnderstood = parseConversationUnderstanding({ readings: [omittedFields] }, ["one"]);
+check("a clear reading is understood without the field", omittedUnderstood.success === true && omittedUnderstood.validated_output?.[0]?.understood === true);
+const explicitFalse = parseConversationUnderstanding({ readings: [{ ...opinionRow("one"), understood: false }] }, ["one"]);
 check(
-  "boolean words normalize",
-  yesUnderstood.success === true && yesUnderstood.validated_output?.[0]?.understood === true && noUnderstood.validated_output?.[0]?.understood === false,
+  "an explicit false on a clear reading is not overridden",
+  explicitFalse.success === false && explicitFalse.errors.some((error) => error.message === "understood is false while the reading is clear. Not overridden."),
 );
+const unclearOmitted = parseConversationUnderstanding({
+  readings: [{ ...opinionRow("one"), primary_kind: "unclear", summary: "The fragment does not say what is being judged.", understood: undefined }],
+}, ["one"]);
+const unclearRow = { ...opinionRow("one"), primary_kind: "unclear", summary: "The fragment does not say what is being judged." };
+delete (unclearRow as { understood?: boolean }).understood;
+const unclearDerived = parseConversationUnderstanding({ readings: [unclearRow] }, ["one"]);
+check("unclear is passed over without the field", unclearDerived.success === true && unclearDerived.validated_output?.[0]?.understood === false && unclearOmitted.readings_received === 1);
 const maybeUnderstood = parseConversationUnderstanding({ readings: [{ ...opinionRow("one"), understood: "maybe" }] }, ["one"]);
 const numericUnderstood = parseConversationUnderstanding({ readings: [{ ...opinionRow("one"), understood: 1 }] }, ["one"]);
 check(
-  "uncertain booleans stay invalid",
+  "a malformed understood value is not treated as understood",
   maybeUnderstood.success === false
-    && maybeUnderstood.errors.some((error) => error.field_path === "readings[0].understood" && error.message === "expected a boolean, received \"maybe\"")
-    && numericUnderstood.errors.some((error) => error.field_path === "readings[0].understood" && error.received_type === "number"),
+    && maybeUnderstood.errors.some((error) => error.field_path === "readings[0].understood" && error.message === "expected the field to be omitted or a boolean, received \"maybe\"")
+    && numericUnderstood.success === false
+    && numericUnderstood.validated_output === undefined,
 );
 const emptyReason = parseConversationUnderstanding({ readings: [{ ...opinionRow("one"), research_need: "no", reason_for_research_need: "" }] }, ["one"]);
 const emptyYes = parseConversationUnderstanding({ readings: [{ ...opinionRow("one"), research_need: "yes", reason_for_research_need: "" }] }, ["one"]);
@@ -348,35 +363,81 @@ const discover = readFileSync("components/desk/discover.tsx", "utf8");
 check("the active path understands stored posts", active.includes("understandPackets") && !active.includes("assessPackets("));
 check("understanding does not call X, research, or publish", !/searchRecent|tavily|brave|@\/lib\/research\/execute|@\/lib\/x\/publish/.test(active));
 check("the desk shows the understanding confirmation", discover.includes("understandConfirmation") && discover.includes("Understand saved conversations"));
-check("the desk separates understanding from historical extraction", discover.includes("Historical extraction") && discover.includes("Latest understanding") && !discover.includes("conversation-understand-v1-rejected"));
+check("the desk separates understanding from historical extraction", discover.includes("Historical extraction") && discover.includes("Understanding outcome") && discover.includes("Separate from the historical extraction") && !discover.includes("conversation-understand-v1-rejected"));
 check("settings shows the field error without the rejected body", readFileSync("components/settings/panel.tsx", "utf8").includes("Latest understanding failure") && readFileSync("components/settings/panel.tsx", "utf8").includes("not shown here"));
 const production = JSON.parse(readFileSync("scripts/fixtures/groq-understand-rejected-20261106.json", "utf8")) as { conversations: Array<Record<string, unknown>> };
 const productionIds = production.conversations.map((item) => String(item.conversation_id));
 const productionAudit = parseConversationUnderstanding(production, productionIds);
 check(
-  "the saved Groq response reports every missing understood field",
-  productionAudit.readings_received === 10
-    && productionAudit.readings_valid === 0
-    && productionAudit.errors.length === 10
-    && productionAudit.errors.every((error) => error.field_path.endsWith(".understood") && error.received_type === "undefined" && error.message === "missing boolean")
+  "the saved Groq response validates as 10 of 10",
+  productionAudit.success === true
+    && productionAudit.readings_received === 10
+    && productionAudit.readings_valid === 10
+    && productionAudit.errors.length === 0
+    && productionAudit.validated_output?.every((reading) => reading.understood === true) === true
     && productionAudit.missing_ids.length === 0
     && productionAudit.duplicate_ids.length === 0
-    && productionAudit.unexpected_ids.length === 0
-    && understandingFailureMessage("Groq", productionAudit.errors).includes("10 field errors")
-    && understandingFailureMessage("Groq", productionAudit.errors).includes("readings[9].understood: missing boolean"),
+    && productionAudit.unexpected_ids.length === 0,
 );
-const productionRepaired = {
-  conversations: production.conversations.map((item, index) => ({ ...item, understood: index % 2 === 0 ? " yes " : "FALSE" })),
+const contradicted = {
+  conversations: production.conversations.map((item, index) => (index === 0 ? { ...item, understood: false } : item)),
 };
-const productionFixed = parseConversationUnderstanding(productionRepaired, productionIds);
+const contradictedAudit = parseConversationUnderstanding(contradicted, productionIds);
 check(
-  "the saved Groq shape passes once understood is an accepted boolean word",
-  productionFixed.success === true && productionFixed.readings_valid === 10 && productionFixed.validated_output?.[1]?.understood === false,
+  "the saved shape still rejects an explicit false",
+  contradictedAudit.success === false
+    && contradictedAudit.readings_received === 10
+    && contradictedAudit.readings_valid === 9
+    && contradictedAudit.errors.length === 1
+    && contradictedAudit.errors[0]?.message === "understood is false while the reading is clear. Not overridden.",
 );
 check(
-  "the prompt example includes the required boolean and an empty no-research reason",
-  system.includes("understood is required") && system.includes("\"understood\":true") && system.includes("\"reason_for_research_need\":\"\""),
+  "the prompt example has no understood field",
+  system.includes("\"reason_for_research_need\":\"\"") && !system.includes("\"understood\""),
 );
+const floorNow = Date.parse("2026-11-06T12:00:00.000Z");
+function floorRoute(id: string, text: string, kind: ConversationUnderstanding["primaryKind"], facts: string[] = []) {
+  return routeUnderstanding(packet(id, text), reading({
+    conversationId: id,
+    understood: true,
+    primaryKind: kind,
+    researchNeed: "no",
+    reasonForResearchNeed: "No record is required.",
+    checkableFacts: facts,
+    summary: "The stored posts make a specific claim.",
+    opinionPresent: kind === "opinion",
+    predictionPresent: kind === "prediction",
+  }), 0, floorNow);
+}
+const taxi = floorRoute("taxi", "Tinubu is said to have driven a taxi to pay his way through university.", "opinion");
+const billboards = floorRoute("billboards", "APC is said to have paid ₦4 billion for the state billboards.", "opinion");
+const investment = floorRoute("investment", "The presidency says Nigeria attracted $10 billion in foreign investment this quarter.", "opinion");
+const factsOnly = floorRoute("facts", "People are arguing about a number.", "opinion", ["APC paid ₦4 billion for billboards."]);
+const forecast = floorRoute("forecast", "A speaker says one candidate will sweep the next election.", "prediction");
+check("a taxi claim requires research even when the model says no", taxi.lifecycle === "RANKED" && taxi.researchNeed === "yes" && taxi.understood === true);
+check("a billboard spending claim requires research even when the model says no", billboards.lifecycle === "RANKED" && billboards.researchNeed === "yes");
+check("a foreign investment figure requires research even when the model says no", investment.lifecycle === "RANKED" && investment.researchNeed === "yes");
+check("checkable facts require research when the model leaves research off", factsOnly.researchNeed === "yes" && factsOnly.lifecycle === "RANKED");
+check("a prediction without a checkable premise is not sent to research", forecast.researchNeed === "no" && forecast.lifecycle === "RANKED" && forecast.routes.includes("CHECK") === false);
+const recoveryPackets = productionIds.map((id, index) => packet(id, `Stored post ${index} is about a public argument.`));
+const recovery = planSavedUnderstandingRecovery({
+  attemptId: recoveredUnderstandingAttemptId,
+  scanId: recoveredUnderstandingScanId,
+  parsed: production,
+  truncated: false,
+  packets: recoveryPackets,
+  now: floorNow,
+});
+check(
+  "the stored response can be planned for recovery without a model call",
+  recovery.ok === true && recovery.rows.length === 10 && recovery.rows.every((row) => row.assessment.model_called === false && row.assessment.x_requests === 0 && row.opportunity.understanding.recoveredFromAttempt === recoveredUnderstandingAttemptId),
+);
+check(
+  "the understanding outcome is separate from extraction",
+  understandingOutcomeMessage({ received: 10, understood: 10, unclear: 0, modelCalls: 0, recovered: true }).includes("separate from historical extraction")
+    && understandingOutcomeMessage({ received: 10, understood: 10, unclear: 0, modelCalls: 0, recovered: true }).includes("Model requests for this action: 0"),
+);
+check("recovery stays on this attempt", readFileSync("lib/editorial/recover.ts", "utf8").includes(recoveredUnderstandingAttemptId) && readFileSync("supabase/migrations/20261106180000_recover_saved_understanding.sql", "utf8").includes("does not insert") && !readFileSync("app/api/intel/recover-understanding/route.ts", "utf8").includes("callProvider"));
 check("the queue is an inbox", readFileSync("components/desk/pipeline.tsx", "utf8").includes("Low value") && readFileSync("components/desk/pipeline.tsx", "utf8").includes("Possible routes"));
 
 main().then(() => {

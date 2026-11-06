@@ -259,7 +259,8 @@ export function DeskDiscover({
               {view.button}
             </button>
           ) : null}
-          <p className="mt-4 font-mono text-[11px] tracking-[0.16em] text-ink-soft uppercase">Latest understanding</p>
+          <p className="mt-4 font-mono text-[11px] tracking-[0.16em] text-ink-soft uppercase">Understanding</p>
+          <p className="mt-2 text-sm text-ink-soft">Separate from the historical extraction above. This action reads the stored posts and writes a new understanding. It does not change the extraction count.</p>
           <dl className="mt-3 space-y-1 text-sm text-ink-soft">
             {understandConfirmation(storedConversations).map((line) => <div key={line}>{line}</div>)}
           </dl>
@@ -271,7 +272,8 @@ export function DeskDiscover({
           >
             {reassessing ? "Understanding…" : "Understand saved conversations"}
           </button>
-          {reassessNote ? <p className="mt-2">{reassessNote}</p> : null}
+          <p className="mt-4 font-mono text-[11px] tracking-[0.16em] text-ink-soft uppercase">Understanding outcome</p>
+          {reassessNote ? <p className="mt-2">{reassessNote}</p> : <p className="mt-2 text-sm text-ink-soft">No new understanding has been run from this page yet.</p>}
         </div>
       ) : null}
       {error ? <p className="mt-3 text-sm text-stamp">{error}</p> : null}

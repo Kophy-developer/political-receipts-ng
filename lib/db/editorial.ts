@@ -13,7 +13,7 @@ import { mergeAssessments, nextAssessmentVersion, type Lifecycle, type PipelineC
 import { packetsFromPosts, type StoredAssessmentPost } from "@/lib/editorial/packet";
 import { withUnderstandVersions } from "@/lib/editorial/trace";
 import { understandPackets } from "@/lib/editorial/understand-ai";
-import { inboxRecords } from "@/lib/editorial/understand";
+import { inboxRecords, understandingOutcomeMessage } from "@/lib/editorial/understand";
 
 const pipelineColumns = [
   "id",
@@ -252,7 +252,12 @@ export async function reassessSavedScan(scanId: string) {
     passed,
     preserved: merge.kept.length,
     deleted: merge.deleted.length,
-    message: `Understood ${ranked.length} stored conversations. ${queued} are in the queue. ${passed} could not be understood. Earlier cards were kept. Understanding used ${understood.modelCalls} model request${understood.modelCalls === 1 ? "" : "s"}. No X request or research call was made, and nothing was published.`,
+    message: understandingOutcomeMessage({
+      received: ranked.length,
+      understood: queued,
+      unclear: passed,
+      modelCalls: understood.modelCalls,
+    }),
   };
 }
 
