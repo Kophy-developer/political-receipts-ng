@@ -192,8 +192,23 @@ check(
 );
 const badNeed = parseConversationUnderstanding({ readings: [{ ...opinionRow("one"), research_need: "none" }] }, ["one"]);
 check("research_need is not coerced", badNeed.success === false && badNeed.errors.some((error) => error.field_path === "readings[0].research_need" && error.message === "unsupported value \"none\""));
-const badUnderstood = parseConversationUnderstanding({ readings: [{ ...opinionRow("one"), understood: "true" }] }, ["one"]);
-check("understood is not coerced from a string", badUnderstood.success === false && badUnderstood.errors.some((error) => error.field_path === "readings[0].understood" && error.received_type === "string"));
+const yesUnderstood = parseConversationUnderstanding({ readings: [{ ...opinionRow("one"), understood: " YES " }] }, ["one"]);
+const noUnderstood = parseConversationUnderstanding({ readings: [{ ...opinionRow("one"), understood: "FALSE" }] }, ["one"]);
+check(
+  "boolean words normalize",
+  yesUnderstood.success === true && yesUnderstood.validated_output?.[0]?.understood === true && noUnderstood.validated_output?.[0]?.understood === false,
+);
+const maybeUnderstood = parseConversationUnderstanding({ readings: [{ ...opinionRow("one"), understood: "maybe" }] }, ["one"]);
+const numericUnderstood = parseConversationUnderstanding({ readings: [{ ...opinionRow("one"), understood: 1 }] }, ["one"]);
+check(
+  "uncertain booleans stay invalid",
+  maybeUnderstood.success === false
+    && maybeUnderstood.errors.some((error) => error.field_path === "readings[0].understood" && error.message === "expected a boolean, received \"maybe\"")
+    && numericUnderstood.errors.some((error) => error.field_path === "readings[0].understood" && error.received_type === "number"),
+);
+const emptyReason = parseConversationUnderstanding({ readings: [{ ...opinionRow("one"), research_need: "no", reason_for_research_need: "" }] }, ["one"]);
+const emptyYes = parseConversationUnderstanding({ readings: [{ ...opinionRow("one"), research_need: "yes", reason_for_research_need: "" }] }, ["one"]);
+check("an empty reason is valid only when research is no", emptyReason.success === true && emptyYes.success === false && emptyYes.errors.some((error) => error.field_path === "readings[0].reason_for_research_need"));
 const paddedId = parseConversationUnderstanding({ readings: [{ ...opinionRow("one"), conversation_id: " one" }] }, ["one"]);
 check("conversation ids are not trimmed into a match", paddedId.success === false && paddedId.errors.some((error) => error.message === "unknown conversation_id") && paddedId.errors.some((error) => error.message === "missing conversation_id"));
 const duplicated = parseConversationUnderstanding({ readings: [opinionRow("a"), opinionRow("a")] }, ["a", "b"]);
@@ -335,6 +350,33 @@ check("understanding does not call X, research, or publish", !/searchRecent|tavi
 check("the desk shows the understanding confirmation", discover.includes("understandConfirmation") && discover.includes("Understand saved conversations"));
 check("the desk separates understanding from historical extraction", discover.includes("Historical extraction") && discover.includes("Latest understanding") && !discover.includes("conversation-understand-v1-rejected"));
 check("settings shows the field error without the rejected body", readFileSync("components/settings/panel.tsx", "utf8").includes("Latest understanding failure") && readFileSync("components/settings/panel.tsx", "utf8").includes("not shown here"));
+const production = JSON.parse(readFileSync("scripts/fixtures/groq-understand-rejected-20261106.json", "utf8")) as { conversations: Array<Record<string, unknown>> };
+const productionIds = production.conversations.map((item) => String(item.conversation_id));
+const productionAudit = parseConversationUnderstanding(production, productionIds);
+check(
+  "the saved Groq response reports every missing understood field",
+  productionAudit.readings_received === 10
+    && productionAudit.readings_valid === 0
+    && productionAudit.errors.length === 10
+    && productionAudit.errors.every((error) => error.field_path.endsWith(".understood") && error.received_type === "undefined" && error.message === "missing boolean")
+    && productionAudit.missing_ids.length === 0
+    && productionAudit.duplicate_ids.length === 0
+    && productionAudit.unexpected_ids.length === 0
+    && understandingFailureMessage("Groq", productionAudit.errors).includes("10 field errors")
+    && understandingFailureMessage("Groq", productionAudit.errors).includes("readings[9].understood: missing boolean"),
+);
+const productionRepaired = {
+  conversations: production.conversations.map((item, index) => ({ ...item, understood: index % 2 === 0 ? " yes " : "FALSE" })),
+};
+const productionFixed = parseConversationUnderstanding(productionRepaired, productionIds);
+check(
+  "the saved Groq shape passes once understood is an accepted boolean word",
+  productionFixed.success === true && productionFixed.readings_valid === 10 && productionFixed.validated_output?.[1]?.understood === false,
+);
+check(
+  "the prompt example includes the required boolean and an empty no-research reason",
+  system.includes("understood is required") && system.includes("\"understood\":true") && system.includes("\"reason_for_research_need\":\"\""),
+);
 check("the queue is an inbox", readFileSync("components/desk/pipeline.tsx", "utf8").includes("Low value") && readFileSync("components/desk/pipeline.tsx", "utf8").includes("Possible routes"));
 
 main().then(() => {

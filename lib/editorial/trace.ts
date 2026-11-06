@@ -204,6 +204,11 @@ export type RejectedUnderstanding = {
   model: string;
   requestId: string;
   errors: UnderstandingFieldError[];
+  readings_received: number | null;
+  readings_valid: number | null;
+  missing_ids: string[];
+  duplicate_ids: string[];
+  unexpected_ids: string[];
   parsed: unknown;
   truncated: boolean;
 };
@@ -242,12 +247,21 @@ function storedError(error: UnderstandingFieldError): UnderstandingFieldError {
 }
 
 /** Server-side record of a rejected understanding object. The desk does not render `parsed`. */
+function idList(value: string[] | undefined) {
+  return (value ?? []).filter((id) => typeof id === "string").slice(0, 20).map((id) => id.slice(0, 80));
+}
+
 export function rejectedUnderstandingResponse(input: {
   provider: string;
   model: string;
   requestId: string;
   errors: UnderstandingFieldError[];
   parsed: unknown;
+  readingsReceived?: number;
+  readingsValid?: number;
+  missingIds?: string[];
+  duplicateIds?: string[];
+  unexpectedIds?: string[];
 }): RejectedUnderstanding {
   const errors = input.errors.slice(0, rejectedUnderstandingErrorLimit).map(storedError);
   const redacted = redactParsed(input.parsed, 0);
@@ -259,6 +273,11 @@ export function rejectedUnderstandingResponse(input: {
     model: input.model.slice(0, 120),
     requestId: input.requestId.slice(0, 80),
     errors,
+    readings_received: typeof input.readingsReceived === "number" ? input.readingsReceived : null,
+    readings_valid: typeof input.readingsValid === "number" ? input.readingsValid : null,
+    missing_ids: idList(input.missingIds),
+    duplicate_ids: idList(input.duplicateIds),
+    unexpected_ids: idList(input.unexpectedIds),
     parsed: truncated ? { truncated: true, characters: serialized.length } : redacted,
     truncated,
   };
@@ -274,25 +293,39 @@ export function understandingFailureNotice(value: unknown, provider: string): st
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const row = value as Record<string, unknown>;
   if (row.kind !== "conversation-understand-v1-rejected" || !Array.isArray(row.errors) || row.errors.length === 0) return null;
-  const first = row.errors[0];
-  if (!first || typeof first !== "object" || Array.isArray(first)) return null;
-  const field = first as Record<string, unknown>;
-  if (typeof field.field_path !== "string" || typeof field.message !== "string") return null;
-  const error: UnderstandingFieldError = {
-    conversation_id: typeof field.conversation_id === "string" ? field.conversation_id : null,
-    field_path: field.field_path,
-    expected: typeof field.expected === "string" ? field.expected : "",
-    received_type: typeof field.received_type === "string" ? field.received_type : "",
-    message: field.message,
-  };
-  return understandingFailureMessage(providerName(provider), [error]);
+  const errors: UnderstandingFieldError[] = [];
+  for (const item of row.errors) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) continue;
+    const field = item as Record<string, unknown>;
+    if (typeof field.field_path !== "string" || typeof field.message !== "string") continue;
+    errors.push({
+      conversation_id: typeof field.conversation_id === "string" ? field.conversation_id : null,
+      field_path: field.field_path,
+      expected: typeof field.expected === "string" ? field.expected : "",
+      received_type: typeof field.received_type === "string" ? field.received_type : "",
+      message: field.message,
+    });
+  }
+  if (errors.length === 0) return null;
+  const received = typeof row.readings_received === "number" ? row.readings_received : null;
+  const valid = typeof row.readings_valid === "number" ? row.readings_valid : null;
+  const counts = received == null ? "" : `Received ${received}. Valid ${valid ?? 0}. `;
+  return `${counts}${understandingFailureMessage(providerName(provider), errors)}`;
 }
 
 export function stampUnderstandAttempt(
   attempt: AttemptRecord,
   requestId: string,
   readings: ConversationUnderstanding[] | null,
-  rejected: { errors: UnderstandingFieldError[]; parsed: unknown } | null = null,
+  rejected: {
+    errors: UnderstandingFieldError[];
+    parsed: unknown;
+    readingsReceived?: number;
+    readingsValid?: number;
+    missingIds?: string[];
+    duplicateIds?: string[];
+    unexpectedIds?: string[];
+  } | null = null,
 ): StampedAttempt {
   const { parsedPayload, ...rest } = attempt;
   void parsedPayload;
@@ -325,6 +358,11 @@ export function stampUnderstandAttempt(
         requestId,
         errors: rejected.errors,
         parsed: rejected.parsed,
+        readingsReceived: rejected.readingsReceived,
+        readingsValid: rejected.readingsValid,
+        missingIds: rejected.missingIds,
+        duplicateIds: rejected.duplicateIds,
+        unexpectedIds: rejected.unexpectedIds,
       }),
     };
   }

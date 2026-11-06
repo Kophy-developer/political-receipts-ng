@@ -58,7 +58,15 @@ export async function understandPackets(input: {
         attempt,
         input.requestId,
         parsed,
-        rejected && !rejected.success ? { errors: rejected.errors, parsed: attempt.parsedPayload } : null,
+        rejected && !rejected.success ? {
+          errors: rejected.errors,
+          parsed: attempt.parsedPayload,
+          readingsReceived: rejected.readings_received,
+          readingsValid: rejected.readings_valid,
+          missingIds: rejected.missing_ids,
+          duplicateIds: rejected.duplicate_ids,
+          unexpectedIds: rejected.unexpected_ids,
+        } : null,
       );
     }));
     if (!routed.ok || !parsed) {

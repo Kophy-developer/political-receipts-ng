@@ -220,7 +220,7 @@ function UnderstandingFailure({ notice }: { notice: UnderstandingFailureNotice |
     <div className="mt-4 max-w-3xl border border-rule px-3 py-3">
       <p className="text-sm">Latest understanding failure</p>
       <p className="mt-2 text-sm leading-relaxed text-ink-soft">
-        A field name and the rejected value only. The model JSON stays in the server attempt log and is not shown here.
+        Every field error from the latest rejection. The model JSON stays in the server attempt log and is not shown here.
       </p>
       {notice ? (
         <p className="mt-3 text-sm leading-relaxed">{notice.explanation}</p>

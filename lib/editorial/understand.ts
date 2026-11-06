@@ -97,6 +97,7 @@ export function understandSystem() {
     "You read stored conversations for one human account. Your only job is to understand what each conversation contains.",
     "Do not decide whether a conversation is worth talking about, worth publishing, or likely to perform. Do not score its quality. Do not invent the account's belief. Do not forecast who wins an election.",
     "understood means only: can you tell what the stored posts are saying? It is not a quality score. A single clear post can be understood. Not knowing whether a claim is true does not make the post unclear.",
+    "understood is required on every reading. Use a JSON boolean, true or false. Do not omit it. A missing understood value is not false.",
     "If the text genuinely cannot be understood, set understood to false and primary_kind to unclear. Do not invent missing context.",
     "primary_kind classifies what the conversation contains. Allowed primary_kind values are only: factual_assertion, event, opinion, prediction, question, reaction, humour, rhetoric, unclear.",
     "A sentence about what someone did, spent, or claimed is a factual_assertion even when you have not verified it. Copy those sentences into checkable_facts.",
@@ -104,12 +105,12 @@ export function understandSystem() {
     "possible_routes are editorial routes, not classifications. Allowed possible_routes values are only: CHECK, ANALYSIS, REACTION, OPINION, QUESTION, HUMOUR, ORIGINAL_INSIGHT. They describe what the text could support. They are not a decision to publish.",
     "PREDICTION is a primary_kind. It is not a possible_route. Do not copy primary_kind values into possible_routes.",
     "For a prediction, QUESTION means a question about the observable issue the prediction depends on. It is not a forecast of an election result.",
-    "research_need is yes when a factual or numerical assertion would need an outside record, recommended when an event would be clearer with context, and no for opinion, humour, rhetoric, or a prediction that is not a result.",
-    "reason_for_research_need is one sentence. summary is one or two sentences using only the stored posts. subjects are the topics named in the posts.",
-    "data_or_numbers_involved is true when the conversation uses a figure, a sum, or a measurable claim. event_or_development, prediction_present, and opinion_present are true when that signal is in the text.",
-    "Return JSON only. No markdown. No commentary.",
-    '{"conversations":[{"conversation_id":"","summary":"","subjects":[],"primary_kind":"unclear","checkable_facts":[],"data_or_numbers_involved":false,"event_or_development":false,"prediction_present":false,"opinion_present":false,"possible_routes":[],"research_need":"no","reason_for_research_need":"","understood":false}]}',
-    "Return every conversation_id you were given, once.",
+    "research_need is yes, recommended, or no. Use yes when a factual or numerical assertion would need an outside record, recommended when an event would be clearer with context, and no for opinion, humour, rhetoric, or a prediction that is not a result.",
+    "reason_for_research_need is a string. When research_need is no, it may be an empty string. When research_need is yes or recommended, it is one sentence.",
+    "summary is one or two non-empty sentences using only the stored posts. subjects and checkable_facts are arrays of strings and may be empty. Do not invent subjects or facts.",
+    "data_or_numbers_involved, event_or_development, prediction_present, and opinion_present are booleans. Use JSON true or false. Omit one of these four only when that signal is not asserted.",
+    "Return JSON only. No markdown. No commentary. Return every conversation_id you were given, once.",
+    '{"conversations":[{"conversation_id":"id","summary":"What the stored posts say.","subjects":["topic"],"primary_kind":"opinion","checkable_facts":[],"data_or_numbers_involved":false,"event_or_development":false,"prediction_present":false,"opinion_present":true,"possible_routes":["OPINION","REACTION"],"research_need":"no","reason_for_research_need":"","understood":true}]}',
   ].join("\n");
 }
 
@@ -148,7 +149,12 @@ export type UnderstandingFieldError = {
 
 export type UnderstandingValidation = {
   success: boolean;
+  readings_received: number;
+  readings_valid: number;
   errors: UnderstandingFieldError[];
+  missing_ids: string[];
+  duplicate_ids: string[];
+  unexpected_ids: string[];
   validated_output?: ConversationUnderstanding[];
 };
 
@@ -163,7 +169,10 @@ export type UnderstandingValidation = {
  * Duplicate entries in subjects, checkable_facts, and possible_routes are dropped.
  * A missing subjects, checkable_facts, or possible_routes array is an empty array.
  * A missing data_or_numbers_involved, event_or_development, prediction_present, or opinion_present
- * value is false: the model did not assert that signal.
+ * key is false: the model did not assert that signal. Null, blank, and other strings are not false.
+ * Boolean fields accept true, false, and the strings true, false, yes, and no, ignoring case and surrounding space.
+ * understood is required. A missing understood value is an error.
+ * reason_for_research_need may be empty only when research_need is no.
  * primary_kind, research_need, understood, and conversation_id are never guessed.
  * Subjects and checkable facts are never filled in.
  * PREDICTION is not a route. On a prediction record it is removed from possible_routes.
@@ -194,6 +203,15 @@ function fieldError(conversationId: string | null, fieldPath: string, expected: 
     received_type: received,
     message,
   };
+}
+
+function strictBoolean(value: unknown): boolean | null {
+  if (typeof value === "boolean") return value;
+  if (typeof value !== "string") return null;
+  const token = value.trim().toLowerCase();
+  if (token === "true" || token === "yes") return true;
+  if (token === "false" || token === "no") return false;
+  return null;
 }
 
 function enumToken(value: unknown, letter: "lower" | "upper") {
@@ -261,16 +279,30 @@ function readingFrom(row: Record<string, unknown>, index: number, errors: Unders
   if (typeof rawId !== "string" || rawId.length === 0) {
     errors.push(fieldError(null, `${path}.conversation_id`, "stored conversation id", receivedType(rawId), "expected a conversation_id string"));
   }
-  if (typeof row.understood !== "boolean") {
-    errors.push(fieldError(conversationId, `${path}.understood`, "boolean", receivedType(row.understood), "expected a boolean"));
+  const understood = "understood" in row ? strictBoolean(row.understood) : null;
+  if (!("understood" in row)) {
+    errors.push(fieldError(conversationId, `${path}.understood`, "boolean", "undefined", "missing boolean"));
+  } else if (understood == null) {
+    const shown = typeof row.understood === "string" ? safeToken(row.understood) : null;
+    errors.push(fieldError(
+      conversationId,
+      `${path}.understood`,
+      "boolean",
+      receivedType(row.understood),
+      shown ? `expected a boolean, received "${shown}"` : "expected a boolean",
+    ));
   }
   const summary = typeof row.summary === "string" ? clip(row.summary, 500) : "";
   if (!summary) {
     errors.push(fieldError(conversationId, `${path}.summary`, "non-empty string", receivedType(row.summary), "expected a non-empty string"));
   }
-  const reason = typeof row.reason_for_research_need === "string" ? clip(row.reason_for_research_need, 500) : "";
-  if (!reason) {
-    errors.push(fieldError(conversationId, `${path}.reason_for_research_need`, "non-empty string", receivedType(row.reason_for_research_need), "expected a non-empty string"));
+  let reason = "";
+  if (!("reason_for_research_need" in row)) {
+    errors.push(fieldError(conversationId, `${path}.reason_for_research_need`, "string", "undefined", "missing string"));
+  } else if (typeof row.reason_for_research_need !== "string") {
+    errors.push(fieldError(conversationId, `${path}.reason_for_research_need`, "string", receivedType(row.reason_for_research_need), "expected a string"));
+  } else {
+    reason = clip(row.reason_for_research_need, 500);
   }
   const primaryToken = enumToken(row.primary_kind, "lower");
   if (primaryToken == null) {
@@ -298,6 +330,9 @@ function readingFrom(row: Record<string, unknown>, index: number, errors: Unders
       shown ? `unsupported value "${shown}"` : "unsupported value",
     ));
   }
+  if (("reason_for_research_need" in row) && typeof row.reason_for_research_need === "string" && !reason && needToken !== "no") {
+    errors.push(fieldError(conversationId, `${path}.reason_for_research_need`, "non-empty string when research_need is yes or recommended", "string", "expected a non-empty string"));
+  }
   const signals: Record<(typeof signalBooleans)[number], boolean> = {
     data_or_numbers_involved: false,
     event_or_development: false,
@@ -305,12 +340,20 @@ function readingFrom(row: Record<string, unknown>, index: number, errors: Unders
     opinion_present: false,
   };
   for (const key of signalBooleans) {
-    if (!(key in row) || row[key] == null) continue;
-    if (typeof row[key] !== "boolean") {
-      errors.push(fieldError(conversationId, `${path}.${key}`, "boolean", receivedType(row[key]), "expected a boolean"));
+    if (!(key in row)) continue;
+    const parsed = strictBoolean(row[key]);
+    if (parsed == null) {
+      const shown = typeof row[key] === "string" ? safeToken(row[key]) : null;
+      errors.push(fieldError(
+        conversationId,
+        `${path}.${key}`,
+        "boolean",
+        receivedType(row[key]),
+        shown ? `expected a boolean, received "${shown}"` : "expected a boolean",
+      ));
       continue;
     }
-    signals[key] = row[key];
+    signals[key] = parsed;
   }
   const subjects = stringList(row.subjects, 8, 80);
   if (!subjects.ok) errors.push(fieldError(conversationId, `${path}.subjects`, "array of strings", subjects.received, "expected an array of strings"));
@@ -345,9 +388,9 @@ function readingFrom(row: Record<string, unknown>, index: number, errors: Unders
   if (errors.length > started) return null;
   if (
     !conversationId
-    || typeof row.understood !== "boolean"
+    || understood == null
     || !summary
-    || !reason
+    || (!reason && needToken !== "no")
     || !primaryToken
     || !kindSet.has(primaryToken)
     || !needToken
@@ -369,18 +412,54 @@ function readingFrom(row: Record<string, unknown>, index: number, errors: Unders
     possibleRoutes,
     researchNeed: needToken as ResearchNeed,
     reasonForResearchNeed: reason,
-    understood: row.understood,
+    understood,
   };
+}
+
+function batchResult(input: {
+  success: boolean;
+  readingsReceived: number;
+  validCount: number;
+  readings: ConversationUnderstanding[];
+  errors: UnderstandingFieldError[];
+  missingIds: string[];
+  duplicateIds: string[];
+  unexpectedIds: string[];
+}): UnderstandingValidation {
+  const result: UnderstandingValidation = {
+    success: input.success,
+    readings_received: input.readingsReceived,
+    readings_valid: input.validCount,
+    errors: input.errors,
+    missing_ids: input.missingIds,
+    duplicate_ids: input.duplicateIds,
+    unexpected_ids: input.unexpectedIds,
+  };
+  if (input.success) result.validated_output = input.readings;
+  return result;
 }
 
 /** A batch is accepted only when every requested conversation has one valid reading. */
 export function parseConversationUnderstanding(value: unknown, ids: string[]): UnderstandingValidation {
   const located = locateReadings(value);
-  if ("error" in located) return { success: false, errors: [located.error] };
+  if ("error" in located) {
+    return batchResult({
+      success: false,
+      readingsReceived: 0,
+      validCount: 0,
+      readings: [],
+      errors: [located.error],
+      missingIds: [...ids],
+      duplicateIds: [],
+      unexpectedIds: [],
+    });
+  }
   const allowed = new Set(ids);
   const errors: UnderstandingFieldError[] = [];
   const seen = new Set<string>();
   const readings: ConversationUnderstanding[] = [];
+  const duplicateIds: string[] = [];
+  const unexpectedIds: string[] = [];
   located.items.forEach((item, index) => {
     const row = recordOf(item);
     if (!row) {
@@ -390,27 +469,39 @@ export function parseConversationUnderstanding(value: unknown, ids: string[]): U
     const reading = readingFrom(row, index, errors);
     const id = typeof row.conversation_id === "string" && row.conversation_id.length > 0 ? row.conversation_id : null;
     if (id && !allowed.has(id)) {
+      unexpectedIds.push(id);
       errors.push(fieldError(id, `readings[${index}].conversation_id`, "one stored conversation id", "string", "unknown conversation_id"));
     } else if (id && seen.has(id)) {
+      duplicateIds.push(id);
       errors.push(fieldError(id, `readings[${index}].conversation_id`, "one reading for this conversation id", "string", "duplicate conversation_id"));
     } else if (id) {
       seen.add(id);
       if (reading) readings.push(reading);
     }
   });
-  for (const id of ids) {
-    if (!seen.has(id)) {
-      errors.push(fieldError(id, "readings", "one reading", "missing", "missing conversation_id"));
-    }
+  const missingIds = ids.filter((id) => !seen.has(id));
+  for (const id of missingIds) {
+    errors.push(fieldError(id, "readings", "one reading", "missing", "missing conversation_id"));
   }
-  if (errors.length > 0 || readings.length !== ids.length) return { success: false, errors };
-  return { success: true, errors: [], validated_output: readings };
+  const success = errors.length === 0 && readings.length === ids.length;
+  return batchResult({
+    success,
+    readingsReceived: located.items.length,
+    validCount: readings.length,
+    readings,
+    errors,
+    missingIds,
+    duplicateIds,
+    unexpectedIds,
+  });
 }
 
 export function understandingFailureMessage(provider: string, errors: UnderstandingFieldError[]) {
   const first = errors[0];
   if (!first) return `${provider} returned JSON but validation failed.`;
-  return `${provider} returned JSON but validation failed at ${first.field_path}: ${first.message}.`;
+  if (errors.length === 1) return `${provider} returned JSON but validation failed at ${first.field_path}: ${first.message}.`;
+  const detail = errors.slice(0, 20).map((error) => `${error.field_path}: ${error.message}`).join("; ");
+  return `${provider} returned JSON but validation failed. ${errors.length} field errors. ${detail}.`;
 }
 
 export function isTimely(packet: ConversationPacket, now = Date.now()) {
