@@ -94,14 +94,15 @@ check(
     && split.history.map((item) => item.id).sort().join(",") === "duplicate,old,rejected",
 );
 
-const pipeline = readFileSync("components/desk/pipeline.tsx", "utf8");
+const desk = readFileSync("app/desk/page.tsx", "utf8");
+const scanBoard = readFileSync("components/desk/scan-board.tsx", "utf8");
 const board = readFileSync("components/opportunities/board.tsx", "utf8");
 check(
-  "recovery wording does not describe a new model request",
-  pipeline.includes("Recovered from 1 previous AI model response.")
-    && pipeline.includes("New model requests during recovery: 0.")
-    && pipeline.includes("Previous assessment versions")
-    && pipeline.includes("not current")
+  "the current scan does not present a recovered model response as its outcome",
+  !desk.includes("Recovered from 1 previous AI model response.")
+    && !scanBoard.includes("Recovered from 1 previous AI model response.")
+    && desk.includes("Previous assessment versions")
+    && desk.includes("not current")
     && board.includes("Previous assessment versions")
     && board.includes("not current"),
 );

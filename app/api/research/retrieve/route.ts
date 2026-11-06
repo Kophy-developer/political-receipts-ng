@@ -1,14 +1,14 @@
 import { connection } from "next/server";
 import { isUuid } from "@/lib/db/labels";
 import { retrieveStoredResults } from "@/lib/research/retrieve-selected";
-import { assertEditorPost } from "@/lib/x/guard";
+import { assertEditorRequest } from "@/lib/x/guard";
 
 export const maxDuration = 60;
 
 export async function POST(request: Request) {
   await connection();
-  const rejected = assertEditorPost(request);
-  if (rejected) return Response.json({ ok: false, retrieved: 0, message: rejected }, { status: 403 });
+  const rejected = await assertEditorRequest(request);
+  if (rejected) return Response.json({ ok: false, retrieved: 0, message: rejected.message }, { status: rejected.status });
   let body: { claimId?: unknown; resultIds?: unknown };
   try {
     body = (await request.json()) as { claimId?: unknown; resultIds?: unknown };

@@ -9,7 +9,7 @@ import { draftWithProviders } from "@/lib/drafts/chain";
 import { isPollingUnitStory } from "@/lib/drafts/legacy-polling";
 import { appendSourcePost, DRAFT_UNAVAILABLE, draftBriefFrom, judgeEditorText, judgeSavedText, type GeneratedStyle } from "@/lib/drafts/rules";
 import { draftUnlocked } from "@/lib/research/editor-review";
-import { assertEditorPost } from "@/lib/x/guard";
+import { assertEditorRequest } from "@/lib/x/guard";
 
 export const maxDuration = 60;
 
@@ -17,8 +17,8 @@ const generated = new Set<GeneratedStyle>(["conversational", "punchy", "analytic
 const running = new Set<string>();
 
 export async function POST(request: Request) {
-  const refused = assertEditorPost(request);
-  if (refused) return Response.json({ ok: false, message: refused }, { status: 403, headers: { "cache-control": "no-store" } });
+  const refused = await assertEditorRequest(request);
+  if (refused) return Response.json({ ok: false, message: refused.message }, { status: refused.status, headers: { "cache-control": "no-store" } });
   let body: { claimId?: unknown; action?: unknown; style?: unknown; draftId?: unknown; content?: unknown; sources?: unknown };
   try {
     body = await request.json();

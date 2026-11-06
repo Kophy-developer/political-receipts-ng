@@ -1,7 +1,7 @@
 import { recordAccountProfile } from "@/lib/db/connections";
 import { verifyOauth1Account } from "@/lib/x/account";
 import { credentialFlags } from "@/lib/x/env";
-import { assertEditorPost, reserveAccountRead } from "@/lib/x/guard";
+import { assertEditorRequest, reserveAccountRead } from "@/lib/x/guard";
 import { openSeal, readCookie, seal, writeCookie } from "@/lib/x/seal";
 
 type CheckCookie = { at: number };
@@ -13,8 +13,8 @@ function json(body: object, status = 200, cookie?: string) {
 }
 
 export async function POST(request: Request) {
-  const refused = assertEditorPost(request);
-  if (refused) return json({ ok: false, message: refused }, 403);
+  const refused = await assertEditorRequest(request);
+  if (refused) return json({ ok: false, message: refused.message }, refused.status);
   if (!credentialFlags().oauth1) {
     return json({ ok: false, connected: false, message: "X API credentials are not configured on the server." }, 503);
   }

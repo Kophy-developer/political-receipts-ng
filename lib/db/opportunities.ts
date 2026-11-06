@@ -304,8 +304,12 @@ export async function decideOpportunity(input: { id: string; action: string; ang
   const row = await db.from("opportunities").select("id, status, conversation_id, what_happened, research_questions, angles, opportunity_type, voice, content_pillar, research_required").eq("id", input.id).maybeSingle();
   if (row.error || !row.data) return { ok: false as const, message: "That opportunity is not on the desk." };
   if (input.action === "promote" || input.action === "pass") {
-    const ranked = await db.from("opportunities").select("queue_rank").eq("lifecycle", "RANKED");
-    const nextRank = (ranked.data ?? []).reduce((max, row) => Math.max(max, typeof row.queue_rank === "number" ? row.queue_rank : 0), 0) + 1;
+    let nextRank = 1;
+    if (input.action === "promote") {
+      const ranked = await db.from("opportunities").select("queue_rank").eq("lifecycle", "RANKED").order("queue_rank", { ascending: false }).limit(1);
+      const current = ranked.data?.[0]?.queue_rank;
+      nextRank = (typeof current === "number" ? current : 0) + 1;
+    }
     const patch = input.action === "promote"
       ? { status: "open", lifecycle: "RANKED", queue_rank: nextRank, pass_reason: null }
       : { status: "ignored", lifecycle: "PASSED", queue_rank: null, pass_reason: "Passed by the editor." };

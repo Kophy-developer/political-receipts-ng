@@ -1,14 +1,14 @@
 import { connection } from "next/server";
 import { reprocessSavedScan } from "@/lib/intel/saved-scan";
-import { assertEditorPost } from "@/lib/x/guard";
+import { assertEditorRequest } from "@/lib/x/guard";
 
 export const maxDuration = 60;
 
 export async function POST(request: Request) {
   await connection();
-  const rejected = assertEditorPost(request);
+  const rejected = await assertEditorRequest(request);
   if (rejected) {
-    return Response.json({ ok: false, xRequests: 0, detail: rejected, posted: false, polling: false }, { status: 403 });
+    return Response.json({ ok: false, xRequests: 0, detail: rejected.message, posted: false, polling: false }, { status: rejected.status });
   }
   let body: { scanId?: unknown };
   try {

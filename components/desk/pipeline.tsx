@@ -127,8 +127,6 @@ export function EditorialPipeline({
         <p className="font-mono text-[11px] tracking-[0.16em] text-ink-soft uppercase">Content queue</p>
         <h2 className="mt-2 font-serif text-3xl tracking-[-0.03em]">Understood content.</h2>
         <p className="mt-2 text-sm text-ink-soft">This is the active understanding inbox. Order comes from the signals. Names of people and parties do not move an item up or down.</p>
-        <p className="mt-2 text-sm">Recovered from 1 previous AI model response.</p>
-        <p className="text-sm">New model requests during recovery: 0.</p>
         <div className="mt-3 flex flex-wrap gap-2" role="group" aria-label="Queue pillar">
           <FilterButton pressed={filter === "all"} onClick={() => setFilter("all")}>All</FilterButton>
           {contentPillars.map((pillar) => (

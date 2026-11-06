@@ -43,6 +43,7 @@ export function StoryWorkspace({
   suggestions,
   capability,
   publication,
+  research = null,
 }: {
   claim: ClaimCard;
   finalPostId: string | null;
@@ -51,6 +52,7 @@ export function StoryWorkspace({
   suggestions: Suggestion[];
   capability: PublishCapability;
   publication: { url: string | null; publishedAt: string } | null;
+  research?: { state: string; reason: string; action: string } | null;
 }) {
   const router = useRouter();
   const editorRef = useRef<HTMLTextAreaElement>(null);
@@ -165,20 +167,20 @@ export function StoryWorkspace({
             <p className="mt-3 whitespace-pre-wrap text-sm leading-relaxed">{claim.postText}</p>
             {claim.postUrl ? <a className="mt-2 inline-block text-sm underline" href={claim.postUrl}>Open the post</a> : null}
           </details>
-          <details className="border border-rule px-4 py-3">
-            <summary className="cursor-pointer text-sm">Research</summary>
-            <p className="mt-3 text-sm leading-relaxed">{brief.line}</p>
-            <details className="mt-3">
-              <summary className="cursor-pointer text-xs text-ink-soft">Research details</summary>
-              <ul className="mt-2 space-y-1 text-sm">
+          <section className="border border-rule px-4 py-3">
+            <p className="font-mono text-[11px] tracking-[0.14em] text-ink-soft uppercase">{research?.state ?? (accepted.length || recorded.length ? "Evidence examined" : "Not started")}</p>
+            <p className="mt-2 text-sm leading-relaxed">{research?.reason ?? brief.line}</p>
+            {research?.action ? <p className="mt-2 text-sm text-ink-soft">{research.action}</p> : null}
+            {accepted.length > 0 || recorded.length > 0 ? (
+              <ul className="mt-3 space-y-1 text-sm">
                 {accepted.length > 0 ? accepted.map((item) => (
                   <li key={item.title}>{item.organization}: {item.title}</li>
                 )) : recorded.map((item) => (
                   <li key={item.label}>{item.label}</li>
                 ))}
               </ul>
-            </details>
-          </details>
+            ) : null}
+          </section>
           <details className="border border-rule px-4 py-3">
             <summary className="cursor-pointer text-sm">Editorial decision</summary>
             <p className="mt-3 text-sm">Verdict {claim.verdict ?? "Not recorded"}. Confidence {claim.confidence ?? "Not recorded"}.</p>

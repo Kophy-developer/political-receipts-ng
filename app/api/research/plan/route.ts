@@ -1,7 +1,7 @@
 import { connection } from "next/server";
 import { isUuid } from "@/lib/db/labels";
 import { loadPlan, reviseResearchPlan } from "@/lib/research/plan";
-import { assertEditorPost } from "@/lib/x/guard";
+import { assertEditorRequest } from "@/lib/x/guard";
 
 function deskRead(request: Request) {
   const site = request.headers.get("sec-fetch-site");
@@ -31,8 +31,8 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   await connection();
-  const rejected = assertEditorPost(request);
-  if (rejected) return Response.json({ ok: false, message: rejected }, { status: 403 });
+  const rejected = await assertEditorRequest(request);
+  if (rejected) return Response.json({ ok: false, message: rejected.message }, { status: rejected.status });
   let body: { claimId?: unknown; action?: unknown };
   try {
     body = (await request.json()) as { claimId?: unknown; action?: unknown };

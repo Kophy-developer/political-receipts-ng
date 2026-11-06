@@ -172,11 +172,12 @@ check("the desk does not promise a second post will be dropped after send", !wor
 check("refresh is the explicit profile action", settings.includes("Refresh X account") && !settings.includes("useEffect") && account.includes("subscription_type") && account.includes("profileUrl") && account.includes("identityUrl"));
 const discover = readFileSync(new URL("../components/desk/discover.tsx", import.meta.url), "utf8");
 const deskPage = readFileSync(new URL("../app/desk/page.tsx", import.meta.url), "utf8");
+const scanBoard = readFileSync(new URL("../components/desk/scan-board.tsx", import.meta.url), "utf8");
 const archive = readFileSync(new URL("../components/published/archive.tsx", import.meta.url), "utf8");
 const publishing = readFileSync(new URL("../lib/db/publishing.ts", import.meta.url), "utf8");
 check("the published filter reads the text", archive.includes("visiblePublished"));
 check("publication stores the tag and leaves the approved text alone", publishing.includes("editorial_tag: editorialTagIn(input.text)") && !publishing.includes("approved_text:"));
-check("Desk shows Scan X and keeps the three queues apart", discover.includes("Scan X") && discover.includes("Run scan") && deskPage.includes("In progress") && deskPage.includes("Recently published"));
+check("Desk shows Scan X and keeps this scan, working, and ready apart", discover.includes("Scan X") && discover.includes("Run scan") && deskPage.includes("This scan") && scanBoard.includes("Working") && deskPage.includes("Ready for You"));
 const statusPoll = discover.slice(discover.indexOf("useEffect"), discover.indexOf("async function reprocessSaved"));
 check("Desk scan delegates to the intelligence route and does not scan on its own", discover.includes('fetch("/api/intel/scan"') && !discover.includes("api.twitter.com") && !discover.includes("searchRecent") && discover.includes("router.refresh()") && !discover.includes('push("/intelligence")'));
 check("status polling reads our server and does not start a scan or provider", statusPoll.includes("/api/intel/reprocess/status") && !statusPoll.includes("/api/intel/scan") && !statusPoll.includes("api.twitter.com") && !statusPoll.includes("generativelanguage") && !statusPoll.includes("api.groq.com"));

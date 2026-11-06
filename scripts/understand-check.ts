@@ -438,7 +438,7 @@ check(
     === "Recovered from 1 previous AI model response. New model requests during recovery: 0.",
 );
 check("recovery stays on this attempt", readFileSync("lib/editorial/recover.ts", "utf8").includes(recoveredUnderstandingAttemptId) && readFileSync("supabase/migrations/20261106180000_recover_saved_understanding.sql", "utf8").includes("does not insert") && !readFileSync("app/api/intel/recover-understanding/route.ts", "utf8").includes("callProvider"));
-check("the queue is an inbox", readFileSync("components/desk/pipeline.tsx", "utf8").includes("Low value") && readFileSync("components/desk/pipeline.tsx", "utf8").includes("Possible routes"));
+check("the queue is an inbox", readFileSync("components/desk/scan-board.tsx", "utf8").includes("Low value") && readFileSync("app/desk/page.tsx", "utf8").includes("This scan"));
 
 main().then(() => {
   if (failures.length) {

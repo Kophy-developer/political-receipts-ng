@@ -5,6 +5,21 @@ import { columnMissing, scrubDbMessage, serviceClient } from "@/lib/db/client";
 import { storedPillarForClaim, withoutStoredPillar } from "@/lib/db/pillars";
 import { characterCount } from "@/lib/format";
 
+export async function listExactFinalPosts() {
+  const found = new Map<string, { id: string; text: string }>();
+  const db = serviceClient();
+  if (!db) return found;
+  const listed = await db.from("drafts").select("id, claim_id, content, generation_metadata").eq("version", "M");
+  if (listed.error || !listed.data) return found;
+  for (const row of listed.data) {
+    if (typeof row.claim_id !== "string" || typeof row.id !== "string") continue;
+    const read = readFinalPost({ content: row.content, generation_metadata: row.generation_metadata as { sources?: unknown; source?: unknown; exact?: unknown } | null });
+    if (!read.exact) continue;
+    found.set(row.claim_id, { id: row.id, text: read.text });
+  }
+  return found;
+}
+
 export async function loadFinalPost(claimId: string) {
   const db = serviceClient();
   if (!db) return null;

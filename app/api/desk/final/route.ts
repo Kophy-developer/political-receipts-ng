@@ -1,11 +1,11 @@
 import { parseSourceLinks } from "@/lib/desk/story";
 import { saveFinalPost } from "@/lib/db/final-post";
 import { isUuid } from "@/lib/db/labels";
-import { assertEditorPost } from "@/lib/x/guard";
+import { assertEditorRequest } from "@/lib/x/guard";
 
 export async function POST(request: Request) {
-  const refused = assertEditorPost(request);
-  if (refused) return Response.json({ ok: false, message: refused }, { status: 403, headers: { "cache-control": "no-store" } });
+  const refused = await assertEditorRequest(request);
+  if (refused) return Response.json({ ok: false, message: refused.message }, { status: refused.status, headers: { "cache-control": "no-store" } });
   let body: { claimId?: unknown; text?: unknown; sources?: unknown };
   try {
     body = await request.json();

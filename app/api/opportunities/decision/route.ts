@@ -1,11 +1,11 @@
 import { connection } from "next/server";
 import { decideOpportunity } from "@/lib/db/opportunities";
-import { assertEditorPost } from "@/lib/x/guard";
+import { assertEditorRequest } from "@/lib/x/guard";
 
 export async function POST(request: Request) {
   await connection();
-  const rejected = assertEditorPost(request);
-  if (rejected) return Response.json({ ok: false, message: rejected }, { status: 403 });
+  const rejected = await assertEditorRequest(request);
+  if (rejected) return Response.json({ ok: false, message: rejected.message }, { status: rejected.status });
   let body: { id?: unknown; action?: unknown; angle?: unknown; take?: unknown };
   try {
     body = (await request.json()) as typeof body;

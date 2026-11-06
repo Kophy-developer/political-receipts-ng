@@ -19,13 +19,10 @@ export const lifecycles = [
 export type Lifecycle = (typeof lifecycles)[number];
 
 export const deskSections = [
-  "Discover",
+  "This scan",
+  "Working",
   "Ready for you",
-  "Content queue",
-  "In progress",
-  "Recently published",
-  "Passed over",
-  "Recent scans",
+  "Earlier scans",
 ] as const;
 
 export type Priority = "high" | "medium" | "low";
@@ -253,6 +250,9 @@ export type PipelineCard = {
   developmentUnresolved: string | null;
   developmentDrafts: string[];
   developmentNext: string | null;
+  storyState: string;
+  storyReason: string;
+  storyAction: string;
 };
 
 export function postShape(text: string, maximum = 280) {

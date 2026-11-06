@@ -1,9 +1,9 @@
 import { saveEditorIdentity } from "@/lib/db/identity";
-import { assertEditorPost } from "@/lib/x/guard";
+import { assertEditorRequest } from "@/lib/x/guard";
 
 export async function POST(request: Request) {
-  const refused = assertEditorPost(request);
-  if (refused) return Response.json({ ok: false, message: refused }, { status: 403, headers: { "cache-control": "no-store" } });
+  const refused = await assertEditorRequest(request);
+  if (refused) return Response.json({ ok: false, message: refused.message }, { status: refused.status, headers: { "cache-control": "no-store" } });
   let body: { name?: unknown; role?: unknown };
   try {
     body = await request.json();

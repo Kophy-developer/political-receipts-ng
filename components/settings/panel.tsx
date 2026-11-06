@@ -48,6 +48,7 @@ export function SettingsPanel({
   understandingFailure: UnderstandingFailureNotice | null;
   canRecoverUnderstanding: boolean;
 }) {
+  const router = useRouter();
   const [origin, setOrigin] = useState(xProductionOrigin);
 
   return (
@@ -58,6 +59,10 @@ export function SettingsPanel({
           title="The gate in front of X"
           dek="Credentials stay on the server. An account counts as connected only after a check, and a post leaves only after a person confirms the text."
         />
+        <form action="/api/auth/editor/logout" method="post" onSubmit={(event) => { event.preventDefault(); void fetch("/api/auth/editor/logout", { method: "POST" }).then(() => { router.push("/login"); router.refresh(); }); }}>
+          <button type="submit" className="inline-flex h-11 items-center border border-ink px-3 text-sm">Sign out</button>
+        </form>
+        <p className="text-sm"><Link href="/archive" className="underline">Archive and history</Link> keeps Intelligence, Claims, Opportunities, Sources, and Drafts.</p>
         <div className="grid gap-8 xl:grid-cols-[180px_minmax(0,1fr)]">
           <nav className="hidden xl:block" aria-label="Settings sections">
             <ul className="sticky top-8 space-y-2">

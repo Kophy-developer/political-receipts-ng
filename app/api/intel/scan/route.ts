@@ -3,14 +3,14 @@ import { loadDiscoveryContext } from "@/lib/db/pillars";
 import { isScanMode, storagePillar } from "@/lib/pillars/catalog";
 import { chooseScan } from "@/lib/pillars/scan";
 import { runScan } from "@/lib/intel/run";
-import { assertEditorPost } from "@/lib/x/guard";
+import { assertEditorRequest } from "@/lib/x/guard";
 
 export const maxDuration = 60;
 
 export async function POST(request: Request) {
   await connection();
-  const rejected = assertEditorPost(request);
-  if (rejected) return Response.json({ ok: false, stopped: rejected, posted: false, polling: false, xRequests: 0 }, { status: 403 });
+  const rejected = await assertEditorRequest(request);
+  if (rejected) return Response.json({ ok: false, stopped: rejected.message, posted: false, polling: false, xRequests: 0 }, { status: rejected.status });
   let mode: unknown = "smart";
   try {
     const body = (await request.json()) as { mode?: unknown };

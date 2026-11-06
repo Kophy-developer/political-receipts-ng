@@ -74,7 +74,7 @@ npm run start
 
 `npm run build` is the production build. `npm run start` serves that build, on port 3000 unless `PORT` is set.
 
-The desk still opens with an empty environment. X calls stay closed until the server has credentials. Copy the example file only when you are ready to add them locally:
+Private pages and write actions stay closed until `EDITOR_PASSWORD` and `EDITOR_SESSION_SECRET` are set on the server. X calls stay closed until the server has credentials. Copy the example file only when you are ready to add them locally:
 
 ```bash
 cp .env.example .env.local
@@ -116,6 +116,8 @@ X, Supabase, and the model keys are read only in server modules. Drafts try Groq
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Public Supabase anon key, safe to expose only because row-level security must restrict it |
 | `SUPABASE_SERVICE_ROLE_KEY` | Server only. Never prefix it with `NEXT_PUBLIC_` and never import it into a client component. |
 | `TOKEN_ENCRYPTION_KEY` | Server only. 32-byte key, base64. Generate with `openssl rand -base64 32`, then add that value in Vercel. Never commit it. OAuth tokens are not stored without it. |
+| `EDITOR_PASSWORD` | Server only. Password for the desk. Never prefix it with `NEXT_PUBLIC_` and never commit it. |
+| `EDITOR_SESSION_SECRET` | Server only. Signs the editor session cookie. Generate with `openssl rand -base64 32`. Never commit it. |
 
 X and Gemini secrets must stay on the server. The settings screen never accepts a key and never renders a secret. “Configured” means the variable is present. It does not mean the account has been verified.
 

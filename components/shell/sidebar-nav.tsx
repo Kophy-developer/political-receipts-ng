@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { editorInitials, type EditorIdentity } from "@/lib/identity";
-import { isActive, libraryNav, primaryNav, systemNav, type NavItem } from "@/lib/nav";
+import { isActive, primaryNav, type NavItem } from "@/lib/nav";
 import { cn } from "cn";
 import { ReceiptMark } from "@/components/shell/mark";
 import { DeskClock } from "@/components/shell/desk-clock";
@@ -62,8 +62,6 @@ export function SidebarNav({ onNavigate, identity }: { onNavigate?: () => void; 
       </Link>
       <nav className="mt-4 flex-1 overflow-y-auto px-2" aria-label="Desk">
         <NavGroup label="Desk" items={primaryNav} pathname={pathname} onNavigate={onNavigate} />
-        <NavGroup label="Library" items={libraryNav} pathname={pathname} onNavigate={onNavigate} />
-        <NavGroup label="System" items={systemNav} pathname={pathname} onNavigate={onNavigate} />
       </nav>
       <div className="mt-auto border-t border-white/10 px-4 py-3">
         <DeskClock tone="ink" />

@@ -1,13 +1,14 @@
 import { readActiveApproval } from "@/lib/db/approvals";
 import { loadStoredCapability } from "@/lib/db/connections";
 import { failPublication, finishPublication, reservePublication } from "@/lib/db/publishing";
-import { assertEditorPost, reservePostNonce } from "@/lib/x/guard";
+import { claimPublishConfirmation } from "@/lib/db/confirmations";
+import { assertEditorRequest } from "@/lib/x/guard";
 import { publishApprovedPost, validatePublishRequest } from "@/lib/x/publish";
 import { takeTicket } from "@/lib/x/ticket";
 
 export async function POST(request: Request) {
-  const refused = assertEditorPost(request);
-  if (refused) return Response.json({ ok: false, message: refused }, { status: 403, headers: { "cache-control": "no-store" } });
+  const refused = await assertEditorRequest(request);
+  if (refused) return Response.json({ ok: false, message: refused.message }, { status: refused.status, headers: { "cache-control": "no-store" } });
   let body: { text?: unknown; claimId?: unknown; draftId?: unknown; approvalId?: unknown; checks?: unknown; confirm?: unknown };
   try {
     body = await request.json();
@@ -21,10 +22,11 @@ export async function POST(request: Request) {
   if (!ticket.ok) {
     return Response.json({ ok: false, message: ticket.message }, { status: 409, headers: { "cache-control": "no-store", "set-cookie": ticket.clear } });
   }
-  if (!reservePostNonce(ticket.nonce)) {
+  const claimed = await claimPublishConfirmation(ticket.nonce, body.approvalId as string);
+  if (!claimed.ok) {
     return Response.json(
-      { ok: false, message: "This confirmation was already used. Open it again before sending." },
-      { status: 409, headers: { "cache-control": "no-store", "set-cookie": ticket.clear } },
+      { ok: false, message: claimed.message },
+      { status: claimed.status, headers: { "cache-control": "no-store", "set-cookie": ticket.clear } },
     );
   }
   const approval = await readActiveApproval(body.approvalId as string, body.text as string);

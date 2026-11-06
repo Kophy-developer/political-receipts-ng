@@ -1,6 +1,5 @@
 import {
   Archive,
-  BarChart3,
   Library,
   Lightbulb,
   PenLine,
@@ -19,8 +18,9 @@ export interface NavItem {
 
 export const primaryNav: NavItem[] = [
   { href: "/desk", label: "Desk", icon: SquarePen },
+  { href: "/ready", label: "Ready for You", icon: PenLine },
   { href: "/published", label: "Published", icon: Archive },
-  { href: "/analytics", label: "Analytics", icon: BarChart3 },
+  { href: "/settings", label: "Settings", icon: Settings },
 ];
 
 export const libraryNav: NavItem[] = [

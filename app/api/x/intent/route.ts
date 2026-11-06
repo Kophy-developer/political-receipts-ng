@@ -1,12 +1,12 @@
 import { createApproval } from "@/lib/db/approvals";
 import { loadStoredCapability } from "@/lib/db/connections";
-import { assertEditorPost } from "@/lib/x/guard";
+import { assertEditorRequest } from "@/lib/x/guard";
 import { validatePublishRequest } from "@/lib/x/publish";
 import { issueTicket } from "@/lib/x/ticket";
 
 export async function POST(request: Request) {
-  const refused = assertEditorPost(request);
-  if (refused) return Response.json({ ok: false, message: refused }, { status: 403, headers: { "cache-control": "no-store" } });
+  const refused = await assertEditorRequest(request);
+  if (refused) return Response.json({ ok: false, message: refused.message }, { status: refused.status, headers: { "cache-control": "no-store" } });
   let body: { text?: unknown; claimId?: unknown; draftId?: unknown; checks?: unknown };
   try {
     body = await request.json();

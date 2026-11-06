@@ -1,11 +1,11 @@
 import { connection } from "next/server";
 import { createManualClaim } from "@/lib/db/research";
-import { assertEditorPost } from "@/lib/x/guard";
+import { assertEditorRequest } from "@/lib/x/guard";
 
 export async function POST(request: Request) {
   await connection();
-  const rejected = assertEditorPost(request);
-  if (rejected) return Response.json({ ok: false, message: rejected }, { status: 403 });
+  const rejected = await assertEditorRequest(request);
+  if (rejected) return Response.json({ ok: false, message: rejected.message }, { status: rejected.status });
   let body: {
     claim?: unknown;
     speaker?: unknown;

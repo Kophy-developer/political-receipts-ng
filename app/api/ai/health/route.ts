@@ -3,7 +3,7 @@ import { generateStructuredContent } from "@/lib/ai/route";
 import { readAiEnv } from "@/lib/ai/runtime";
 import { callProvider } from "@/lib/ai/transport";
 import { calledToday, persistAttempts } from "@/lib/db/ai-attempts";
-import { assertEditorPost } from "@/lib/x/guard";
+import { assertEditorRequest } from "@/lib/x/guard";
 
 export const maxDuration = 30;
 
@@ -22,8 +22,8 @@ function skipMessage(provider: ProviderId, reason: string | null) {
 }
 
 export async function POST(request: Request) {
-  const refused = assertEditorPost(request);
-  if (refused) return Response.json({ ok: false, message: refused }, { status: 403, headers: { "cache-control": "no-store" } });
+  const refused = await assertEditorRequest(request);
+  if (refused) return Response.json({ ok: false, message: refused.message }, { status: refused.status, headers: { "cache-control": "no-store" } });
   let body: { provider?: unknown };
   try {
     body = await request.json();

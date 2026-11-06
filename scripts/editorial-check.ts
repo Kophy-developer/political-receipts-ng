@@ -157,7 +157,7 @@ check("a duplicate conversation is passed and the first is kept", duplicated[0]?
 
 check(
   "the desk sections are the editorial pipeline",
-  deskSections.join("|") === "Discover|Ready for you|Content queue|In progress|Recently published|Passed over|Recent scans",
+  deskSections.join("|") === "This scan|Working|Ready for you|Earlier scans",
 );
 
 const reassess = readFileSync("app/api/intel/reassess/route.ts", "utf8");

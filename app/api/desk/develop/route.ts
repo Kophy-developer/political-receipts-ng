@@ -1,13 +1,13 @@
 import { connection } from "next/server";
 import { developContent, furtherResearch, previewDevelopment } from "@/lib/db/develop";
-import { assertEditorPost } from "@/lib/x/guard";
+import { assertEditorRequest } from "@/lib/x/guard";
 
 export const maxDuration = 60;
 
 export async function POST(request: Request) {
   await connection();
-  const refused = assertEditorPost(request);
-  if (refused) return Response.json({ ok: false, message: refused }, { status: 403, headers: { "cache-control": "no-store" } });
+  const refused = await assertEditorRequest(request);
+  if (refused) return Response.json({ ok: false, message: refused.message }, { status: refused.status, headers: { "cache-control": "no-store" } });
   let body: { id?: unknown; action?: unknown };
   try {
     body = await request.json();

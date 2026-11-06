@@ -14,6 +14,7 @@ import { packetsFromPosts, type StoredAssessmentPost } from "@/lib/editorial/pac
 import { withUnderstandVersions } from "@/lib/editorial/trace";
 import { understandPackets } from "@/lib/editorial/understand-ai";
 import { splitByCurrentVersion } from "@/lib/editorial/history";
+import { storedSources, storyReadingFromDevelopment } from "@/lib/desk/research-state";
 import { describeSource, replaceUserLabel } from "@/lib/editorial/quality";
 import { inboxRecords, understandingOutcomeMessage } from "@/lib/editorial/understand";
 
@@ -68,6 +69,8 @@ function understandingOf(value: unknown) {
 
 function cardFrom(row: Record<string, unknown>): PipelineCard {
   const understanding = understandingOf(row.understanding);
+  const lifecycle = textOf(row.lifecycle) ?? (textOf(row.status) === "ignored" ? "PASSED" : "RANKED");
+  const reading = storyReadingFromDevelopment(row.development, lifecycle);
   const card: PipelineCard = {
     id: String(row.id),
     conversationId: textOf(row.conversation_id),
@@ -81,7 +84,7 @@ function cardFrom(row: Record<string, unknown>): PipelineCard {
     reason: textOf(row.why_interesting) ?? "",
     passReason: textOf(row.pass_reason),
     rank: numberOf(row.queue_rank),
-    lifecycle: textOf(row.lifecycle) ?? (textOf(row.status) === "ignored" ? "PASSED" : "RANKED"),
+    lifecycle,
     discoveredAt: textOf(row.discovered_at),
     source: textOf(row.source) ?? "rules",
     status: understanding?.inboxStatus ?? textOf(row.status) ?? "open",
@@ -97,6 +100,9 @@ function cardFrom(row: Record<string, unknown>): PipelineCard {
     draftingCandidate: true,
     premises: [],
     ...developmentOf(row.development),
+    storyState: reading.state,
+    storyReason: reading.reason,
+    storyAction: reading.action,
   };
   return card;
 }
@@ -138,6 +144,43 @@ function presentCurrent(card: PipelineCard): PipelineCard {
     premises: described.checkableFacts,
     claimExtractionNeeded: described.routes.includes("CHECK"),
   };
+}
+
+export async function storyReadingForClaim(claimId: string) {
+  const db = serviceClient();
+  if (!db || !isUuid(claimId)) return null;
+  const row = await db.from("opportunities").select("lifecycle, development, status").eq("claim_id", claimId).order("created_at", { ascending: false }).limit(1).maybeSingle();
+  if (row.error || !row.data) return null;
+  const lifecycle = typeof row.data.lifecycle === "string" ? row.data.lifecycle : row.data.status === "ignored" ? "PASSED" : "RANKED";
+  return storyReadingFromDevelopment(row.data.development, lifecycle);
+}
+
+export async function loadStory(id: string) {
+  const db = serviceClient();
+  if (!db || !isUuid(id)) return null;
+  const row = await db.from("opportunities").select(pipelineColumns).eq("id", id).maybeSingle();
+  if (row.error || !row.data) return null;
+  const record = row.data as unknown as Record<string, unknown>;
+  const card = presentCurrent(cardFrom(record));
+  const sources = storedSources(record.development);
+  const claimId = card.claimId;
+  const drafts = claimId
+    ? await db.from("drafts").select("id, version, content, status").eq("claim_id", claimId).order("created_at", { ascending: false })
+    : { data: [] as Array<{ id: string; version: string | null; content: string | null; status: string | null }>, error: null };
+  return {
+    card,
+    sources,
+    drafts: (drafts.data ?? []).flatMap((item) => (
+      typeof item.id === "string" && typeof item.content === "string"
+        ? [{ id: item.id, version: typeof item.version === "string" ? item.version : "", content: item.content, status: typeof item.status === "string" ? item.status : "draft" }]
+        : []
+    )),
+  };
+}
+
+export async function loadScanCards(scanId: string) {
+  const pipeline = await listPipeline();
+  return pipeline.cards.filter((card) => card.scanId === scanId);
 }
 
 export async function listPipeline() {
