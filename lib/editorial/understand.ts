@@ -98,10 +98,12 @@ export function understandSystem() {
     "Do not decide whether a conversation is worth talking about, worth publishing, or likely to perform. Do not score its quality. Do not invent the account's belief. Do not forecast who wins an election.",
     "understood means only: can you tell what the stored posts are saying? It is not a quality score. A single clear post can be understood. Not knowing whether a claim is true does not make the post unclear.",
     "If the text genuinely cannot be understood, set understood to false and primary_kind to unclear. Do not invent missing context.",
-    "primary_kind is factual_assertion, event, opinion, prediction, question, reaction, humour, rhetoric, or unclear.",
+    "primary_kind classifies what the conversation contains. Allowed primary_kind values are only: factual_assertion, event, opinion, prediction, question, reaction, humour, rhetoric, unclear.",
     "A sentence about what someone did, spent, or claimed is a factual_assertion even when you have not verified it. Copy those sentences into checkable_facts.",
     "An event is a visit, meeting, or other development that is being reported. An opinion is a judgment. Humour is a joke. Rhetoric is insult, slogan, or heat with no proposition you can restate. A prediction says something will happen later. Leave it as a prediction.",
-    "possible_routes may include CHECK, ANALYSIS, REACTION, OPINION, QUESTION, HUMOUR, and ORIGINAL_INSIGHT. They describe what the text could support. They are not a decision to publish.",
+    "possible_routes are editorial routes, not classifications. Allowed possible_routes values are only: CHECK, ANALYSIS, REACTION, OPINION, QUESTION, HUMOUR, ORIGINAL_INSIGHT. They describe what the text could support. They are not a decision to publish.",
+    "PREDICTION is a primary_kind. It is not a possible_route. Do not copy primary_kind values into possible_routes.",
+    "For a prediction, QUESTION means a question about the observable issue the prediction depends on. It is not a forecast of an election result.",
     "research_need is yes when a factual or numerical assertion would need an outside record, recommended when an event would be clearer with context, and no for opinion, humour, rhetoric, or a prediction that is not a result.",
     "reason_for_research_need is one sentence. summary is one or two sentences using only the stored posts. subjects are the topics named in the posts.",
     "data_or_numbers_involved is true when the conversation uses a figure, a sum, or a measurable claim. event_or_development, prediction_present, and opinion_present are true when that signal is in the text.",
@@ -164,6 +166,8 @@ export type UnderstandingValidation = {
  * value is false: the model did not assert that signal.
  * primary_kind, research_need, understood, and conversation_id are never guessed.
  * Subjects and checkable facts are never filled in.
+ * PREDICTION is not a route. On a prediction record it is removed from possible_routes.
+ * If that record then has no route left, the route is QUESTION. Any other unknown route still fails.
  */
 
 const wrapperKeys = ["result", "output", "data", "response", "json"] as const;
@@ -314,11 +318,13 @@ function readingFrom(row: Record<string, unknown>, index: number, errors: Unders
   if (!facts.ok) errors.push(fieldError(conversationId, `${path}.checkable_facts`, "array of strings", facts.received, "expected an array of strings"));
   const routes = stringList(row.possible_routes, 8, 40);
   const possibleRoutes: UnderstandRoute[] = [];
+  const predictionRecord = primaryToken === "prediction" || signals.prediction_present;
   if (!routes.ok) {
     errors.push(fieldError(conversationId, `${path}.possible_routes`, understandRoutes.join(" | "), routes.received, "expected an array of strings"));
   } else {
     for (const item of routes.values) {
       const route = item.trim().replace(/\s+/g, "_").toUpperCase();
+      if (route === "PREDICTION" && predictionRecord) continue;
       if (!routeSet.has(route)) {
         const shown = safeToken(route);
         errors.push(fieldError(
@@ -331,6 +337,9 @@ function readingFrom(row: Record<string, unknown>, index: number, errors: Unders
         continue;
       }
       if (!possibleRoutes.includes(route as UnderstandRoute)) possibleRoutes.push(route as UnderstandRoute);
+    }
+    if (predictionRecord && possibleRoutes.length === 0 && !errors.slice(started).some((error) => error.field_path === `${path}.possible_routes`)) {
+      possibleRoutes.push("QUESTION");
     }
   }
   if (errors.length > started) return null;

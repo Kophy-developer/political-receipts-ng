@@ -79,6 +79,13 @@ const now = Date.parse("2026-11-05T12:00:00.000Z");
 const system = understandSystem();
 check("understanding does not ask for an editorial verdict", !system.includes("worth_talking_about") && /only job is to understand/i.test(system));
 check("understood is not a quality score", /not a quality score/i.test(system));
+check(
+  "the prompt keeps PREDICTION as a classification and not a route",
+  system.includes("factual_assertion, event, opinion, prediction, question, reaction, humour, rhetoric, unclear")
+    && system.includes("CHECK, ANALYSIS, REACTION, OPINION, QUESTION, HUMOUR, ORIGINAL_INSIGHT")
+    && system.includes("PREDICTION is a primary_kind. It is not a possible_route.")
+    && system.includes("not a forecast of an election result"),
+);
 check("the confirmation for the saved ten is explicit", understandConfirmation(10).join("\n") === [
   "Stored conversations: 10",
   "X requests: 0",
@@ -193,6 +200,61 @@ const duplicated = parseConversationUnderstanding({ readings: [opinionRow("a"), 
 check("duplicate and missing ids are named", duplicated.success === false && duplicated.errors.some((error) => error.message === "duplicate conversation_id" && error.conversation_id === "a") && duplicated.errors.some((error) => error.message === "missing conversation_id" && error.conversation_id === "b"));
 const badSummary = parseConversationUnderstanding({ readings: [{ ...opinionRow("one"), summary: 12 }] }, ["one"]);
 check("a malformed required value names its field", badSummary.success === false && badSummary.errors.some((error) => error.field_path === "readings[0].summary" && error.received_type === "number"));
+function predictionRow(routes: string[], extra: Record<string, unknown> = {}) {
+  return {
+    conversation_id: "forecast",
+    summary: "A speaker says a later result will be a wave.",
+    primary_kind: "prediction",
+    research_need: "no",
+    reason_for_research_need: "This is a prediction, not a result.",
+    understood: true,
+    possible_routes: routes,
+    prediction_present: true,
+    ...extra,
+  };
+}
+const predictionOnly = parseConversationUnderstanding({ conversations: [predictionRow(["PREDICTION"])] }, ["forecast"]);
+check(
+  "a prediction route named PREDICTION becomes QUESTION",
+  predictionOnly.success === true && predictionOnly.validated_output?.[0]?.primaryKind === "prediction" && predictionOnly.validated_output[0].possibleRoutes.join(",") === "QUESTION",
+);
+const queuedPrediction = routeAll([packet("forecast", "2027 will be a tsunami.")], predictionOnly.validated_output ?? [], now);
+check(
+  "queue routing of a prediction stays a question rather than a forecast",
+  queuedPrediction[0]?.routes.join(",") === "QUESTION,ANALYSIS,REACTION" && queuedPrediction[0]?.researchNeed === "no" && queuedPrediction[0]?.routes.includes("CHECK") === false,
+);
+const predictionAndQuestion = parseConversationUnderstanding({ conversations: [predictionRow(["PREDICTION", "QUESTION"])] }, ["forecast"]);
+check(
+  "PREDICTION is removed and QUESTION stays",
+  predictionAndQuestion.success === true && predictionAndQuestion.validated_output?.[0]?.possibleRoutes.join(",") === "QUESTION",
+);
+const opinionWithPrediction = parseConversationUnderstanding({
+  conversations: [{ ...opinionRow("forecast"), possible_routes: ["PREDICTION"], prediction_present: false }],
+}, ["forecast"]);
+check(
+  "PREDICTION on a non-prediction record stays an error",
+  opinionWithPrediction.success === false
+    && opinionWithPrediction.errors.some((error) => error.field_path === "readings[0].possible_routes" && error.message === "unsupported value \"PREDICTION\""),
+);
+const predictionWithNews = parseConversationUnderstanding({ conversations: [predictionRow(["PREDICTION", "NEWS"])] }, ["forecast"]);
+check(
+  "an unrelated unsupported route is still reported",
+  predictionWithNews.success === false
+    && predictionWithNews.errors.some((error) => error.field_path === "readings[0].possible_routes" && error.message === "unsupported value \"NEWS\"")
+    && !predictionWithNews.errors.some((error) => error.message.includes("PREDICTION")),
+);
+const predictionRoutes = parseConversationUnderstanding({ conversations: [predictionRow(["QUESTION", "ANALYSIS", "REACTION"])] }, ["forecast"]);
+check(
+  "valid prediction routes stay as given",
+  predictionRoutes.success === true && predictionRoutes.validated_output?.[0]?.possibleRoutes.join(",") === "QUESTION,ANALYSIS,REACTION",
+);
+const signalOnly = parseConversationUnderstanding({
+  conversations: [predictionRow(["PREDICTION"], { primary_kind: "opinion", prediction_present: true })],
+}, ["forecast"]);
+check(
+  "prediction_present allows PREDICTION to be removed",
+  signalOnly.success === true && signalOnly.validated_output?.[0]?.possibleRoutes.join(",") === "QUESTION",
+);
 const rejected = rejectedUnderstandingResponse({
   provider: "groq",
   model: "openai/gpt-oss-20b",
