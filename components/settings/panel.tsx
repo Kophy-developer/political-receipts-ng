@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { providerLabels, type ProviderCard, type ProviderId } from "@/lib/ai/catalog";
-import type { EditorialTrace } from "@/lib/editorial/trace";
+import type { EditorialTrace, UnderstandTrace } from "@/lib/editorial/trace";
 import type { SystemHealth, UsageView } from "@/lib/desk/types";
 import { lagosStamp } from "@/lib/format";
 import type { EditorIdentity } from "@/lib/identity";
@@ -42,7 +42,7 @@ export function SettingsPanel({
   providers: ProviderCard[];
   paidUsage: boolean;
   identity: EditorIdentity;
-  editorialHistory: Array<EditorialTrace & { completedAt: string }>;
+  editorialHistory: Array<(EditorialTrace | UnderstandTrace) & { completedAt: string }>;
 }) {
   const [origin, setOrigin] = useState(xProductionOrigin);
 
@@ -216,12 +216,12 @@ function shownCount(value: number | null) {
   return value == null ? "not reported" : String(value);
 }
 
-function EditorialHistory({ history }: { history: Array<EditorialTrace & { completedAt: string }> }) {
+function EditorialHistory({ history }: { history: Array<(EditorialTrace | UnderstandTrace) & { completedAt: string }> }) {
   return (
     <details className="mt-6 max-w-3xl border border-rule px-3 py-3">
       <summary className="cursor-pointer text-sm">Editorial assessment history</summary>
       <p className="mt-3 text-sm leading-relaxed text-ink-soft">
-        Parsed readings from successful editorial assessments. This stays in settings so the next calibration can see exactly what the model returned. It is not shown on the desk. No key is stored.
+        Parsed readings from successful model calls. New runs store conversation understanding. Older editorial assessments stay here for diagnostics. This is not shown on the desk. No key is stored.
       </p>
       {history.length === 0 ? (
         <p className="mt-3 text-sm">No stored editorial reading yet.</p>
@@ -243,21 +243,39 @@ function EditorialHistory({ history }: { history: Array<EditorialTrace & { compl
                   Versions {Object.entries(item.assessmentVersions).map(([id, version]) => `${id.slice(0, 8)} v${version}`).join(", ")}
                 </p>
               ) : null}
-              <ul className="mt-3 space-y-2">
-                {item.parsed.assessments.map((assessment) => {
-                  const id = typeof assessment.conversation_id === "string" ? assessment.conversation_id : "unknown";
-                  const worth = assessment.worth_talking_about === true;
-                  const reason = typeof assessment.reason === "string" ? assessment.reason : "";
-                  const basis = typeof assessment.editorial_basis === "string" ? assessment.editorial_basis : "";
-                  return (
-                    <li key={id} className="text-sm leading-relaxed">
-                      <span className="font-mono text-[11px]">{worth ? "KEEP" : "PASS"}</span> {id.slice(0, 8)}
-                      {reason ? ` — ${reason}` : ""}
-                      {basis ? ` (${basis})` : ""}
-                    </li>
-                  );
-                })}
-              </ul>
+              {item.kind === "conversation-understand-v1" ? (
+                <ul className="mt-3 space-y-2">
+                  {item.parsed.conversations.map((reading) => {
+                    const id = typeof reading.conversation_id === "string" ? reading.conversation_id : "unknown";
+                    const understood = reading.understood === true;
+                    const kind = typeof reading.primary_kind === "string" ? reading.primary_kind : "";
+                    const summary = typeof reading.summary === "string" ? reading.summary : "";
+                    return (
+                      <li key={id} className="text-sm leading-relaxed">
+                        <span className="font-mono text-[11px]">{understood ? "UNDERSTOOD" : "UNCLEAR"}</span> {id.slice(0, 8)}
+                        {kind ? ` · ${kind}` : ""}
+                        {summary ? ` — ${summary}` : ""}
+                      </li>
+                    );
+                  })}
+                </ul>
+              ) : (
+                <ul className="mt-3 space-y-2">
+                  {item.parsed.assessments.map((assessment) => {
+                    const id = typeof assessment.conversation_id === "string" ? assessment.conversation_id : "unknown";
+                    const worth = assessment.worth_talking_about === true;
+                    const reason = typeof assessment.reason === "string" ? assessment.reason : "";
+                    const basis = typeof assessment.editorial_basis === "string" ? assessment.editorial_basis : "";
+                    return (
+                      <li key={id} className="text-sm leading-relaxed">
+                        <span className="font-mono text-[11px]">Historical {worth ? "KEEP" : "PASS"}</span> {id.slice(0, 8)}
+                        {reason ? ` — ${reason}` : ""}
+                        {basis ? ` (${basis})` : ""}
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
               <pre className="mt-3 max-h-80 overflow-auto whitespace-pre-wrap text-xs leading-relaxed">{JSON.stringify(item.parsed, null, 2)}</pre>
             </li>
           ))}

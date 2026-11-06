@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { scanDeskSummary, type DiscoveryAction } from "@/lib/desk/discover";
+import { understandConfirmation } from "@/lib/editorial/understand";
 import { scanModes, type ScanMode } from "@/lib/pillars/catalog";
 import { chooseScan, type PillarSignal, type ScanChoice } from "@/lib/pillars/scan";
 import { deskJobView, type ReprocessJob } from "@/lib/intel/progress";
@@ -50,6 +51,7 @@ type ReprocessReport = {
 export function DeskDiscover({
   scanId,
   postsSaved,
+  storedConversations,
   job,
   latestOpportunities,
   provider,
@@ -60,6 +62,7 @@ export function DeskDiscover({
 }: {
   scanId: string | null;
   postsSaved: number;
+  storedConversations: number;
   job: ReprocessJob | null;
   latestOpportunities: DeskOpportunityView[];
   provider: string;
@@ -256,21 +259,17 @@ export function DeskDiscover({
               {view.button}
             </button>
           ) : null}
+          <dl className="mt-3 space-y-1 text-sm text-ink-soft">
+            {understandConfirmation(storedConversations).map((line) => <div key={line}>{line}</div>)}
+          </dl>
           <button
             type="button"
             onClick={() => void reassessSaved()}
             disabled={reassessing || running}
             className="mt-4 inline-flex h-10 items-center border border-ink px-4 text-sm disabled:opacity-50"
           >
-            {reassessing ? "Reassessing…" : "Reassess saved conversations"}
+            {reassessing ? "Understanding…" : "Understand saved conversations"}
           </button>
-          <dl className="mt-3 space-y-1 text-sm text-ink-soft">
-            <div>Uses stored posts.</div>
-            <div>X requests: 0</div>
-            <div>AI assessment: up to 1 provider request where batching permits</div>
-            <div>Research requests: 0</div>
-            <div>Publishing: No</div>
-          </dl>
           {reassessNote ? <p className="mt-2">{reassessNote}</p> : null}
         </div>
       ) : null}

@@ -21,6 +21,7 @@ import { freshClaimAction } from "@/lib/desk/discover";
 export type SavedScanView = {
   scanId: string;
   postsSaved: number;
+  conversationsSaved: number;
   provider: string;
   reason: string;
 };
@@ -104,9 +105,17 @@ export async function latestDeskScan(): Promise<SavedScanView | null> {
   return {
     scanId: String(row.id),
     postsSaved: postsStored,
+    conversationsSaved: await conversationCount(db, String(row.id), postsStored),
     provider: providerDisplay(provider),
     reason: analysisFailureReason(typeof row.error === "string" ? row.error : null),
   };
+}
+
+async function conversationCount(db: NonNullable<ReturnType<typeof serviceClient>>, scanId: string, fallback: number) {
+  const listed = await db.from("x_posts").select("conversation_id").eq("scan_id", scanId);
+  if (listed.error) return fallback;
+  const ids = new Set((listed.data ?? []).map((row) => row.conversation_id).filter((id): id is string => typeof id === "string" && id.length > 0));
+  return ids.size;
 }
 
 export async function latestPartialScan(): Promise<SavedScanView | null> {
@@ -133,6 +142,7 @@ export async function latestPartialScan(): Promise<SavedScanView | null> {
   return {
     scanId: String(row.id),
     postsSaved: postsStored,
+    conversationsSaved: await conversationCount(db, String(row.id), postsStored),
     provider: providerDisplay(provider),
     reason: analysisFailureReason(typeof row.error === "string" ? row.error : null),
   };

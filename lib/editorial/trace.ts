@@ -1,6 +1,7 @@
 import type { AttemptRecord } from "@/lib/ai/route";
 import type { StampedAttempt } from "@/lib/drafts/chain";
 import type { EditorialReading } from "@/lib/editorial/reading";
+import type { ConversationUnderstanding } from "@/lib/editorial/understand";
 
 export type EditorialTrace = {
   kind: "editorial-assess-v1";
@@ -134,4 +135,123 @@ export function withAssessmentVersions(response: unknown, versions: Record<strin
     if (ids.has(id) && Number.isInteger(version) && version > 0) assessmentVersions[id] = version;
   }
   return { ...trace, assessmentVersions };
+}
+
+export type UnderstandTrace = {
+  kind: "conversation-understand-v1";
+  provider: string;
+  model: string;
+  requestId: string;
+  providerRequestId: string | null;
+  finishReason: string | null;
+  inputTokens: number | null;
+  outputTokens: number | null;
+  reasoningTokens: number | null;
+  assessmentVersions: Record<string, number>;
+  parsed: { conversations: Array<Record<string, unknown>> };
+};
+
+export function understandTrace(input: {
+  provider: string;
+  model: string;
+  requestId: string;
+  providerRequestId: string | null;
+  finishReason: string | null;
+  inputTokens: number | null;
+  outputTokens: number | null;
+  reasoningTokens: number | null;
+  readings: ConversationUnderstanding[];
+}): UnderstandTrace {
+  return {
+    kind: "conversation-understand-v1",
+    provider: input.provider,
+    model: input.model,
+    requestId: input.requestId,
+    providerRequestId: input.providerRequestId,
+    finishReason: input.finishReason,
+    inputTokens: input.inputTokens,
+    outputTokens: input.outputTokens,
+    reasoningTokens: input.reasoningTokens,
+    assessmentVersions: {},
+    parsed: {
+      conversations: input.readings.map((reading) => ({
+        conversation_id: reading.conversationId,
+        summary: reading.summary,
+        subjects: reading.subjects,
+        primary_kind: reading.primaryKind,
+        checkable_facts: reading.checkableFacts,
+        data_or_numbers_involved: reading.dataOrNumbersInvolved,
+        event_or_development: reading.eventOrDevelopment,
+        prediction_present: reading.predictionPresent,
+        opinion_present: reading.opinionPresent,
+        possible_routes: reading.possibleRoutes,
+        research_need: reading.researchNeed,
+        reason_for_research_need: reading.reasonForResearchNeed,
+        understood: reading.understood,
+      })),
+    },
+  };
+}
+
+export function stampUnderstandAttempt(attempt: AttemptRecord, requestId: string, readings: ConversationUnderstanding[] | null): StampedAttempt {
+  const stamped: StampedAttempt = { ...attempt, requestId, task: "understand" };
+  if (attempt.status !== "success" || !readings) return stamped;
+  return {
+    ...stamped,
+    response: understandTrace({
+      provider: attempt.provider,
+      model: attempt.model,
+      requestId,
+      providerRequestId: attempt.providerRequestId ?? null,
+      finishReason: attempt.finishReason ?? null,
+      inputTokens: attempt.inputTokens,
+      outputTokens: attempt.outputTokens,
+      reasoningTokens: attempt.reasoningTokens,
+      readings,
+    }),
+  };
+}
+
+export function readUnderstandTrace(value: unknown): UnderstandTrace | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const row = value as Record<string, unknown>;
+  if (row.kind !== "conversation-understand-v1") return null;
+  const provider = text(row.provider);
+  const model = text(row.model);
+  const requestId = text(row.requestId);
+  if (!provider || !model || !requestId) return null;
+  const parsed = row.parsed;
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+  const conversations = (parsed as { conversations?: unknown }).conversations;
+  if (!Array.isArray(conversations)) return null;
+  return {
+    kind: "conversation-understand-v1",
+    provider,
+    model,
+    requestId,
+    providerRequestId: text(row.providerRequestId),
+    finishReason: text(row.finishReason),
+    inputTokens: count(row.inputTokens),
+    outputTokens: count(row.outputTokens),
+    reasoningTokens: count(row.reasoningTokens),
+    assessmentVersions: versionsOf(row.assessmentVersions),
+    parsed: {
+      conversations: conversations.filter((item) => item && typeof item === "object" && !Array.isArray(item)) as Array<Record<string, unknown>>,
+    },
+  };
+}
+
+export function withUnderstandVersions(response: unknown, versions: Record<string, number>): unknown {
+  const trace = readUnderstandTrace(response);
+  if (!trace) return withAssessmentVersions(response, versions);
+  const ids = new Set(trace.parsed.conversations.map((item) => (typeof item.conversation_id === "string" ? item.conversation_id : "")));
+  const assessmentVersions: Record<string, number> = {};
+  for (const [id, version] of Object.entries(versions)) {
+    if (ids.has(id) && Number.isInteger(version) && version > 0) assessmentVersions[id] = version;
+  }
+  return { ...trace, assessmentVersions };
+}
+
+export function readDiagnosticTrace(value: unknown) {
+  return readUnderstandTrace(value) ?? readEditorialTrace(value);
 }

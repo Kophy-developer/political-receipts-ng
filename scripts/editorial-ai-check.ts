@@ -342,7 +342,8 @@ check("editorial requests do not use provider JSON mode", transport.includes('re
 const db = readFileSync("lib/db/editorial.ts", "utf8");
 check("reassessment does not call X, research, or publish", !/searchRecent|tavily|brave|@\/lib\/research\/execute|@\/lib\/x\/publish/.test(db) && /xRequests: 0/.test(db) && /researchCalls: 0/.test(db));
 const discover = readFileSync("components/desk/discover.tsx", "utf8");
-check("the reassessment confirmation names the model", discover.includes("Uses stored posts.") && discover.includes("X requests: 0") && discover.includes("up to 1 provider request") && discover.includes("Research requests: 0") && discover.includes("Publishing: No"));
+const understanding = readFileSync("lib/editorial/understand.ts", "utf8");
+check("understanding confirmation is shown before the run", discover.includes("understandConfirmation") && understanding.includes("Stored conversations:") && understanding.includes("X requests: 0") && understanding.includes("AI understanding: up to 1 provider request") && understanding.includes("Research: 0") && understanding.includes("Publishing: No"));
 const desk = readFileSync("app/desk/page.tsx", "utf8");
 const settings = readFileSync("components/settings/panel.tsx", "utf8");
 const readingSource = readFileSync("lib/editorial/reading.ts", "utf8");

@@ -242,6 +242,10 @@ export type PipelineCard = {
   version: number | null;
   scanId: string | null;
   pillar: string | null;
+  primaryKind: string | null;
+  routes: string[];
+  sourceText: string | null;
+  lowValue: boolean;
 };
 
 export function postShape(text: string, maximum = 280) {

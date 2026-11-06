@@ -8,11 +8,12 @@ import { columnMissing, schemaMissing, scrubDbMessage, serviceClient } from "@/l
 import { recordEvent } from "@/lib/db/events";
 import { isUuid } from "@/lib/db/labels";
 import { publishedByClaim } from "@/lib/db/publishing";
-import { assessPackets, editorialMaxTokens } from "@/lib/editorial/ai";
+import { editorialMaxTokens } from "@/lib/editorial/ai";
 import { mergeAssessments, nextAssessmentVersion, type Lifecycle, type PipelineCard } from "@/lib/editorial/model";
 import { packetsFromPosts, type StoredAssessmentPost } from "@/lib/editorial/packet";
-import { assessmentRecords } from "@/lib/editorial/reading";
-import { withAssessmentVersions } from "@/lib/editorial/trace";
+import { withUnderstandVersions } from "@/lib/editorial/trace";
+import { understandPackets } from "@/lib/editorial/understand-ai";
+import { inboxRecords } from "@/lib/editorial/understand";
 
 const pipelineColumns = [
   "id",
@@ -38,6 +39,7 @@ const pipelineColumns = [
   "discovered_at",
   "possible_angle",
   "content_pillar",
+  "understanding",
 ].join(", ");
 
 function textOf(value: unknown) {
@@ -48,7 +50,21 @@ function numberOf(value: unknown) {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
+function understandingOf(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const row = value as Record<string, unknown>;
+  const routes = Array.isArray(row.routes) ? row.routes.filter((item): item is string => typeof item === "string") : [];
+  return {
+    primaryKind: typeof row.primaryKind === "string" ? row.primaryKind : null,
+    routes,
+    sourceText: typeof row.sourceText === "string" ? row.sourceText : null,
+    lowValue: row.lowValue === true,
+    inboxStatus: typeof row.status === "string" ? row.status : null,
+  };
+}
+
 function cardFrom(row: Record<string, unknown>): PipelineCard {
+  const understanding = understandingOf(row.understanding);
   return {
     id: String(row.id),
     conversationId: textOf(row.conversation_id),
@@ -65,11 +81,15 @@ function cardFrom(row: Record<string, unknown>): PipelineCard {
     lifecycle: textOf(row.lifecycle) ?? (textOf(row.status) === "ignored" ? "PASSED" : "RANKED"),
     discoveredAt: textOf(row.discovered_at),
     source: textOf(row.source) ?? "rules",
-    status: textOf(row.status) ?? "open",
+    status: understanding?.inboxStatus ?? textOf(row.status) ?? "open",
     claimExtractionNeeded: row.claim_extraction_needed === true,
     version: numberOf(row.assessment_version),
     scanId: textOf(row.scan_id),
     pillar: textOf(row.content_pillar),
+    primaryKind: understanding?.primaryKind ?? null,
+    routes: understanding?.routes ?? [],
+    sourceText: understanding?.sourceText ?? null,
+    lowValue: understanding?.lowValue ?? false,
   };
 }
 
@@ -86,7 +106,11 @@ function latestAssessment(cards: PipelineCard[]) {
 export async function listPipeline() {
   const db = serviceClient();
   if (!db) return { ok: false as const, reason: "unconfigured" as const, cards: [] as PipelineCard[], earlier: [] as PipelineCard[] };
-  const primary = await db.from("opportunities").select(pipelineColumns).order("created_at", { ascending: false });
+  let primary = await db.from("opportunities").select(pipelineColumns).order("created_at", { ascending: false });
+  if (primary.error && columnMissing(primary.error.message) && /understanding/i.test(primary.error.message)) {
+    const withoutUnderstanding = pipelineColumns.split(", ").filter((column) => column !== "understanding").join(", ");
+    primary = await db.from("opportunities").select(withoutUnderstanding).order("created_at", { ascending: false });
+  }
   if (primary.error && (columnMissing(primary.error.message) || schemaMissing(primary.error.message))) {
     const fallback = await db
       .from("opportunities")
@@ -145,33 +169,31 @@ export async function reassessSavedScan(scanId: string) {
   }
   const packets = packetsFromPosts(stored).filter((packet) => packet.posts.length > 0);
   if (packets.length === 0) return { ...empty, message: "That scan has no stored conversations to reassess." };
-  const recentTexts = await recentPublishedTexts();
   const used = await calledToday();
-  const assessed = await assessPackets({
+  const understood = await understandPackets({
     requestId: randomUUID(),
     packets,
     plans: planExtractionProviders(readAiEnv(), used),
-    recentTexts,
     call: (plan, request) => callProvider(plan, request, { maxTokens: editorialMaxTokens, temperature: 0 }),
   });
-  if (!assessed.ok || !assessed.ranked) {
-    await persistAttempts(assessed.attempts);
+  if (!understood.ok || !understood.routed) {
+    await persistAttempts(understood.attempts);
     return {
       ...empty,
-      modelCalls: assessed.modelCalls,
-      message: "The editorial assessment did not return a usable reading. Earlier cards were left in place. No X request or research call was made, and nothing was published.",
+      modelCalls: understood.modelCalls,
+      message: "The stored conversations could not be understood. Earlier cards were left in place. No X request or research call was made, and nothing was published.",
     };
   }
-  const ranked = assessed.ranked;
+  const ranked = understood.routed;
   const existingOpportunities = await db.from("opportunities").select("id").eq("scan_id", scanId);
   const previousIds = (existingOpportunities.data ?? []).map((row) => String(row.id));
   const versions = await db.from("editorial_assessments").select("conversation_id, version").eq("scan_id", scanId);
   if (versions.error && schemaMissing(versions.error.message)) {
-    await persistAttempts(assessed.attempts);
+    await persistAttempts(understood.attempts);
     return { ...empty, message: "The editorial assessment table is not available yet. Nothing was deleted." };
   }
   if (versions.error) {
-    await persistAttempts(assessed.attempts);
+    await persistAttempts(understood.attempts);
     return { ...empty, message: scrubDbMessage(versions.error.message) };
   }
   const maxByConversation = new Map<string, number>();
@@ -182,22 +204,26 @@ export async function reassessSavedScan(scanId: string) {
   }
   const versionByConversation: Record<string, number> = {};
   for (const item of ranked) versionByConversation[item.id] = nextAssessmentVersion(maxByConversation.get(item.id) ?? null);
-  await persistAttempts(assessed.attempts.map((attempt) => (
-    attempt.response ? { ...attempt, response: withAssessmentVersions(attempt.response, versionByConversation) } : attempt
+  await persistAttempts(understood.attempts.map((attempt) => (
+    attempt.response ? { ...attempt, response: withUnderstandVersions(attempt.response, versionByConversation) } : attempt
   )));
   const inserted: string[] = [];
   for (const item of ranked) {
     const version = versionByConversation[item.id] ?? nextAssessmentVersion(maxByConversation.get(item.id) ?? null);
-    const records = assessmentRecords(item, scanId, version);
+    const records = inboxRecords(item, scanId, version);
     let assessment = await db.from("editorial_assessments").insert(records.assessment).select("id").single();
     if (assessment.error && columnMissing(assessment.error.message)) {
       const withoutBasis = Object.fromEntries(Object.entries(records.assessment).filter(([key]) => key !== "editorial_basis"));
       assessment = await db.from("editorial_assessments").insert(withoutBasis).select("id").single();
     }
     if (assessment.error || !assessment.data) {
-      return { ...empty, modelCalls: assessed.modelCalls, message: "The new assessment version was not saved. Earlier cards were left in place." };
+      return { ...empty, modelCalls: understood.modelCalls, message: "The new understanding was not saved. Earlier cards were left in place." };
     }
-    const opportunity = await db.from("opportunities").insert(records.opportunity).select("id").single();
+    let opportunity = await db.from("opportunities").insert(records.opportunity).select("id").single();
+    if (opportunity.error && columnMissing(opportunity.error.message)) {
+      const withoutUnderstanding = Object.fromEntries(Object.entries(records.opportunity).filter(([key]) => key !== "understanding"));
+      opportunity = await db.from("opportunities").insert(withoutUnderstanding).select("id").single();
+    }
     if (opportunity.error || !opportunity.data) {
       return { ...empty, message: "The queue card was not saved. Earlier cards were left in place." };
     }
@@ -207,36 +233,25 @@ export async function reassessSavedScan(scanId: string) {
       actor: "desk",
       subjectType: "opportunity",
       subjectId: String(opportunity.data.id),
-      detail: { source: "assessment", version, lifecycle: item.lifecycle, xRequests: 0, modelCalls: assessed.modelCalls, researchCalls: 0 },
+      detail: { source: "understanding", version, lifecycle: item.lifecycle, xRequests: 0, modelCalls: understood.modelCalls, researchCalls: 0 },
     });
   }
   const merge = mergeAssessments(previousIds, inserted);
-  const worthwhile = ranked.filter((item) => item.worthTalkingAbout).length;
+  const queued = ranked.filter((item) => item.lifecycle === "RANKED").length;
+  const passed = ranked.length - queued;
   return {
     ok: true as const,
     xRequests: 0 as const,
-    modelCalls: assessed.modelCalls,
+    modelCalls: understood.modelCalls,
     researchCalls: 0 as const,
     posted: false as const,
     conversations: ranked.length,
-    worthwhile,
-    passed: ranked.length - worthwhile,
+    worthwhile: queued,
+    passed,
     preserved: merge.kept.length,
     deleted: merge.deleted.length,
-    message: `Reassessed ${ranked.length} stored conversations. ${worthwhile} are in the queue. Earlier cards were kept. Editorial assessment used ${assessed.modelCalls} model request${assessed.modelCalls === 1 ? "" : "s"}. No X request or research call was made, and nothing was published.`,
+    message: `Understood ${ranked.length} stored conversations. ${queued} are in the queue. ${passed} could not be understood. Earlier cards were kept. Understanding used ${understood.modelCalls} model request${understood.modelCalls === 1 ? "" : "s"}. No X request or research call was made, and nothing was published.`,
   };
-}
-
-async function recentPublishedTexts() {
-  const db = serviceClient();
-  if (!db) return [] as string[];
-  const published = await db.from("published_posts").select("draft_id").eq("status", "published").order("published_at", { ascending: false }).limit(20);
-  if (published.error) return [];
-  const ids = (published.data ?? []).map((row) => row.draft_id).filter((id): id is string => typeof id === "string");
-  if (!ids.length) return [];
-  const drafts = await db.from("drafts").select("content").in("id", ids);
-  if (drafts.error) return [];
-  return (drafts.data ?? []).map((row) => row.content).filter((text): text is string => typeof text === "string" && text.trim().length > 0);
 }
 
 export async function passReadyClaim(id: string) {

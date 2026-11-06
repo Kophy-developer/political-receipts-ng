@@ -106,6 +106,7 @@ async function DeskQueue() {
         <DeskDiscover
           scanId={scan?.scanId ?? null}
           postsSaved={scan?.postsSaved ?? 0}
+          storedConversations={scan?.conversationsSaved ?? 0}
           job={reprocess}
           latestOpportunities={[]}
           provider={scan?.provider ?? "Not recorded"}

@@ -166,7 +166,7 @@ const editorialDb = readFileSync("lib/db/editorial.ts", "utf8");
 check("reassess route does not call X, research, or publish", !/extractFromPosts|searchRecent|tavily|brave|publish\(|@\/lib\/x\/publish|@\/lib\/research/.test(reassess));
 check("keyword assessment does not fetch", !/fetch\(|@\/lib\/x|@\/lib\/ai|@\/lib\/research\/execute/.test(assessSource));
 check("saving an assessment does not call X or research", /xRequests: 0/.test(editorialDb) && /researchCalls: 0/.test(editorialDb) && !/searchRecent|tavily|brave|@\/lib\/research\/execute|@\/lib\/x\/publish/.test(editorialDb));
-check("reassessment uses the editorial model task", /editorial-assess-v1|assessPackets/.test(editorialDb));
+check("understanding is the active saved-scan task", /conversation-understand-v1|understandPackets/.test(editorialDb) && !/assessPackets\(/.test(editorialDb));
 
 const discovered = kept.every((item) => item.discoveredAt === "2026-11-05T12:00:00.000Z" && item.timeliness && item.lifecycle === "RANKED");
 check("queue items carry discovered time, timeliness, rank, and status", discovered);

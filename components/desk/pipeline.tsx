@@ -7,8 +7,6 @@ import { useRouter } from "next/navigation";
 import { chicagoStamp } from "@/lib/format";
 import {
   lifecycleLabel,
-  priorityLabel,
-  researchLabel,
   typeLabel,
   type PipelineCard,
 } from "@/lib/editorial/present";
@@ -116,8 +114,8 @@ export function EditorialPipeline({
 
       <section>
         <p className="font-mono text-[11px] tracking-[0.16em] text-ink-soft uppercase">Content queue</p>
-        <h2 className="mt-2 font-serif text-3xl tracking-[-0.03em]">Ranked opportunities.</h2>
-        <p className="mt-2 text-sm text-ink-soft">Every conversation worth talking about stays here. A higher rank does not discard the others. The mix does not move a weaker post above a stronger one.</p>
+        <h2 className="mt-2 font-serif text-3xl tracking-[-0.03em]">Understood content.</h2>
+        <p className="mt-2 text-sm text-ink-soft">This is an inbox of conversations the reader could understand. Order comes from the signals. Names of people and parties do not move an item up or down.</p>
         <div className="mt-3 flex flex-wrap gap-2" role="group" aria-label="Queue pillar">
           <FilterButton pressed={filter === "all"} onClick={() => setFilter("all")}>All</FilterButton>
           {contentPillars.map((pillar) => (
@@ -128,31 +126,26 @@ export function EditorialPipeline({
           <p className="mt-4 text-sm">The queue columns are not on this database yet. Earlier cards are still kept. Reassess will wait until the editorial migration is applied.</p>
         ) : null}
         {ranked.length === 0 ? (
-          <p className="mt-4 text-sm text-ink-soft">No ranked opportunities yet. Reassess the saved conversations when you want a queue from the posts already stored.</p>
+          <p className="mt-4 text-sm text-ink-soft">Nothing understood is in the queue yet. Understand the saved conversations when you want an inbox from the posts already stored.</p>
         ) : (
-          <ol className="mt-4 space-y-3">
-            {ranked.map((item) => (
-              <li key={item.id} className="border border-rule px-4 py-4">
-                <p className="font-mono text-[11px] tracking-[0.14em] uppercase">#{item.rank} [{typeLabel(item.type)}] {pillarLabels[contentPillarFromStorage(item.pillar) ?? "politics"]}</p>
-                <p className="mt-2 text-sm leading-relaxed">{item.title}</p>
-                <p className="mt-2 text-sm text-ink-soft">{item.angle}</p>
-                <p className="mt-2 text-sm">{researchLabel(item.research)} · {priorityLabel(item.priority)}</p>
-                <p className="mt-1 font-mono text-[11px] text-ink-soft">
-                  Timeliness {item.timeliness ?? "not set"}
-                  {item.discoveredAt ? ` · Discovered ${chicagoStamp(item.discoveredAt)}` : ""}
-                  {item.lifecycle ? ` · ${lifecycleLabel(item.lifecycle)}` : ""}
-                </p>
-                <button
-                  type="button"
-                  disabled={busy === item.id}
-                  onClick={() => void post("/api/opportunities/decision", { id: item.id, action: "pass" }, item.id)}
-                  className="mt-3 inline-flex h-9 items-center border border-ink px-3 text-sm disabled:opacity-50"
-                >
-                  Pass
-                </button>
-              </li>
-            ))}
-          </ol>
+          <>
+            <ol className="mt-4 space-y-3">
+              {ranked.filter((item) => !item.lowValue).map((item) => (
+                <QueueItem key={item.id} item={item} busy={busy === item.id} onPass={() => void post("/api/opportunities/decision", { id: item.id, action: "pass" }, item.id)} />
+              ))}
+            </ol>
+            {ranked.some((item) => item.lowValue) ? (
+              <details className="mt-4">
+                <summary className="cursor-pointer text-sm">Low value</summary>
+                <p className="mt-2 text-sm text-ink-soft">Understood rhetoric or insult. Kept here, not deleted.</p>
+                <ol className="mt-3 space-y-3">
+                  {ranked.filter((item) => item.lowValue).map((item) => (
+                    <QueueItem key={item.id} item={item} busy={busy === item.id} onPass={() => void post("/api/opportunities/decision", { id: item.id, action: "pass" }, item.id)} />
+                  ))}
+                </ol>
+              </details>
+            ) : null}
+          </>
         )}
         {earlier.length > 0 ? (
           <details className="mt-4">
@@ -202,7 +195,7 @@ export function PassedOver({ passed }: { passed: PipelineCard[] }) {
     <section>
       <details>
         <summary className="cursor-pointer font-mono text-[11px] tracking-[0.16em] text-ink-soft uppercase">Passed over</summary>
-        <p className="mt-3 text-sm text-ink-soft">Weak material stays collapsed. Promoting one is an editor decision. It does not call a model.</p>
+        <p className="mt-3 text-sm text-ink-soft">Only a conversation the reader could not understand is passed over. Promoting one is an editor decision. It does not call a model.</p>
         {passed.length === 0 ? (
           <p className="mt-3 text-sm text-ink-soft">Nothing has been passed over.</p>
         ) : (
@@ -226,6 +219,34 @@ export function PassedOver({ passed }: { passed: PipelineCard[] }) {
         {note ? <p className="mt-3 text-sm">{note}</p> : null}
       </details>
     </section>
+  );
+}
+
+function QueueItem({ item, busy, onPass }: { item: PipelineCard; busy: boolean; onPass: () => void }) {
+  const pillar = pillarLabels[contentPillarFromStorage(item.pillar) ?? "politics"];
+  const kind = item.primaryKind ? item.primaryKind.replaceAll("_", " ") : typeLabel(item.type);
+  const routes = item.routes.length > 0 ? item.routes.join(", ") : item.angle;
+  return (
+    <li className="border border-rule px-4 py-4">
+      <p className="font-mono text-[11px] tracking-[0.14em] uppercase">#{item.rank} · {pillar}</p>
+      <p className="mt-2 text-sm leading-relaxed">{item.title}</p>
+      <p className="mt-2 text-sm">Primary kind: {kind}</p>
+      {routes ? <p className="mt-1 text-sm">Possible routes: {routes}</p> : null}
+      <p className="mt-1 text-sm">Research need: {item.research === "yes" ? "yes" : item.research === "recommended" ? "recommended" : "no"}</p>
+      {item.sourceText ? <p className="mt-2 text-sm text-ink-soft">{item.sourceText}</p> : null}
+      <p className="mt-1 font-mono text-[11px] text-ink-soft">
+        {item.lowValue ? "Low value" : item.primaryKind ? "In the queue" : lifecycleLabel(item.lifecycle)}
+        {item.discoveredAt ? ` · Discovered ${chicagoStamp(item.discoveredAt)}` : ""}
+      </p>
+      <button
+        type="button"
+        disabled={busy}
+        onClick={onPass}
+        className="mt-3 inline-flex h-9 items-center border border-ink px-3 text-sm disabled:opacity-50"
+      >
+        Pass
+      </button>
+    </li>
   );
 }
 

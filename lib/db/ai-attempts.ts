@@ -9,7 +9,7 @@ import { providerReadout, retainedFailure, shownProviderStatus, type ProviderDia
 import { credentialPresent, readAiEnv } from "@/lib/ai/runtime";
 import { columnMissing, schemaMissing, serviceClient } from "@/lib/db/client";
 import type { StampedAttempt } from "@/lib/drafts/chain";
-import { readEditorialTrace, type EditorialTrace } from "@/lib/editorial/trace";
+import { readDiagnosticTrace, type EditorialTrace, type UnderstandTrace } from "@/lib/editorial/trace";
 import { lagosDayStart } from "@/lib/intel/limits";
 import { usageSince } from "@/lib/db/usage";
 
@@ -226,23 +226,23 @@ export async function providerBoard(): Promise<{ paidUsage: boolean; providers: 
   };
 }
 
-export type EditorialHistoryItem = EditorialTrace & { completedAt: string };
+export type EditorialHistoryItem = (EditorialTrace | UnderstandTrace) & { completedAt: string };
 
-/** Successful editorial readings for settings. The desk does not call this. */
+/** Successful readings for settings. Historical assessments stay. The desk does not call this. */
 export async function editorialAssessmentHistory(limit = 5): Promise<EditorialHistoryItem[]> {
   const db = serviceClient();
   if (!db) return [];
   const selected = await db
     .from("ai_attempts")
     .select("provider, model, request_id, completed_at, input_tokens, reasoning_tokens, output_tokens, response")
-    .eq("task", "editorial")
+    .in("task", ["editorial", "understand"])
     .eq("status", "success")
     .order("completed_at", { ascending: false })
     .limit(limit);
   if (selected.error) return [];
   const items: EditorialHistoryItem[] = [];
   for (const row of selected.data ?? []) {
-    const trace = readEditorialTrace(row.response);
+    const trace = readDiagnosticTrace(row.response);
     if (!trace) continue;
     items.push({
       ...trace,

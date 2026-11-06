@@ -97,7 +97,7 @@ export async function generateStructuredContent(input: {
     schema: input.schema,
     evidence: input.evidence,
     timeoutMs: input.timeoutMs,
-    mode: input.task === "health" ? "health" : input.task === "extraction" ? "extraction" : input.task === "editorial-assess-v1" ? "editorial" : "generate",
+    mode: input.task === "health" ? "health" : input.task === "extraction" ? "extraction" : input.task === "editorial-assess-v1" || input.task === "conversation-understand-v1" ? "editorial" : "generate",
   };
   const attempts: AttemptRecord[] = [];
   const seen = new Set<ProviderId>();

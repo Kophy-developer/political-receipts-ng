@@ -236,7 +236,9 @@ export function providerReadout(input: {
         ? "extraction"
         : input.latest.task === "editorial"
           ? "editorial assessment"
-          : "draft";
+          : input.latest.task === "understand"
+            ? "conversation understanding"
+            : "draft";
   if (input.latest.status === "success") {
     return { latestResult: `Latest ${task} succeeded at ${when} CT.`, latestKind: "success" as const, earlierFailure: input.earlierFailure };
   }
