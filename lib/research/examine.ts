@@ -50,7 +50,8 @@ export function chooseDocumentIds(results: Selectable[], investigation: Investig
   const eligible = results.filter((item) => item.url.startsWith("https://") && item.retrievalStatus !== "rejected" && item.inDomain !== false);
   const ranked = eligible.slice().sort((left, right) => score(right, investigation) - score(left, investigation));
   const statistical = ranked.filter((item) => investigation.preferredHosts.some((host) => hostOf(item.domain).endsWith(host)));
-  const pool = investigation.numerical && statistical.length ? statistical : ranked.filter((item) => !investigation.rejectedSubstitutes.some((host) => hostOf(item.domain).endsWith(host)));
+  if (investigation.numerical) return statistical.slice(0, Math.max(0, limit)).map((item) => item.id);
+  const pool = ranked.filter((item) => !investigation.rejectedSubstitutes.some((host) => hostOf(item.domain).endsWith(host)));
   const chosen = (pool.length ? pool : ranked).slice(0, Math.max(0, limit));
   return chosen.map((item) => item.id);
 }

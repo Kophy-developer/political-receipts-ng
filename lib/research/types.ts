@@ -66,6 +66,8 @@ export type PlannedSearch = {
 
 export type StoredResearchPlan = {
   version: 1;
+  /** Set only on an upgraded continuation. Absent on plans hashed before Phase 2 resumption. */
+  planner?: string;
   claim: string;
   stage: SearchStage;
   cursor: number;

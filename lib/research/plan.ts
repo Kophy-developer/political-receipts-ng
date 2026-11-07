@@ -79,7 +79,7 @@ function samePlan(left: StoredResearchPlan, right: StoredResearchPlan) {
   });
 }
 
-async function savePlan(claimId: string, plan: StoredResearchPlan) {
+export async function storeResearchPlan(claimId: string, plan: StoredResearchPlan) {
   const db = serviceClient();
   if (!db) return false;
   const saved = await db.from("claims").update({
@@ -87,6 +87,10 @@ async function savePlan(claimId: string, plan: StoredResearchPlan) {
     research_questions: plan.questions.map((item) => item.question),
   }).eq("id", claimId);
   return !saved.error;
+}
+
+async function savePlan(claimId: string, plan: StoredResearchPlan) {
+  return storeResearchPlan(claimId, plan);
 }
 
 function present(input: {

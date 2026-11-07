@@ -31,7 +31,12 @@ import { draftWithProviders } from "@/lib/drafts/chain";
 import { publicPostUrl, sanitizeText } from "@/lib/intel/text";
 import { researchLimits } from "@/lib/research/limits";
 import { reviseResearchPlan } from "@/lib/research/plan";
+import { hashOfPlan, readStoredPlan } from "@/lib/research/canonical";
 import { beginResearch } from "@/lib/research/run";
+import { describeContinuation, type ResearchBlocker } from "@/lib/research/resume";
+import { storeResearchPlan } from "@/lib/research/plan";
+import { usageSince } from "@/lib/db/usage";
+import { lagosDayStart } from "@/lib/intel/limits";
 import type { Pillar, StatementKind } from "@/lib/research/types";
 
 function textOf(value: unknown) {
@@ -107,6 +112,16 @@ function asState(value: unknown, sourceText: string): DevelopmentState {
     investigation: null,
     analysis: reviveAnalysis((row as { analysis?: unknown }).analysis),
     researchStage: row.researchStage === "SEARCH_COMPLETED" || row.researchStage === "SOURCES_RETRIEVED" || row.researchStage === "EVIDENCE_EXAMINED" || row.researchStage === "EVIDENCE_INSUFFICIENT" || row.researchStage === "EVIDENCE_READY" ? row.researchStage : null,
+    continuations: typeof row.continuations === "number" && row.continuations >= 0 ? Math.floor(row.continuations) : 0,
+    blocker: typeof row.blocker === "string" ? row.blocker : null,
+    priorPlans: Array.isArray((row as { priorPlans?: unknown }).priorPlans)
+      ? (row as { priorPlans: unknown[] }).priorPlans.flatMap((item) => {
+          if (!item || typeof item !== "object") return [];
+          const plan = item as { hash?: unknown; queries?: unknown };
+          const queries = Array.isArray(plan.queries) ? plan.queries.filter((query): query is string => typeof query === "string") : [];
+          return [{ hash: typeof plan.hash === "string" ? plan.hash : null, queries }];
+        })
+      : [],
   };
 }
 
@@ -409,6 +424,119 @@ export async function developContent(id: string) {
     deferred: !factualContextNeeded(finished.quality) && finished.quality.researchNeed !== "yes",
     failureKind: finished.failureKind,
   };
+}
+
+function blockerOf(value: string | null | undefined): ResearchBlocker {
+  if (value && /limit is reached|allowance|could not be read|not configured|provider/i.test(value)) return "Provider or budget failure";
+  if (value === "No relevant source found" || value === "Document could not be opened" || value === "Table unavailable" || value === "Series incomplete" || value === "Incompatible definitions" || value === "Provider or budget failure") return value;
+  return "No relevant source found";
+}
+
+function researchBlocker(state: DevelopmentState, error: string | null): ResearchBlocker {
+  if (state.researchFailed) return blockerOf(error);
+  if (state.analysis && !state.analysis.comparable) return "Incompatible definitions";
+  if (state.analysis && state.analysis.missingYears.length > 0 && !state.analysis.chart) return "Series incomplete";
+  const opened = state.evidence?.sources.filter((item) => item.opened) ?? [];
+  if (opened.length > 0 && opened.every((item) => !item.text?.trim())) return "Document could not be opened";
+  if (opened.length > 0 && !state.analysis?.chart) return "Table unavailable";
+  return "No relevant source found";
+}
+
+async function continuationInputs(claimId: string | null) {
+  const empty = { claim: "", runs: [] as Array<{ hash: string | null; status: string; operations: number }>, results: [] as Awaited<ReturnType<typeof loadSearchResults>>["results"], previous: null as ReturnType<typeof readStoredPlan> };
+  if (!claimId) return empty;
+  const db = serviceClient();
+  if (!db) return empty;
+  const claim = await db.from("claims").select("claim_text, research_plan").eq("id", claimId).maybeSingle();
+  const runs = await db.from("research_runs").select("plan_hash, status, operations_used").eq("claim_id", claimId);
+  const listed = await loadSearchResults(claimId);
+  return {
+    claim: typeof claim.data?.claim_text === "string" ? claim.data.claim_text : "",
+    runs: (runs.data ?? []).map((row) => ({
+      hash: typeof row.plan_hash === "string" ? row.plan_hash : null,
+      status: typeof row.status === "string" ? row.status : "",
+      operations: typeof row.operations_used === "number" ? row.operations_used : 0,
+    })),
+    results: listed.results,
+    previous: readStoredPlan(claim.data?.research_plan),
+  };
+}
+
+export async function continuationOffer(id: string) {
+  const loaded = await loadOpportunity(id);
+  if (!loaded.ok) return { ok: false as const, message: loaded.message, available: false };
+  const state = asState(loaded.row.development, loaded.sourceText);
+  const records = await continuationInputs(loaded.claimId);
+  const usage = await usageSince(lagosDayStart());
+  const investigation = investigate(loaded.sourceText, state.quality);
+  const offer = describeContinuation({
+    claim: records.claim || loaded.sourceText,
+    investigation,
+    sources: records.results.map((item) => ({
+      id: item.id,
+      title: item.title,
+      url: item.url,
+      domain: item.domain,
+      snippet: item.snippet,
+      opened: item.retrievalStatus === "retrieved",
+      retrievalStatus: item.retrievalStatus,
+      inDomain: item.inDomain,
+    })),
+    runs: records.runs,
+    continuations: state.continuations,
+    published: loaded.published,
+    ready: state.ready,
+    searchCompleted: state.completed.includes("research") || state.searchStatus === "SEARCH_COMPLETED",
+    evidenceReady: state.evidenceStatus === "EVIDENCE_READY",
+    searchesUsed: usage.ok ? usage.totals.searches : researchLimits.dailySearches,
+    retrievalsUsed: usage.ok ? usage.totals.retrievals : researchLimits.dailyRetrievals,
+    maxSearchesPerRun: researchLimits.maxSearchesPerRun,
+    maxDocumentsPerRun: researchLimits.maxDocumentsPerRun,
+    dailySearches: researchLimits.dailySearches,
+    dailyRetrievals: researchLimits.dailyRetrievals,
+  });
+  if (!usage.ok) {
+    return { ok: true as const, ...offer, available: false, blocker: "Provider or budget failure" as const, message: "Research usage could not be read. No search was sent." };
+  }
+  const message = offer.available
+    ? `Continue research. ${offer.question} ${offer.why} Expected requests: ${offer.searches} searches and ${offer.documents} documents. Remaining today: ${offer.searchesRemaining} searches and ${offer.documentsRemaining} documents. Nothing runs until you confirm.`
+    : offer.blocker || offer.why;
+  return { ok: true as const, ...offer, message };
+}
+
+export async function continueContent(id: string, confirm: boolean) {
+  const preview = await continuationOffer(id);
+  if (!confirm) return { ...preview, called: false as const };
+  if (!preview.ok || !preview.available) {
+    return { ok: false as const, message: preview.ok ? (preview.blocker || preview.message) : preview.message, called: false as const };
+  }
+  const loaded = await loadOpportunity(id);
+  if (!loaded.ok) return { ok: false as const, message: loaded.message, called: false as const };
+  const db = serviceClient();
+  if (!db) return { ok: false as const, message: "The database is not configured.", called: false as const };
+  const records = await continuationInputs(loaded.claimId);
+  if (!loaded.claimId || (!preview.plan && preview.openIds.length === 0)) return { ok: false as const, message: preview.blocker || "No relevant source found", called: false as const };
+  if (preview.plan) {
+    const stored = await storeResearchPlan(loaded.claimId, preview.plan);
+    if (!stored) return { ok: false as const, message: "The research plan could not be stored. No search was sent.", called: false as const };
+  }
+  const state = asState(loaded.row.development, loaded.sourceText);
+  const priorPlans = [...state.priorPlans, { hash: records.previous ? hashOfPlan(records.previous, records.previous.providerId) : null, queries: records.previous?.searches.map((item) => item.query) ?? [] }];
+  const resumed = { ...state, completed: ["interpret"] as DevelopmentState["completed"], ready: false, review: null, priorPlans, blocker: null, investigation: investigate(loaded.sourceText, state.quality) };
+  const updatedAt = textOf(loaded.row.updated_at);
+  const locked = await db.from("opportunities").update({ development: { ...resumed, running: true }, lifecycle: "RESEARCHING" }).eq("id", id).eq("updated_at", updatedAt).select("id");
+  if (locked.error || !locked.data?.length) return { ok: false as const, message: "This conversation changed before research continued. Nothing was called.", called: false as const };
+  const result = await developContent(id);
+  const after = await loadOpportunity(id);
+  if (after.ok) {
+    const finished = asState(after.row.development, after.sourceText);
+    const blocker: ResearchBlocker | null = finished.ready ? null : researchBlocker(finished, finished.error);
+    const kept = finished.researchFailed
+      ? { ...finished, completed: finished.completed.includes("research") ? finished.completed : [...finished.completed, "research"] as DevelopmentState["completed"], continuations: finished.continuations + 1, blocker, running: false }
+      : { ...finished, continuations: finished.continuations + 1, blocker, running: false, priorPlans };
+    await db.from("opportunities").update({ development: kept, lifecycle: lifecycleForDevelopment(kept) }).eq("id", id);
+  }
+  return { ...result, called: result.researchCalls > 0 };
 }
 
 export async function furtherResearch(id: string, confirm: boolean) {

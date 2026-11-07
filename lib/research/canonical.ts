@@ -15,19 +15,20 @@ export function nextStage(stage: SearchStage): SearchStage | null {
   return null;
 }
 
-export function planHash(input: { claim: string; questions: string[]; provider: string; domains: string[]; queries: string[]; stage: string }) {
-  const body = [
+export function planHash(input: { claim: string; questions: string[]; provider: string; domains: string[]; queries: string[]; stage: string; planner?: string }) {
+  const parts = [
     input.claim.trim(),
     input.stage,
     input.provider,
     [...input.domains].map((domain) => domain.toLowerCase()).sort().join(","),
     input.questions.map((question) => question.trim()).join("\n"),
     input.queries.map((query) => query.trim()).join("\n"),
-  ].join("\n---\n");
-  return createHash("sha256").update(body).digest("hex");
+  ];
+  if (input.planner) parts.push(input.planner);
+  return createHash("sha256").update(parts.join("\n---\n")).digest("hex");
 }
 
-export function hashOfPlan(plan: Pick<StoredResearchPlan, "claim" | "stage" | "domains" | "questions" | "searches">, provider: string) {
+export function hashOfPlan(plan: Pick<StoredResearchPlan, "claim" | "stage" | "domains" | "questions" | "searches"> & { planner?: string }, provider: string) {
   return planHash({
     claim: plan.claim,
     stage: plan.stage,
@@ -35,6 +36,7 @@ export function hashOfPlan(plan: Pick<StoredResearchPlan, "claim" | "stage" | "d
     domains: plan.domains,
     questions: plan.questions.map((item) => item.question),
     queries: plan.searches.map((item) => item.query),
+    planner: plan.planner,
   });
 }
 

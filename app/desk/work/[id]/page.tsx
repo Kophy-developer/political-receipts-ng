@@ -4,7 +4,9 @@ import Link from "next/link";
 import { connection } from "next/server";
 import { notFound } from "next/navigation";
 import { PageFrame } from "@/components/shell/page-frame";
+import { ContinueResearch } from "@/components/desk/continue-research";
 import { SeriesChart } from "@/components/desk/series-chart";
+import { continuationOffer } from "@/lib/db/develop";
 import { loadSearchResults } from "@/lib/db/search-results";
 import { loadStory } from "@/lib/db/editorial";
 import { describeSource } from "@/lib/editorial/quality";
@@ -32,6 +34,7 @@ async function WorkBody({ params }: { params: Promise<{ id: string }> }) {
   const analysis = reviveAnalysis((story.development as { analysis?: unknown } | null)?.analysis);
   const stage = (story.development as { researchStage?: unknown } | null)?.researchStage;
   const inventory = story.card.claimId ? await loadSearchResults(story.card.claimId) : null;
+  const offer = await continuationOffer(id);
   const found = inventory?.results.length ?? 0;
   const opened = inventory?.results.filter((item) => item.retrievalStatus === "retrieved").length ?? story.sources.filter((item) => item.opened).length;
   const showInventory = found > 0 || story.sources.length > 0;
@@ -110,6 +113,21 @@ async function WorkBody({ params }: { params: Promise<{ id: string }> }) {
             </div>
           ) : null}
           <p className="mt-3 text-sm">{story.card.storyState === "Ready for You" ? "Ready for You: a draft is waiting. Nothing has been published." : `Ready for You: not yet. Current status is ${story.card.storyState}.`}</p>
+        </section>
+        <section className="border border-rule px-4 py-4">
+          <h2 className="font-serif text-2xl">Next action</h2>
+          <p className="mt-2 text-sm">{story.card.storyState}. {story.card.storyAction}</p>
+          {offer.ok && offer.available ? (
+            <div className="mt-3 space-y-2 text-sm">
+              <p>Question: {offer.question}</p>
+              <p>Why the saved results are not enough: {offer.why}</p>
+              <p>Expected requests: {offer.searches} searches and {offer.documents} documents.</p>
+              <p>Remaining today: {offer.searchesRemaining} searches and {offer.documentsRemaining} documents. The daily cap is not reset.</p>
+              <ContinueResearch id={id} />
+            </div>
+          ) : (
+            <p className="mt-3 text-sm">{offer.ok ? (offer.blocker ? `${offer.blocker}. ${offer.why}` : offer.why) : offer.message}</p>
+          )}
         </section>
         <section className="border border-rule px-4 py-4">
           <h2 className="font-serif text-2xl">Draft</h2>

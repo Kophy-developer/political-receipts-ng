@@ -55,6 +55,9 @@ export type DevelopmentState = {
   investigation: Investigation | null;
   analysis: SeriesAnalysis | null;
   researchStage: ResearchStage | null;
+  continuations: number;
+  blocker: string | null;
+  priorPlans: Array<{ hash: string | null; queries: string[] }>;
 };
 
 export type DevelopmentPreview = {
@@ -234,6 +237,9 @@ export function initialDevelopment(sourceText: string): DevelopmentState {
     investigation: null,
     analysis: null,
     researchStage: null,
+    continuations: 0,
+    blocker: null,
+    priorPlans: [],
   };
 }
 
@@ -358,6 +364,10 @@ export function nextStep(state: DevelopmentState): DevelopmentStep {
   }
   if (required && state.evidenceStatus !== "EVIDENCE_READY") {
     const question = state.quality.checkableFacts[0] || state.quality.summary;
+    const investigation = state.investigation ?? investigate(state.sourceText, state.quality);
+    if (investigation.numerical && state.completed.includes("research")) {
+      return { kind: "review", question: `Search completed is not a statistical series. ${question} Continue research on this story. Nothing runs until you confirm.` };
+    }
     const why = state.evidenceStatus === "RELEVANT_EVIDENCE_FOUND"
       ? `A result mentions the premise, but no page was opened. It is not proof. ${question}`
       : `No saved result addresses the premise. ${question}`;
@@ -471,12 +481,13 @@ export async function advanceDevelopment(state: DevelopmentState, ports: Develop
       return { ...current, ready: false, review: current.quality.review, error: null, unresolved: next.message };
     }
     if (next.kind === "review") {
+      const continueOnStory = /Continue research on this story/.test(next.question);
       return {
         ...current,
         ready: false,
         review: editorialReview,
         unresolved: next.question,
-        nextAction: furtherSearchNote,
+        nextAction: continueOnStory ? "Continue research on this story. Nothing runs until you confirm." : furtherSearchNote,
         failureKind: current.failureKind ?? (current.evidenceStatus === "RELEVANT_EVIDENCE_FOUND" ? "inadequate evidence" : "source relevance"),
         error: null,
       };
