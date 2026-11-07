@@ -6,10 +6,11 @@ import { notFound } from "next/navigation";
 import { PageFrame } from "@/components/shell/page-frame";
 import { ContinueResearch } from "@/components/desk/continue-research";
 import { SeriesChart } from "@/components/desk/series-chart";
-import { continuationOffer } from "@/lib/db/develop";
+import { continuationOffer, loadDocumentPassages } from "@/lib/db/develop";
 import { loadSearchResults } from "@/lib/db/search-results";
 import { loadStory } from "@/lib/db/editorial";
 import { describeSource } from "@/lib/editorial/quality";
+import { documentLedger } from "@/lib/research/examine";
 import { investigate } from "@/lib/research/investigate";
 import { reviveAnalysis } from "@/lib/research/series";
 import Loading from "@/app/loading";
@@ -34,7 +35,23 @@ async function WorkBody({ params }: { params: Promise<{ id: string }> }) {
   const analysis = reviveAnalysis((story.development as { analysis?: unknown } | null)?.analysis);
   const stage = (story.development as { researchStage?: unknown } | null)?.researchStage;
   const inventory = story.card.claimId ? await loadSearchResults(story.card.claimId) : null;
+  const passages = story.card.claimId ? await loadDocumentPassages(story.card.claimId) : new Map<string, string>();
   const offer = await continuationOffer(id);
+  const latestAttempt = offer.ok ? offer.why : story.card.storyReason;
+  const nextAction = offer.ok && offer.available
+    ? (offer.searches === 0 ? "Open saved documents. No new search runs until you confirm." : "Continue research on this story. Nothing runs until you confirm.")
+    : (offer.ok ? [offer.blocker, offer.why].filter(Boolean).join(". ") : story.card.storyAction);
+  const ledger = documentLedger((inventory?.results ?? []).map((item) => ({
+    id: item.id,
+    url: item.url,
+    title: item.title,
+    domain: item.domain,
+    snippet: item.snippet,
+    retrievalStatus: item.retrievalStatus,
+    inDomain: item.inDomain,
+    rejection: item.rejectionReason,
+    text: passages.get(item.url) ?? null,
+  })), plan, 2);
   const found = inventory?.results.length ?? 0;
   const opened = inventory?.results.filter((item) => item.retrievalStatus === "retrieved").length ?? story.sources.filter((item) => item.opened).length;
   const showInventory = found > 0 || story.sources.length > 0;
@@ -44,8 +61,8 @@ async function WorkBody({ params }: { params: Promise<{ id: string }> }) {
       <p className="font-mono text-[11px] tracking-[0.16em] text-ink-soft uppercase">Story</p>
       <h1 className="mt-2 font-serif text-4xl tracking-[-0.03em]">{story.card.title}</h1>
       <p className="mt-3 text-sm">{story.card.storyState}</p>
-      <p className="mt-2 text-sm leading-relaxed">{story.card.storyReason}</p>
-      <p className="mt-2 text-sm text-ink-soft">{story.card.storyAction}</p>
+      <p className="mt-2 text-sm leading-relaxed">{latestAttempt}</p>
+      <p className="mt-2 text-sm text-ink-soft">{nextAction}</p>
       <div className="mt-8 space-y-6">
         <section className="border border-rule px-4 py-4">
           <h2 className="font-serif text-2xl">Source</h2>
@@ -71,13 +88,13 @@ async function WorkBody({ params }: { params: Promise<{ id: string }> }) {
         </section>
         <section className="border border-rule px-4 py-4">
           <h2 className="font-serif text-2xl">Research</h2>
-          <p className="mt-2 text-sm">{typeof stage === "string" ? stage : story.card.storyState}. {story.card.storyReason}</p>
+          <p className="mt-2 text-sm">{typeof stage === "string" ? stage : story.card.storyState}. {latestAttempt}</p>
           {showInventory ? (
             <div className="mt-3 space-y-2 text-sm">
               <p>{found || story.sources.length} stored results · {opened} opened.</p>
               <ul className="space-y-1">
-                {(story.sources.length > 0 ? story.sources : inventory?.results.map((item) => ({ title: item.title, opened: item.retrievalStatus === "retrieved", stance: item.reason })) ?? []).map((item, index) => (
-                  <li key={`${item.title}-${index}`}>{item.opened ? "Opened" : "Not opened"} · {item.title}{item.stance ? ` · ${item.stance}` : ""}</li>
+                {(ledger.length > 0 ? ledger : story.sources.map((item) => ({ id: item.title, title: item.title, status: item.opened ? "opened" as const : "not opened" as const, reason: item.stance || "" }))).map((item) => (
+                  <li key={item.id}>{item.status} · {item.title}{item.reason ? ` · ${item.reason}` : ""}</li>
                 ))}
               </ul>
             </div>
@@ -116,14 +133,14 @@ async function WorkBody({ params }: { params: Promise<{ id: string }> }) {
         </section>
         <section className="border border-rule px-4 py-4">
           <h2 className="font-serif text-2xl">Next action</h2>
-          <p className="mt-2 text-sm">{story.card.storyState}. {story.card.storyAction}</p>
+          <p className="mt-2 text-sm">{story.card.storyState}. {nextAction}</p>
           {offer.ok && offer.available ? (
             <div className="mt-3 space-y-2 text-sm">
               <p>Question: {offer.question}</p>
               <p>Why the saved results are not enough: {offer.why}</p>
               <p>Expected requests: {offer.searches} searches and {offer.documents} documents.</p>
               <p>Remaining today: {offer.searchesRemaining} searches and {offer.documentsRemaining} documents. The daily cap is not reset.</p>
-              <ContinueResearch id={id} />
+              <ContinueResearch id={id} action={offer.searches === 0 ? "open-saved" : "continue"} label={offer.searches === 0 ? "Open saved documents" : "Continue research"} />
             </div>
           ) : (
             <p className="mt-3 text-sm">{offer.ok ? (offer.blocker ? `${offer.blocker}. ${offer.why}` : offer.why) : offer.message}</p>

@@ -131,12 +131,20 @@ function observationsFromLines(text: string, url: string) {
   const sourceName = sourceNameOf(text);
   const series = seriesNameOf(text, "Unnamed series");
   const found: Observation[] = [];
+  const push = (yearText: string, raw: string) => {
+    const value = parseNumber(raw);
+    if (value === null) return;
+    if (found.some((item) => item.year === Number(yearText) && item.value === value)) return;
+    found.push({ series, year: Number(yearText), value, unit, basis, sourceName, url });
+  };
   for (const line of text.split(/\n+/)) {
     const match = line.trim().match(/^(19[9]\d|20[0-3]\d)\s*[|,:]\s*(-?\(?[\d,]+(?:\.\d+)?\)?)$/);
-    if (!match) continue;
-    const value = parseNumber(match[2]);
-    if (value === null) continue;
-    found.push({ series, year: Number(match[1]), value, unit, basis, sourceName, url });
+    if (match) push(match[1], match[2]);
+  }
+  if (!found.length) {
+    const inline = /(?:^|[\s(])(19[9]\d|20[0-3]\d)\s*[|,:]\s*(-?\(?[\d,]+(?:\.\d+)?\)?)/g;
+    let match: RegExpExecArray | null;
+    while ((match = inline.exec(text))) push(match[1], match[2]);
   }
   return found;
 }

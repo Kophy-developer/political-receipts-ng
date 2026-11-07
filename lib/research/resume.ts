@@ -26,6 +26,7 @@ export type ContinuationSource = {
   text?: string | null;
   retrievalStatus?: string;
   inDomain?: boolean;
+  rejection?: string | null;
 };
 
 export type ContinuationRun = {
@@ -132,7 +133,7 @@ export function continuationBlocker(input: { investigation: Investigation; sourc
 function whyFor(investigation: Investigation, sources: ContinuationSource[]) {
   const substitutes = sources.filter((item) => investigation.rejectedSubstitutes.some((host) => hostOf(item.domain).endsWith(host)));
   const opened = sources.filter((item) => item.opened).length;
-  if (investigation.numerical && substitutes.length) {
+  if (investigation.numerical && substitutes.length && substitutes.length === sources.length) {
     return `${substitutes.length} saved results are State House announcements. Search completed, and ${opened} documents were opened. An announcement is not a historical statistical series.`;
   }
   if (!sources.length) return "No search result is stored for this question.";
@@ -180,9 +181,6 @@ export function describeContinuation(input: {
   if (input.ready) return { ...empty, why: "A draft is already in Ready for You. Publishing still requires the exact text." };
   if (input.evidenceReady) return { ...empty, why: "Opened evidence is already stored. Develop content can continue the draft. This action does not search again." };
   if (!input.runs.length && !input.searchCompleted) return { ...empty, why: "Research has not started. Develop content shows the cost before the first search." };
-  if (input.continuations >= 2) {
-    return { ...empty, blocker: continuationBlocker(input), why: `${why} Continue research has already been used. The same plan will not run again.` };
-  }
   const plan = continuationPlan({ claim: input.claim, investigation: input.investigation, providerId });
   const planKey = hashOfPlan(plan, providerId);
   const completed = new Set(input.runs.filter((run) => run.operations > 0 && (run.status === "completed" || run.status === "stopped")).map((run) => run.hash));
@@ -196,13 +194,28 @@ export function describeContinuation(input: {
     retrievalStatus: item.retrievalStatus,
     inDomain: item.inDomain,
   }] : []), input.investigation, input.maxDocumentsPerRun ?? caps.maxDocuments).filter((id) => input.sources.some((item) => item.id === id && item.retrievalStatus !== "retrieved" && item.opened !== true));
+  const failed = input.sources.filter((item) => item.retrievalStatus === "failed");
+  const attempt = failed.length
+    ? `The latest retrieval attempt did not open a series. ${failed.map((item) => `${item.title}: ${item.rejection || "The page was not stored."}`).join(" ")}`
+    : why;
   if (openIds.length) {
     const documents = Math.min(openIds.length, input.maxDocumentsPerRun ?? caps.maxDocuments, documentsRemaining);
-    if (documents < 1) return { ...empty, blocker: "Provider or budget failure", why: `${why} The daily document limit is reached.` };
-    return { ...empty, available: true, why, searches: 0, documents, openIds: openIds.slice(0, documents), plan: null, planKey: null };
+    const nextTitle = input.sources.find((item) => item.id === openIds[0])?.title || "the next saved document";
+    if (documents < 1) return { ...empty, blocker: "Provider or budget failure", why: `${attempt} The daily document limit is reached.` };
+    return {
+      ...empty,
+      available: true,
+      why: `${attempt} The next saved document is “${nextTitle}”. No new search is required.`,
+      searches: 0,
+      documents,
+      openIds: openIds.slice(0, documents),
+      plan: null,
+      planKey: null,
+    };
   }
-  if (eitherProvider) {
-    return { ...empty, blocker: continuationBlocker(input), plan, planKey, why: `${why} This research plan has already been run.` };
+  if (input.continuations >= 2 || eitherProvider) {
+    const none = `No usable statistical document remains among the ${input.sources.length} saved results. The same search plan will not run again.`;
+    return { ...empty, blocker: failed.length ? "Document could not be opened" : continuationBlocker(input), plan, planKey, why: `${attempt} ${none}` };
   }
   const searches = Math.min(plan.searches.length, input.maxSearchesPerRun ?? caps.maxSearches, searchesRemaining);
   const documents = Math.min(input.maxDocumentsPerRun ?? caps.maxDocuments, documentsRemaining);

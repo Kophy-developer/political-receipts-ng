@@ -12,6 +12,7 @@ import { loadSearchResults } from "@/lib/db/search-results";
 import { composeFromAnalysis } from "@/lib/editorial/findings";
 import {
   advanceDevelopment,
+  angleFor,
   developmentPreview,
   factualContextNeeded,
   furtherSearchPreview,
@@ -22,7 +23,7 @@ import {
   type EvidenceLabel,
   type RetrievedSource,
 } from "@/lib/editorial/develop";
-import { chooseDocumentIds } from "@/lib/research/examine";
+import { chooseDocumentIds, examineSources } from "@/lib/research/examine";
 import { investigate } from "@/lib/research/investigate";
 import { retrieveStoredResults } from "@/lib/research/retrieve-selected";
 import { reviveAnalysis, type SeriesAnalysis } from "@/lib/research/series";
@@ -208,6 +209,10 @@ async function ensureClaim(input: { opportunityId: string; claimId: string | nul
   }).select("id").single();
   if (claim.error || !claim.data) return { ok: false as const, message: scrubDbMessage(claim.error?.message || "claim") };
   return { ok: true as const, claimId: claim.data.id as string };
+}
+
+export async function loadDocumentPassages(claimId: string) {
+  return passagesByUrl(claimId);
 }
 
 async function passagesByUrl(claimId: string) {
@@ -481,6 +486,7 @@ export async function continuationOffer(id: string) {
       opened: item.retrievalStatus === "retrieved",
       retrievalStatus: item.retrievalStatus,
       inDomain: item.inDomain,
+      rejection: item.rejectionReason,
     })),
     runs: records.runs,
     continuations: state.continuations,
@@ -507,6 +513,7 @@ export async function continuationOffer(id: string) {
 export async function continueContent(id: string, confirm: boolean) {
   const preview = await continuationOffer(id);
   if (!confirm) return { ...preview, called: false as const };
+  if (preview.ok && preview.available && preview.searches === 0 && preview.openIds.length > 0) return openSavedDocuments(id, true);
   if (!preview.ok || !preview.available) {
     return { ok: false as const, message: preview.ok ? (preview.blocker || preview.message) : preview.message, called: false as const };
   }
@@ -537,6 +544,69 @@ export async function continueContent(id: string, confirm: boolean) {
     await db.from("opportunities").update({ development: kept, lifecycle: lifecycleForDevelopment(kept) }).eq("id", id);
   }
   return { ...result, called: result.researchCalls > 0 };
+}
+
+export async function openSavedDocuments(id: string, confirm: boolean) {
+  const preview = await continuationOffer(id);
+  if (!confirm) return { ...preview, called: false as const, searched: false as const };
+  if (!preview.ok || preview.searches > 0 || preview.openIds.length === 0) {
+    return { ok: false as const, called: false as const, searched: false as const, message: preview.ok ? (preview.why || "No saved document is waiting to be opened. No search was sent.") : preview.message };
+  }
+  const loaded = await loadOpportunity(id);
+  if (!loaded.ok) return { ok: false as const, message: loaded.message, called: false as const, searched: false as const };
+  if (loaded.published) return { ok: false as const, message: "A published story stays published. Nothing was opened.", called: false as const, searched: false as const };
+  const db = serviceClient();
+  if (!db || !loaded.claimId) return { ok: false as const, message: "The database is not configured.", called: false as const, searched: false as const };
+  const updatedAt = textOf(loaded.row.updated_at);
+  const state = asState(loaded.row.development, loaded.sourceText);
+  const locked = await db.from("opportunities").update({ development: { ...state, running: true }, lifecycle: "RESEARCHING" }).eq("id", id).eq("updated_at", updatedAt).select("id");
+  if (locked.error || !locked.data?.length) return { ok: false as const, message: "This conversation changed before a document was opened. Nothing was retrieved.", called: false as const, searched: false as const };
+  const retrieved = await retrieveStoredResults(loaded.claimId, preview.openIds);
+  const listed = await loadSearchResults(loaded.claimId);
+  const passages = await passagesByUrl(loaded.claimId);
+  const investigation = investigate(loaded.sourceText, state.quality);
+  const sources = retrievedSources(listed.results).map((source) => {
+    const passage = passages.get(source.url);
+    return passage ? { ...source, opened: true, text: passage } : source;
+  });
+  const examined = examineSources(investigation, sources);
+  const angle = examined.analysis?.chart && examined.analysis.comparable ? angleFor(state.quality, { label: "usable", sources }, examined.analysis) : null;
+  const draft = examined.analysis?.chart && examined.analysis.comparable
+    ? composeFromAnalysis({ quality: state.quality, analysis: examined.analysis, domain: draftDomain(examined.analysis) })
+    : "";
+  const ready = Boolean(draft);
+  const finished: DevelopmentState = {
+    ...state,
+    running: false,
+    investigation,
+    analysis: examined.analysis,
+    researchStage: examined.stage,
+    evidence: { label: ready ? "usable" : "insufficient", sources: examined.sources },
+    evidenceStatus: ready ? "EVIDENCE_READY" : "EVIDENCE_INSUFFICIENT",
+    searchStatus: "SEARCH_COMPLETED",
+    completed: ready ? ["interpret", "research", "angle", "draft"] : state.completed.includes("research") ? state.completed : [...state.completed, "research"],
+    angle: angle?.title ?? state.angle,
+    anglePoints: angle?.points ?? state.anglePoints,
+    drafts: draft ? [{ style: "conversational", text: draft, sourceHash: state.sourceHash }] : state.drafts,
+    ready,
+    review: ready ? null : "Needs editorial review",
+    blocker: ready ? null : researchBlocker({ ...state, analysis: examined.analysis, evidence: { label: "insufficient", sources: examined.sources }, researchFailed: !retrieved.ok }, retrieved.ok ? null : retrieved.message),
+    unresolved: ready ? "Opened figures are in the draft. This is not a verdict." : retrieved.message,
+    error: retrieved.ok ? null : retrieved.message,
+  };
+  await db.from("opportunities").update({
+    development: finished,
+    lifecycle: lifecycleForDevelopment(finished),
+    possible_angle: finished.angle,
+  }).eq("id", id);
+  await recordEvent({
+    action: "content developed",
+    actor: "editor",
+    subjectType: "opportunity",
+    subjectId: id,
+    detail: { retrieved: retrieved.retrieved, searched: false, modelCalls: 0, xRequests: 0, posted: false, ready },
+  });
+  return { ok: retrieved.ok || ready, called: retrieved.retrieved > 0, searched: false as const, message: ready ? "A draft is ready for you. Nothing was published and no model was called." : retrieved.message };
 }
 
 export async function furtherResearch(id: string, confirm: boolean) {

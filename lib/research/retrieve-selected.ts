@@ -39,23 +39,26 @@ export async function retrieveStoredResults(claimId: string, resultIds: string[]
   if (claim.error || !claim.data) return { ok: false as const, retrieved: 0, message: "That claim is not on the desk." };
   const pillar: Pillar = claim.data.content_pillar === "football" || claim.data.content_pillar === "finance" ? claim.data.content_pillar : "politics";
   const categories = await sourceCategories(pillar);
-  const seen = new Set<string>();
+  const seen = new Map<string, { ok: boolean; message?: string }>();
   let retrieved = 0;
   const errors: string[] = [];
 
   for (const row of pending) {
-    if (seen.has(row.url)) {
-      await markSearchResults([row.id], "retrieved");
+    const earlier = seen.get(row.url);
+    if (earlier) {
+      await markSearchResults([row.id], earlier.ok ? "retrieved" : "failed", earlier.ok ? undefined : earlier.message);
+      if (!earlier.ok && earlier.message) errors.push(earlier.message);
       continue;
     }
-    seen.add(row.url);
     const page = await fetchDocument(row.url);
     await recordUsage({ provider: "retrieval", operation: "document", requests: 1, units: page.ok ? 1 : 0 });
     if (!page.ok) {
+      seen.set(row.url, { ok: false, message: page.message });
       await markSearchResults([row.id], "failed", page.message);
       errors.push(page.message);
       continue;
     }
+    seen.set(row.url, { ok: true });
     const tier = tierForHost(page.domain, categories);
     const sameUrl = pending.filter((item) => item.url === row.url).map((item) => item.id);
     const filed = await fileRetrievedEvidence({

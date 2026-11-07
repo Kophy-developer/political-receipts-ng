@@ -1,7 +1,7 @@
 import { inflateSync } from "node:zlib";
 import { prepareStoredPassage, readableProse, sanitizeStoredText } from "@/lib/research/passage";
 
-const needles = ["453", "polling unit", "artificial intelligence", "photograph", "biometric", "voter register", "registration centre", "registration center", "fake voter"];
+const needles = ["453", "polling unit", "artificial intelligence", "photograph", "biometric", "voter register", "registration centre", "registration center", "fake voter", "capital importation", "foreign direct investment"];
 
 type PdfObject = { id: number; dict: string; stream: string | null };
 
@@ -135,7 +135,10 @@ export function extractPdfDocument(bytes: Uint8Array) {
       needle = item;
     }
   }
-  const window = at < 0 ? corpus.slice(0, 900) : corpus.slice(Math.max(0, at - 180), at + 720);
+  const yearLines = corpus.split(/\n+/).filter((line) => /(19[9]\d|20[0-3]\d)\s*[|,]\s*-?\d/.test(line)).slice(0, 16);
+  const window = yearLines.length
+    ? `${at < 0 ? corpus.slice(0, 240) : corpus.slice(Math.max(0, at - 80), at + 240)}\n${yearLines.join("\n")}`
+    : at < 0 ? corpus.slice(0, 900) : corpus.slice(Math.max(0, at - 180), at + 720);
   const matching = needle ? pageTexts.filter((page) => page.text.toLowerCase().includes(needle)) : [];
   const pageLabel = matching.length > 1
     ? `pp. ${matching[0].number}–${matching[matching.length - 1].number}`
