@@ -33,7 +33,10 @@ import { publicPostUrl, sanitizeText } from "@/lib/intel/text";
 import { researchLimits } from "@/lib/research/limits";
 import { reviseResearchPlan } from "@/lib/research/plan";
 import { hashOfPlan, readStoredPlan } from "@/lib/research/canonical";
-import { fetchWorldBank, loadOfficialSeries, matchStructuredQuestion } from "@/lib/research/official-series";
+import { matchStructuredQuestion, retrieveWorldBank } from "@/lib/research/official-series";
+import { prepareOfficialDevelopment } from "@/lib/research/official-workflow";
+import { readProvenance, resolveOfficialSeries, recordedWorldBankFdi } from "@/lib/research/structured-cache";
+import { loadStructuredCache, saveStructuredCache } from "@/lib/db/structured-cache";
 import { beginResearch } from "@/lib/research/run";
 import { fileRetrievedEvidence } from "@/lib/db/research";
 import { describeContinuation, type ResearchBlocker } from "@/lib/research/resume";
@@ -114,6 +117,7 @@ function asState(value: unknown, sourceText: string): DevelopmentState {
     quality: describeSource(sourceText),
     investigation: null,
     analysis: reviveAnalysis((row as { analysis?: unknown }).analysis),
+    seriesProvenance: readProvenance((row as { seriesProvenance?: unknown }).seriesProvenance),
     researchStage: row.researchStage === "SEARCH_COMPLETED" || row.researchStage === "SOURCES_RETRIEVED" || row.researchStage === "EVIDENCE_EXAMINED" || row.researchStage === "EVIDENCE_INSUFFICIENT" || row.researchStage === "EVIDENCE_READY" ? row.researchStage : null,
     continuations: typeof row.continuations === "number" && row.continuations >= 0 ? Math.floor(row.continuations) : 0,
     blocker: typeof row.blocker === "string" ? row.blocker : null,
@@ -293,14 +297,23 @@ export async function developContent(id: string) {
       await db.from("opportunities").update({ claim_id: claim.claimId }).eq("id", id);
       const dataset = matchStructuredQuestion(`${loaded.sourceText}\n${context}`);
       if (dataset?.status === "available" && dataset.apiUrl) {
+        const now = new Date().toISOString();
         const passages = await passagesByUrl(claim.claimId);
         const stored = passages.get(dataset.pageUrl) ?? null;
-        const series = await loadOfficialSeries(dataset, {
-          alreadyStored: Boolean(stored),
-          storedPassage: stored,
-          load: () => fetchWorldBank(dataset.apiUrl || ""),
+        const cache = await loadStructuredCache(dataset.id, now);
+        const series = await resolveOfficialSeries(dataset, {
+          mode: stored ? "saved" : "live",
+          now,
+          cache,
+          recordedBody: recordedWorldBankFdi,
+          load: async () => {
+            const retrieved = await retrieveWorldBank(dataset);
+            if (!retrieved.ok) return { message: retrieved.message };
+            return retrieved.body;
+          },
         });
         if (!series.ok) return { ok: false, called: false, label: "none" as const, sources: [], message: series.message };
+        await saveStructuredCache(series.record);
         if (!stored) {
           const filed = await fileRetrievedEvidence({
             claimId: claim.claimId,
@@ -309,14 +322,14 @@ export async function developContent(id: string) {
             domain: "data.worldbank.org",
             title: `${dataset.series}, ${dataset.country}`,
             organization: dataset.sourceName,
-            published: series.updated,
-            passage: series.passage,
+            published: series.record.sourceUpdated,
+            passage: series.record.passage,
             pageLabel: "annual series",
             tierRank: 1,
             tierName: "Official statistics",
             problem: null,
             question: dataset.reason,
-            notes: `${series.message} Indicator ${dataset.indicator}. No search and no PDF download.`,
+            notes: `${series.record.label} Indicator ${dataset.indicator}. No search and no PDF download.`.slice(0, 480),
           });
           if (!filed.ok) return { ok: false, called: false, label: "none" as const, sources: [], message: filed.message };
         }
@@ -324,8 +337,8 @@ export async function developContent(id: string) {
           ok: true,
           called: false,
           label: "none" as const,
-          sources: [{ title: dataset.series, url: dataset.pageUrl, domain: "data.worldbank.org", opened: true, text: series.passage }],
-          message: series.message,
+          sources: [{ title: dataset.series, url: dataset.pageUrl, domain: "data.worldbank.org", opened: true, text: series.record.passage }],
+          message: series.record.label,
         };
       }
       const run = await beginResearch(claim.claimId);
@@ -523,6 +536,8 @@ export async function continuationOffer(id: string) {
   const investigation = investigate(loaded.sourceText, state.quality);
   const offer = describeContinuation({
     claim: records.claim || loaded.sourceText,
+    sourceText: loaded.sourceText,
+    liveStructuredFailed: /World Bank API did not answer|World Bank API returned/i.test(state.error || ""),
     investigation,
     sources: records.results.map((item) => ({
       id: item.id,
@@ -557,12 +572,7 @@ export async function continuationOffer(id: string) {
   return { ok: true as const, ...offer, message };
 }
 
-export async function readOfficialSeries(id: string, confirm: boolean) {
-  const preview = await continuationOffer(id);
-  if (!confirm) return { ...preview, called: false as const, searched: false as const };
-  if (!preview.ok || !preview.structuredId) {
-    return { ok: false as const, called: false as const, searched: false as const, message: preview.ok ? "No official series is waiting. No search was sent." : preview.message };
-  }
+async function applyOfficialSeries(id: string, mode: "live" | "saved") {
   const loaded = await loadOpportunity(id);
   if (!loaded.ok) return { ok: false as const, message: loaded.message, called: false as const, searched: false as const };
   if (loaded.published) return { ok: false as const, message: "A published story stays published. Nothing was read.", called: false as const, searched: false as const };
@@ -571,7 +581,7 @@ export async function readOfficialSeries(id: string, confirm: boolean) {
   const updatedAt = textOf(loaded.row.updated_at);
   const state = asState(loaded.row.development, loaded.sourceText);
   const dataset = matchStructuredQuestion(`${loaded.sourceText}\n${state.quality.summary}`);
-  if (!dataset || dataset.status !== "available" || !dataset.apiUrl || dataset.id !== preview.structuredId) {
+  if (!dataset || dataset.status !== "available" || !dataset.apiUrl) {
     return { ok: false as const, message: dataset?.reason || "No official series matches this story. No search was sent.", called: false as const, searched: false as const };
   }
   const locked = await db.from("opportunities").update({ development: { ...state, running: true }, lifecycle: "RESEARCHING" }).eq("id", id).eq("updated_at", updatedAt).select("id");
@@ -592,14 +602,27 @@ export async function readOfficialSeries(id: string, confirm: boolean) {
     claimId = claim.claimId;
     await db.from("opportunities").update({ claim_id: claimId }).eq("id", id);
   }
+  const now = new Date().toISOString();
   const passages = await passagesByUrl(claimId);
   const stored = passages.get(dataset.pageUrl) ?? null;
-  const series = await loadOfficialSeries(dataset, { alreadyStored: Boolean(stored), storedPassage: stored, load: () => fetchWorldBank(dataset.apiUrl || "") });
+  const cache = await loadStructuredCache(dataset.id, now);
+  const series = await resolveOfficialSeries(dataset, {
+    mode: stored ? "saved" : mode,
+    now,
+    cache,
+    recordedBody: recordedWorldBankFdi,
+    load: async () => {
+      const retrieved = await retrieveWorldBank(dataset);
+      if (!retrieved.ok) return { message: retrieved.message };
+      return retrieved.body;
+    },
+  });
   if (!series.ok) {
     const failed = { ...state, running: false, error: series.message, blocker: "Provider or budget failure" as const, unresolved: series.message };
     await db.from("opportunities").update({ development: failed, lifecycle: lifecycleForDevelopment(failed) }).eq("id", id);
     return { ok: false as const, called: false as const, searched: false as const, message: series.message };
   }
+  await saveStructuredCache(series.record);
   if (!stored) {
     const filed = await fileRetrievedEvidence({
       claimId,
@@ -608,41 +631,37 @@ export async function readOfficialSeries(id: string, confirm: boolean) {
       domain: "data.worldbank.org",
       title: `${dataset.series}, ${dataset.country}`,
       organization: dataset.sourceName,
-      published: series.updated,
-      passage: series.passage,
+      published: series.record.sourceUpdated,
+      passage: series.record.passage,
       pageLabel: "annual series",
       tierRank: 1,
       tierName: "Official statistics",
       problem: null,
       question: dataset.reason,
-      notes: `${series.message} Indicator ${dataset.indicator}. The earlier searches were kept. No PDF was downloaded.`,
+      notes: `${series.record.label} Indicator ${dataset.indicator}. The earlier searches were kept. No PDF was downloaded.`.slice(0, 480),
     });
     if (!filed.ok) return { ok: false as const, message: filed.message, called: false as const, searched: false as const };
   }
-  const investigation = investigate(loaded.sourceText, state.quality);
-  const examined = examineSources(investigation, [{ title: dataset.series, url: dataset.pageUrl, domain: "data.worldbank.org", opened: true, text: series.passage }]);
-  const angle = examined.analysis?.chart && examined.analysis.comparable ? angleFor(state.quality, { label: "usable", sources: examined.sources }, examined.analysis) : null;
-  const draft = examined.analysis?.chart && examined.analysis.comparable
-    ? composeFromAnalysis({ quality: state.quality, analysis: examined.analysis, domain: "data.worldbank.org" })
-    : "";
-  const ready = Boolean(draft);
+  const prepared = prepareOfficialDevelopment({ sourceText: loaded.sourceText, record: series.record, quality: state.quality });
+  const ready = prepared.ready;
   const finished: DevelopmentState = {
     ...state,
     running: false,
-    investigation,
-    analysis: examined.analysis,
-    researchStage: examined.stage,
-    evidence: { label: ready ? "usable" : "insufficient", sources: examined.sources },
+    investigation: prepared.investigation,
+    analysis: prepared.analysis,
+    seriesProvenance: prepared.provenance,
+    researchStage: prepared.stage,
+    evidence: { label: ready ? "usable" : "insufficient", sources: prepared.sources },
     evidenceStatus: ready ? "EVIDENCE_READY" : "EVIDENCE_INSUFFICIENT",
     searchStatus: "SEARCH_COMPLETED",
     completed: ready ? ["interpret", "research", "angle", "draft"] : state.completed,
-    angle: angle?.title ?? state.angle,
-    anglePoints: angle?.points ?? state.anglePoints,
-    drafts: draft ? [{ style: "conversational", text: draft, sourceHash: state.sourceHash }] : state.drafts,
+    angle: prepared.angle?.title ?? state.angle,
+    anglePoints: prepared.angle?.points ?? state.anglePoints,
+    drafts: prepared.draft ? [{ style: "conversational", text: prepared.draft, sourceHash: state.sourceHash }] : state.drafts,
     ready,
     review: ready ? null : "Needs editorial review",
     blocker: ready ? null : "No relevant source found",
-    unresolved: ready ? "The official series is in the draft. This is not a verdict." : series.message,
+    unresolved: ready ? prepared.provenance.label : series.record.label,
     error: null,
   };
   await db.from("opportunities").update({ development: finished, lifecycle: lifecycleForDevelopment(finished), possible_angle: finished.angle }).eq("id", id);
@@ -651,14 +670,35 @@ export async function readOfficialSeries(id: string, confirm: boolean) {
     actor: "editor",
     subjectType: "opportunity",
     subjectId: id,
-    detail: { structured: dataset.indicator, fetched: series.fetched, searched: false, modelCalls: 0, xRequests: 0, posted: false, ready },
+    detail: { structured: dataset.indicator, origin: series.record.origin, live: series.live, fetched: series.fetched, searched: false, modelCalls: 0, xRequests: 0, posted: false, ready },
   });
-  return { ok: ready, called: false as const, searched: false as const, message: ready ? "A draft is ready for you. Nothing was published, searched, or sent to a model." : series.message };
+  const saved = series.record.origin === "live" ? "A draft is ready for you. Nothing was published, searched, or sent to a model." : "A draft is ready from the saved official series. This was not a live retrieval. Nothing was published.";
+  return { ok: ready, called: false as const, searched: false as const, message: ready ? saved : series.record.label };
+}
+
+export async function readOfficialSeries(id: string, confirm: boolean) {
+  const preview = await continuationOffer(id);
+  if (!confirm) return { ...preview, called: false as const, searched: false as const };
+  if (!preview.ok || !preview.structuredId) {
+    return { ok: false as const, called: false as const, searched: false as const, message: preview.ok ? "No official series is waiting. No search was sent." : preview.message };
+  }
+  if (preview.savedData) return applyOfficialSeries(id, "saved");
+  return applyOfficialSeries(id, "live");
+}
+
+export async function resumeValidatedSeries(id: string, confirm: boolean) {
+  const preview = await continuationOffer(id);
+  if (!confirm) return { ...preview, called: false as const, searched: false as const };
+  if (!preview.ok || !preview.savedData) {
+    return { ok: false as const, called: false as const, searched: false as const, message: preview.ok ? "No validated saved series is waiting. The live API was not called." : preview.message };
+  }
+  return applyOfficialSeries(id, "saved");
 }
 
 export async function continueContent(id: string, confirm: boolean) {
   const preview = await continuationOffer(id);
   if (!confirm) return { ...preview, called: false as const };
+  if (preview.ok && preview.savedData) return resumeValidatedSeries(id, confirm);
   if (preview.ok && preview.structuredId) return readOfficialSeries(id, confirm);
   if (preview.ok && preview.available && preview.searches === 0 && preview.openIds.length > 0) return openSavedDocuments(id, true);
   if (!preview.ok || !preview.available) {

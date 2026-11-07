@@ -206,8 +206,11 @@ export function examineSources(investigation: Investigation, sources: ReadableSo
     });
   }
   const analysis = investigation.numerical && observations.length ? analyzeSeries(observations, investigation.focusSeries) : null;
-  const unpublished = sources.map((source) => source.text || "").join("\n").match(/20\d\d is not in the published series\. It was not filled in\./);
+  const sourceText = sources.map((source) => source.text || "").join("\n");
+  const unpublished = sourceText.match(/20\d\d is not in the published series\. It was not filled in\./);
   if (analysis && unpublished && !analysis.limitations.includes(unpublished[0])) analysis.limitations.push(unpublished[0]);
+  const provenance = sourceText.match(/Provenance: .+/);
+  if (analysis && provenance && !analysis.limitations.includes(provenance[0])) analysis.limitations.push(provenance[0]);
   const incomplete = readings.find((source) => source.limitation?.includes("may be incomplete"))?.limitation;
   if (analysis && incomplete && !analysis.limitations.includes(incomplete)) analysis.limitations.push(incomplete);
   const openedContext = readings.some((source) => source.opened && source.stance && source.stance !== "does_not_address");

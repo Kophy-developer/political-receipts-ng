@@ -252,8 +252,79 @@ function passageToBody(passage: string, dataset: StructuredDataset) {
   return [{ lastupdated: null }, rows];
 }
 
+export type WorldBankAttempt = {
+  url: string;
+  format: "json" | "csv";
+  status: number | null;
+  contentType: string | null;
+  timedOut: boolean;
+  json: boolean;
+  error: string | null;
+};
+
+const worldBankAttempts = { json: 2, csv: 1 };
+const worldBankTimeoutMs = 8_000;
+
+function csvUrlFor(apiUrl: string) {
+  const url = new URL(apiUrl);
+  url.searchParams.set("format", "csv");
+  return url.toString();
+}
+
+async function requestWorldBank(url: string, format: "json" | "csv", fetchImpl: typeof fetch): Promise<WorldBankAttempt & { body: unknown }> {
+  try {
+    const response = await fetchImpl(url, {
+      headers: { accept: format === "json" ? "application/json" : "text/csv", "user-agent": "PoliticalReceiptsNG/structured-series" },
+      cache: "no-store",
+      signal: AbortSignal.timeout(worldBankTimeoutMs),
+    });
+    const contentType = response.headers.get("content-type");
+    if (!response.ok) {
+      return { url, format, status: response.status, contentType, timedOut: false, json: false, error: `HTTP ${response.status}`, body: null };
+    }
+    const text = await response.text();
+    if (format === "csv") return { url, format, status: response.status, contentType, timedOut: false, json: false, error: null, body: text };
+    try {
+      return { url, format, status: response.status, contentType, timedOut: false, json: true, error: null, body: JSON.parse(text) };
+    } catch {
+      return { url, format, status: response.status, contentType, timedOut: false, json: false, error: "The response was not JSON.", body: null };
+    }
+  } catch (error) {
+    const name = error instanceof Error ? error.name : "";
+    const timedOut = name === "TimeoutError" || name === "AbortError";
+    return { url, format, status: null, contentType: null, timedOut, json: false, error: timedOut ? "timeout" : "network", body: null };
+  }
+}
+
+export async function retrieveWorldBank(dataset: StructuredDataset, fetchImpl: typeof fetch = fetch): Promise<{ ok: true; body: unknown; format: "json" | "csv"; attempts: WorldBankAttempt[] } | { ok: false; message: string; attempts: WorldBankAttempt[] }> {
+  if (!dataset.apiUrl) return { ok: false, message: dataset.reason, attempts: [] };
+  const attempts: WorldBankAttempt[] = [];
+  let jsonTries = 0;
+  while (jsonTries < worldBankAttempts.json) {
+    jsonTries += 1;
+    const attempt = await requestWorldBank(dataset.apiUrl, "json", fetchImpl);
+    attempts.push(attempt);
+    if (attempt.json && attempt.body) return { ok: true, body: attempt.body, format: "json", attempts };
+    if (attempt.status !== null || attempt.error === "The response was not JSON.") break;
+  }
+  const csvAttempt = await requestWorldBank(csvUrlFor(dataset.apiUrl), "csv", fetchImpl);
+  attempts.push(csvAttempt);
+  if (csvAttempt.error === null && typeof csvAttempt.body === "string" && csvAttempt.body.trim()) {
+    return { ok: true, body: { csv: csvAttempt.body }, format: "csv", attempts };
+  }
+  const last = attempts[attempts.length - 1];
+  const detail = attempts.map((item) => `${item.format} ${item.url} status ${item.status ?? "none"} type ${item.contentType || "none"} timeout ${item.timedOut ? "yes" : "no"} json ${item.json ? "yes" : "no"}${item.error ? ` ${item.error}` : ""}`).join(" ");
+  const message = last?.timedOut
+    ? `The World Bank API did not answer (timeout). ${detail}`
+    : last?.status
+      ? `The World Bank API returned ${last.status}. ${detail}`
+      : `The World Bank API did not answer (network). ${detail}`;
+  return { ok: false, message, attempts };
+}
+
 export async function fetchWorldBank(apiUrl: string) {
-  const response = await fetch(apiUrl, { headers: { accept: "application/json" }, cache: "no-store", signal: AbortSignal.timeout(12_000) });
-  if (!response.ok) return { message: `The World Bank API returned ${response.status}.` };
-  return response.json();
+  const dataset = sourceRegistry.find((item) => item.apiUrl === apiUrl);
+  const result = dataset ? await retrieveWorldBank(dataset) : await retrieveWorldBank({ ...sourceRegistry[0], apiUrl });
+  if (!result.ok) return { message: result.message };
+  return result.body;
 }

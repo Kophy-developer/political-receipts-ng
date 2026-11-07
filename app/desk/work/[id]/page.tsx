@@ -13,6 +13,7 @@ import { describeSource } from "@/lib/editorial/quality";
 import { documentLedger } from "@/lib/research/examine";
 import { investigate } from "@/lib/research/investigate";
 import { reviveAnalysis } from "@/lib/research/series";
+import { readProvenance } from "@/lib/research/structured-cache";
 import Loading from "@/app/loading";
 
 export const metadata: Metadata = { title: "Story" };
@@ -38,8 +39,9 @@ async function WorkBody({ params }: { params: Promise<{ id: string }> }) {
   const passages = story.card.claimId ? await loadDocumentPassages(story.card.claimId) : new Map<string, string>();
   const offer = await continuationOffer(id);
   const latestAttempt = offer.ok ? offer.why : story.card.storyReason;
+  const provenance = readProvenance((story.development as { seriesProvenance?: unknown } | null)?.seriesProvenance);
   const nextAction = offer.ok && offer.available
-    ? (offer.structuredId ? "Read the official series. No search and no PDF download run until you confirm." : offer.searches === 0 ? "Open saved documents. No new search runs until you confirm." : "Continue research on this story. Nothing runs until you confirm.")
+    ? (offer.savedData ? "Resume with validated saved data. The live API is not called." : offer.structuredId ? "Read the official series. No search and no PDF download run until you confirm." : offer.searches === 0 ? "Open saved documents. No new search runs until you confirm." : "Continue research on this story. Nothing runs until you confirm.")
     : (offer.ok ? [offer.blocker, offer.why].filter(Boolean).join(". ") : story.card.storyAction);
   const ledger = documentLedger((inventory?.results ?? []).map((item) => ({
     id: item.id,
@@ -101,6 +103,17 @@ async function WorkBody({ params }: { params: Promise<{ id: string }> }) {
           ) : (
             <p className="mt-3 text-sm text-ink-soft">{plan.numerical ? "No source has been opened yet. Search snippets are not statistics." : "No research list is shown because research has not stored a result."}</p>
           )}
+          {provenance ? (
+            <div className="mt-4 space-y-1 text-sm">
+              <h3 className="font-serif text-xl">Official series</h3>
+              <p>{provenance.live ? "Live source." : "Cached official data. Not a live retrieval."}</p>
+              <p>{provenance.label}</p>
+              <p>Indicator {provenance.indicator} · {provenance.country} · {provenance.unit}</p>
+              <p>Source update: {provenance.sourceUpdated || "not stated"}</p>
+              <p>Years available: {provenance.years.length ? `${provenance.years[0]}–${provenance.years[provenance.years.length - 1]}` : "none"}</p>
+              {provenance.pageUrl ? <p>{provenance.pageUrl}</p> : null}
+            </div>
+          ) : null}
           {analysis ? (
             <div className="mt-4 space-y-2 text-sm">
               <h3 className="font-serif text-xl">What the evidence shows</h3>
@@ -140,7 +153,7 @@ async function WorkBody({ params }: { params: Promise<{ id: string }> }) {
               <p>Why the saved results are not enough: {offer.why}</p>
               <p>Expected requests: {offer.searches} searches and {offer.documents} documents.</p>
               <p>Remaining today: {offer.searchesRemaining} searches and {offer.documentsRemaining} documents. The daily cap is not reset.</p>
-              <ContinueResearch id={id} action={offer.structuredId ? "read-structured" : offer.searches === 0 ? "open-saved" : "continue"} label={offer.structuredId ? "Read the official series" : offer.searches === 0 ? "Open saved documents" : "Continue research"} />
+              <ContinueResearch id={id} action={offer.savedData ? "resume-saved" : offer.structuredId ? "read-structured" : offer.searches === 0 ? "open-saved" : "continue"} label={offer.savedData ? "Resume with validated saved data" : offer.structuredId ? "Read the official series" : offer.searches === 0 ? "Open saved documents" : "Continue research"} />
             </div>
           ) : (
             <p className="mt-3 text-sm">{offer.ok ? (offer.blocker ? `${offer.blocker}. ${offer.why}` : offer.why) : offer.message}</p>

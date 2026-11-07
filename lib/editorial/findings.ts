@@ -67,6 +67,8 @@ export function composeFromAnalysis(input: { quality: SourceQuality; analysis: S
   }
   const unpublished = analysis.limitations.find((item) => /not in the published series/.test(item));
   if (unpublished) lines.push(unpublished);
+  const provenance = analysis.limitations.find((item) => item.startsWith("Provenance: "));
+  if (provenance) lines.push(provenance.slice("Provenance: ".length));
   lines.push("One reading is the direction of the longer window. Another is that the path inside it is uneven, so the latest year can disagree with the long comparison. The table does not say why the figures moved, and it does not show that the economy is historically at its best.");
   lines.push(`${input.domain} is the page on file. This is not a verdict.`);
   return lines.join(" ");

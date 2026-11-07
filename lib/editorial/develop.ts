@@ -5,6 +5,7 @@ import { examineSources, type ResearchStage } from "@/lib/research/examine";
 import { investigate, type Investigation } from "@/lib/research/investigate";
 import { classifyEvidence, type EvidenceStatus, type FailureKind, type SearchStatus, type SourceStance } from "@/lib/research/relevance";
 import type { SeriesAnalysis } from "@/lib/research/series";
+import type { SeriesProvenance } from "@/lib/research/structured-cache";
 
 export const editorialReview = "Needs editorial review" as const;
 
@@ -54,6 +55,7 @@ export type DevelopmentState = {
   running: boolean;
   investigation: Investigation | null;
   analysis: SeriesAnalysis | null;
+  seriesProvenance: SeriesProvenance | null;
   researchStage: ResearchStage | null;
   continuations: number;
   blocker: string | null;
@@ -236,6 +238,7 @@ export function initialDevelopment(sourceText: string): DevelopmentState {
     running: false,
     investigation: null,
     analysis: null,
+    seriesProvenance: null,
     researchStage: null,
     continuations: 0,
     blocker: null,

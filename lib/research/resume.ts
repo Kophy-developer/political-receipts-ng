@@ -2,6 +2,7 @@ import { hashOfPlan, stageLabel } from "@/lib/research/canonical";
 import { chooseDocumentIds } from "@/lib/research/examine";
 import type { Investigation } from "@/lib/research/investigate";
 import { matchStructuredQuestion } from "@/lib/research/official-series";
+import { recordedFdiVerified, recordedResumeWhy } from "@/lib/research/structured-cache";
 import type { StoredResearchPlan } from "@/lib/research/types";
 
 export const continuationPlanner = "phase2-statistics";
@@ -50,6 +51,7 @@ export type ContinuationOffer = {
   openIds: string[];
   structuredId: string | null;
   structuredLabel: string | null;
+  savedData: boolean;
 };
 
 const caps = { maxSearches: 3, maxDocuments: 2, dailySearches: 12, dailyRetrievals: 20 };
@@ -146,6 +148,7 @@ function whyFor(investigation: Investigation, sources: ContinuationSource[]) {
 
 export function describeContinuation(input: {
   claim: string;
+  sourceText?: string;
   investigation: Investigation;
   sources: ContinuationSource[];
   runs: ContinuationRun[];
@@ -161,6 +164,7 @@ export function describeContinuation(input: {
   maxDocumentsPerRun?: number;
   dailySearches?: number;
   dailyRetrievals?: number;
+  liveStructuredFailed?: boolean;
 }): ContinuationOffer {
   const providerId = input.providerId ?? "tavily";
   const searchesRemaining = Math.max(0, (input.dailySearches ?? caps.dailySearches) - (input.searchesUsed ?? 0));
@@ -181,11 +185,24 @@ export function describeContinuation(input: {
     openIds: [],
     structuredId: null,
     structuredLabel: null,
+    savedData: false,
   };
   if (input.published) return { ...empty, why: "A published story stays published." };
   if (input.ready) return { ...empty, why: "A draft is already in Ready for You. Publishing still requires the exact text." };
   if (input.evidenceReady) return { ...empty, why: "Opened evidence is already stored. Develop content can continue the draft. This action does not search again." };
-  const dataset = matchStructuredQuestion(input.claim);
+  const dataset = matchStructuredQuestion(`${input.claim}\n${input.sourceText || ""}`);
+  if (dataset?.status === "available" && input.liveStructuredFailed && recordedFdiVerified().ok && dataset.id === "world-bank-ng-fdi-net-inflows") {
+    return {
+      ...empty,
+      available: true,
+      savedData: true,
+      why: recordedResumeWhy(),
+      searches: 0,
+      documents: 0,
+      structuredId: dataset.id,
+      structuredLabel: dataset.sourceName,
+    };
+  }
   if (dataset?.status === "available") {
     const opened = input.sources.some((item) => item.url === dataset.pageUrl && (item.opened || item.retrievalStatus === "retrieved"));
     if (!opened && (input.runs.length > 0 || input.searchCompleted)) {

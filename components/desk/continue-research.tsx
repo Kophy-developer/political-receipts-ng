@@ -3,14 +3,14 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
-export function ContinueResearch({ id, action = "continue", label = "Continue research" }: { id: string; action?: "continue" | "open-saved" | "read-structured"; label?: string }) {
+export function ContinueResearch({ id, action = "continue", label = "Continue research" }: { id: string; action?: "continue" | "open-saved" | "read-structured" | "resume-saved"; label?: string }) {
   const router = useRouter();
   const [phase, setPhase] = useState<"idle" | "confirm" | "working" | "done">("idle");
   const [message, setMessage] = useState<string | null>(null);
 
   async function send() {
     setPhase("working");
-    setMessage(action === "read-structured" ? "Reading the official series. No search and no PDF download." : action === "open-saved" ? "Opening a saved document. No new search is being sent." : "Continuing research. Stay on this story.");
+    setMessage(action === "resume-saved" ? "Using the validated saved series. The live API is not being called." : action === "read-structured" ? "Reading the official series. No search and no PDF download." : action === "open-saved" ? "Opening a saved document. No new search is being sent." : "Continuing research. Stay on this story.");
     try {
       const response = await fetch("/api/desk/develop", {
         method: "POST",
@@ -34,7 +34,7 @@ export function ContinueResearch({ id, action = "continue", label = "Continue re
       </button>
       {phase === "confirm" || phase === "done" ? (
         <div className="mt-2 border border-rule px-3 py-2">
-          <p className="text-sm">{phase === "confirm" ? (action === "read-structured" ? "Confirm reading the official series. No search and no PDF download will be sent." : action === "open-saved" ? "Confirm opening the saved document above. No new search will be sent." : "Confirm the searches and document requests above. Nothing has been sent.") : message}</p>
+          <p className="text-sm">{phase === "confirm" ? (action === "resume-saved" ? "Confirm the validated saved series. The live API, search, and publishing will not run." : action === "read-structured" ? "Confirm reading the official series. No search and no PDF download will be sent." : action === "open-saved" ? "Confirm opening the saved document above. No new search will be sent." : "Confirm the searches and document requests above. Nothing has been sent.") : message}</p>
           {phase === "confirm" ? (
             <button type="button" onClick={() => void send()} className="mt-2 inline-flex h-11 items-center border border-ink px-3 text-sm">
               Confirm and continue
