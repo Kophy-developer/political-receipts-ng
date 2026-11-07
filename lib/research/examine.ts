@@ -114,10 +114,13 @@ export type DocumentLedgerStatus = "selected" | "retrieval attempted" | "opened"
 
 export function documentLedger(results: Selectable[], investigation: Investigation, limit: number) {
   const selected = new Set(chooseDocumentIds(results, investigation, limit));
+  const failedByUrl = new Map(results.filter((item) => item.retrievalStatus === "failed").map((item) => [item.url, item.rejection || "The page was not stored."]));
   return results.map((item) => {
     const title = item.title.toLowerCase();
     const host = hostOf(item.domain);
     const substitute = investigation.rejectedSubstitutes.some((blocked) => host.endsWith(blocked));
+    const priorFailure = item.retrievalStatus !== "retrieved" && item.retrievalStatus !== "failed" ? failedByUrl.get(item.url) : undefined;
+    if (priorFailure) return { ...item, status: "unavailable" as const, reason: `Retrieval was attempted for this URL. ${priorFailure} It will not be requested again.` };
     if (item.retrievalStatus === "retrieved") {
       const extracted = extractDocument({ text: item.text || "", url: item.url, title: item.title });
       if (extracted.observations.length > 0) return { ...item, status: "parse succeeded" as const, reason: "Retrieval was attempted, the page was opened, and a numerical series was read from the stored passage." };

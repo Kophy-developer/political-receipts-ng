@@ -46,6 +46,7 @@ const stored = [
 const first = chooseDocumentIds(stored, investigation, 2);
 check("the selector chooses the capital importation PDF ahead of failed and irrelevant pages", first[0] === "dff429ab-4b6d-4d4a-8c63-071498ee1618" && !first.includes("9fa2aaaf-3943-4563-a27d-016e8810e12a") && !first.includes("ede9ace9-cda1-42da-87b3-7c96f68ed958") && first.every((id) => stored.find((item) => item.id === id)?.domain !== "statehouse.gov.ng"));
 check("failed URLs are not selected again", !first.some((id) => stored.find((item) => item.id === id)?.url === "https://www.nigerianstat.gov.ng/elibrary/read/1241568"));
+check("a duplicate of a failed URL is marked unavailable", documentLedger(stored, investigation, 2).find((item) => item.id === "dd9d2a4e-6a59-42f5-bc00-8b64cf5f7e02")?.status === "unavailable");
 
 const openedOnce = stored.map((item) => item.id === first[0] ? { ...item, retrievalStatus: "retrieved" } : item);
 const second = chooseDocumentIds(openedOnce, investigation, 2);
