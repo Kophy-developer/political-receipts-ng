@@ -39,7 +39,7 @@ async function WorkBody({ params }: { params: Promise<{ id: string }> }) {
   const offer = await continuationOffer(id);
   const latestAttempt = offer.ok ? offer.why : story.card.storyReason;
   const nextAction = offer.ok && offer.available
-    ? (offer.searches === 0 ? "Open saved documents. No new search runs until you confirm." : "Continue research on this story. Nothing runs until you confirm.")
+    ? (offer.structuredId ? "Read the official series. No search and no PDF download run until you confirm." : offer.searches === 0 ? "Open saved documents. No new search runs until you confirm." : "Continue research on this story. Nothing runs until you confirm.")
     : (offer.ok ? [offer.blocker, offer.why].filter(Boolean).join(". ") : story.card.storyAction);
   const ledger = documentLedger((inventory?.results ?? []).map((item) => ({
     id: item.id,
@@ -106,7 +106,7 @@ async function WorkBody({ params }: { params: Promise<{ id: string }> }) {
               <h3 className="font-serif text-xl">What the evidence shows</h3>
               {analysis.interpretations.map((item) => <p key={item}>{item}</p>)}
               <table className="mt-3 w-full border-collapse text-left text-sm">
-                <caption className="pb-2 text-left">{analysis.series} · {analysis.unit} · {analysis.sourceName}</caption>
+                <caption className="pb-2 text-left">{analysis.series} · {analysis.unit} · {analysis.sourceName}{analysis.url ? ` · ${analysis.url}` : ""}</caption>
                 <thead>
                   <tr className="border-b border-rule">
                     <th className="py-1 font-normal">Year</th>
@@ -140,7 +140,7 @@ async function WorkBody({ params }: { params: Promise<{ id: string }> }) {
               <p>Why the saved results are not enough: {offer.why}</p>
               <p>Expected requests: {offer.searches} searches and {offer.documents} documents.</p>
               <p>Remaining today: {offer.searchesRemaining} searches and {offer.documentsRemaining} documents. The daily cap is not reset.</p>
-              <ContinueResearch id={id} action={offer.searches === 0 ? "open-saved" : "continue"} label={offer.searches === 0 ? "Open saved documents" : "Continue research"} />
+              <ContinueResearch id={id} action={offer.structuredId ? "read-structured" : offer.searches === 0 ? "open-saved" : "continue"} label={offer.structuredId ? "Read the official series" : offer.searches === 0 ? "Open saved documents" : "Continue research"} />
             </div>
           ) : (
             <p className="mt-3 text-sm">{offer.ok ? (offer.blocker ? `${offer.blocker}. ${offer.why}` : offer.why) : offer.message}</p>

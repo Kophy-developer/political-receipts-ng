@@ -48,21 +48,36 @@ const offer = describeContinuation({
 });
 
 check("five State House results do not satisfy a statistical series", chooseDocumentIds(house, investigation, 2).length === 0 && examineSources(investigation, house).stage === "SEARCH_COMPLETED" && examineSources(investigation, house).analysis === null);
-check("the upgraded plan is a different key from the completed search", offer.available && offer.planKey !== oldHash && offer.plan?.planner === "phase2-statistics" && !offer.plan.domains.includes("statehouse.gov.ng") && offer.plan.searches.every((item) => item.query !== oldQuery));
-check("an old completed plan still counts as already run", runAlreadyCompleted({ hash: oldHash, provider: "tavily", runs: [{ hash: oldHash, provider: "Tavily", status: "completed", operations: 1 }] }) && offer.planKey !== null && !runAlreadyCompleted({ hash: offer.planKey, provider: "tavily", runs: [{ hash: oldHash, provider: "Tavily", status: "completed", operations: 1 }] }));
-check("the offer names the question, the gap, and the request counts", /ten years|official statistics|three years/i.test(offer.question) && /State House/i.test(offer.why) && offer.searches <= 3 && offer.documents <= 2 && offer.searchesRemaining === 11 && offer.documentsRemaining === 20);
+check("a recognized FDI question offers the World Bank series and no search", offer.available && offer.structuredId === "world-bank-ng-fdi-net-inflows" && offer.searches === 0 && offer.documents === 0 && offer.openIds.length === 0 && offer.plan === null && /World Bank/i.test(offer.why) && /No new search/i.test(offer.why));
+check("the FDI offer stays available when the search budget is exhausted", describeContinuation({ claim: storedOld.claim, investigation, sources: house, runs: [{ hash: oldHash, status: "completed", operations: 1 }], continuations: 2, searchCompleted: true, searchesUsed: 12, retrievalsUsed: 20 }).structuredId === "world-bank-ng-fdi-net-inflows");
+
+const capitalClaim = "What was Nigeria capital importation over the last ten years?";
+const capitalInvestigation = investigate(capitalClaim, describeSource(capitalClaim));
+const capitalOffer = describeContinuation({
+  claim: capitalClaim,
+  investigation: capitalInvestigation,
+  sources: house,
+  runs: [{ hash: oldHash, status: "completed", operations: 1 }],
+  continuations: 0,
+  searchCompleted: true,
+  searchesUsed: 1,
+  retrievalsUsed: 0,
+});
+check("the upgraded plan is a different key from the completed search", capitalOffer.available && capitalOffer.planKey !== oldHash && capitalOffer.plan?.planner === "phase2-statistics" && !capitalOffer.plan.domains.includes("statehouse.gov.ng") && capitalOffer.plan.searches.every((item) => item.query !== oldQuery));
+check("an old completed plan still counts as already run", runAlreadyCompleted({ hash: oldHash, provider: "tavily", runs: [{ hash: oldHash, provider: "Tavily", status: "completed", operations: 1 }] }) && capitalOffer.planKey !== null && !runAlreadyCompleted({ hash: capitalOffer.planKey, provider: "tavily", runs: [{ hash: oldHash, provider: "Tavily", status: "completed", operations: 1 }] }));
+check("the offer names the question, the gap, and the request counts", /ten years|official statistics|three years|capital importation/i.test(capitalOffer.question) && /State House/i.test(capitalOffer.why) && capitalOffer.searches <= 3 && capitalOffer.documents <= 2 && capitalOffer.searchesRemaining === 11 && capitalOffer.documentsRemaining === 20);
 
 const repeated = describeContinuation({
-  claim: storedOld.claim,
-  investigation,
+  claim: capitalClaim,
+  investigation: capitalInvestigation,
   sources: house,
-  runs: [{ hash: oldHash, status: "completed", operations: 1 }, { hash: offer.planKey, status: "completed", operations: offer.searches }],
+  runs: [{ hash: oldHash, status: "completed", operations: 1 }, { hash: capitalOffer.planKey, status: "completed", operations: capitalOffer.searches }],
   continuations: 1,
   searchCompleted: true,
 });
 const capped = describeContinuation({
-  claim: storedOld.claim,
-  investigation,
+  claim: capitalClaim,
+  investigation: capitalInvestigation,
   sources: house,
   runs: [{ hash: oldHash, status: "completed", operations: 1 }],
   continuations: 2,
@@ -71,8 +86,8 @@ const capped = describeContinuation({
 check("a completed upgraded plan does not run again", repeated.available === false && repeated.blocker === "No relevant source found" && capped.available === false);
 
 const budget = describeContinuation({
-  claim: storedOld.claim,
-  investigation,
+  claim: capitalClaim,
+  investigation: capitalInvestigation,
   sources: house,
   runs: [{ hash: oldHash, status: "completed", operations: 1 }],
   continuations: 0,
@@ -81,8 +96,8 @@ const budget = describeContinuation({
   retrievalsUsed: 0,
 });
 const retrievalCap = describeContinuation({
-  claim: storedOld.claim,
-  investigation,
+  claim: capitalClaim,
+  investigation: capitalInvestigation,
   sources: house,
   runs: [{ hash: oldHash, status: "completed", operations: 1 }],
   continuations: 0,
@@ -91,8 +106,8 @@ const retrievalCap = describeContinuation({
   retrievalsUsed: 20,
 });
 const oneLeft = describeContinuation({
-  claim: storedOld.claim,
-  investigation,
+  claim: capitalClaim,
+  investigation: capitalInvestigation,
   sources: house,
   runs: [{ hash: oldHash, status: "completed", operations: 1 }],
   continuations: 0,

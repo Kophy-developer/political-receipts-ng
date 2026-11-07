@@ -21,8 +21,14 @@ export function angleFromAnalysis(quality: SourceQuality, analysis: SeriesAnalys
   const attribution = rejects
     ? " The post rejects another person's claim. It does not say foreign companies are not investing."
     : "";
+  const fdi = /foreign direct investment/i.test(analysis.series);
+  const identity = fdi
+    ? " This is foreign direct investment, net inflows, in current US dollars. It is not capital importation, not portfolio investment, not an announced commitment, and not a count of companies."
+    : /capital importation/i.test(analysis.series)
+      ? " That series is not foreign direct investment, not a portfolio flow, and not an announcement."
+      : " This series is only the measure named in the table.";
   return {
-    title: `${span}.${turn} That series is not foreign direct investment, not a portfolio flow, and not an announcement, and it does not show why the figures moved or that the economy is the best it has ever been.${attribution}`,
+    title: `${span}.${turn}${identity} It does not show why the figures moved or that the economy is the best it has ever been.${attribution}`,
     points: [
       analysis.interpretations[0] || "The opened series is the evidence.",
       analysis.interpretations[1] || "A second reading stays beside the first.",
@@ -41,7 +47,7 @@ export function composeFromAnalysis(input: { quality: SourceQuality; analysis: S
     rejects
       ? "Someone told the author that foreign companies are investing in Nigeria because of Tinubu, and that the economy is the best it has ever been. The author rejected that account. The author did not say foreign companies are not investing."
       : "The draft uses only the figures in the opened table.",
-    `The opened ${analysis.sourceName} series is ${analysis.series}, in ${analysis.unit}. ${analysis.basis === "unknown" ? "The document does not say whether the figures are nominal or real." : `The document marks the figures as ${analysis.basis}.`}${/capital importation/i.test(analysis.series) ? " It is not foreign direct investment, not portfolio investment, and not an announcement." : ""}`,
+    `The opened ${analysis.sourceName} series is ${analysis.series}, in ${analysis.unit}. ${analysis.basis === "unknown" ? "The source does not say whether the figures are nominal or real." : `The source marks the figures as ${analysis.basis}.`}${/capital importation/i.test(analysis.series) ? " It is not foreign direct investment, not portfolio investment, and not an announcement." : ""}${/foreign direct investment/i.test(analysis.series) ? " It is foreign direct investment, net inflows. It is not capital importation, not portfolio investment, not an announced commitment, and not a count of companies." : ""}`,
   ];
   if (analysis.tenYear) {
     lines.push(`From ${analysis.tenYear.fromYear} to ${analysis.tenYear.toYear}, the table moves from ${amount(analysis.tenYear.start)} to ${amount(analysis.tenYear.end)}. That is an absolute change of ${amount(analysis.tenYear.absolute)}, ${percent(analysis.tenYear.percent)}.`);
@@ -56,6 +62,11 @@ export function composeFromAnalysis(input: { quality: SourceQuality; analysis: S
   if (latest?.consecutive) {
     lines.push(`Year to year, ${latest.fromYear} to ${latest.toYear} changes by ${amount(latest.absolute)}, ${percent(latest.percent)}.`);
   }
+  if (analysis.observations.some((item) => item.value < 0)) {
+    lines.push("One year in the opened table is a negative net inflow. That figure is not a count of companies leaving, and it does not mean no company invested.");
+  }
+  const unpublished = analysis.limitations.find((item) => /not in the published series/.test(item));
+  if (unpublished) lines.push(unpublished);
   lines.push("One reading is the direction of the longer window. Another is that the path inside it is uneven, so the latest year can disagree with the long comparison. The table does not say why the figures moved, and it does not show that the economy is historically at its best.");
   lines.push(`${input.domain} is the page on file. This is not a verdict.`);
   return lines.join(" ");

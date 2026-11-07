@@ -46,6 +46,7 @@ function basisOf(text: string): ObservationBasis {
 function unitOf(text: string) {
   if (/usd million|us\$ million|\$ million/i.test(text)) return "USD million";
   if (/usd billion|us\$ billion|\$ billion/i.test(text)) return "USD billion";
+  if (/current us dollars|current us\$/i.test(text)) return "current US dollars";
   if (/\bnaira\b|₦/i.test(text)) return "naira";
   if (/\bpercent\b|%/i.test(text)) return "percent";
   return "unspecified";

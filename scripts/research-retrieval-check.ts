@@ -62,7 +62,18 @@ const offer = describeContinuation({
   searchesUsed: 4,
   retrievalsUsed: 2,
 });
-check("after two continuations the story offers the saved capital importation PDF and no new search", offer.available && offer.searches === 0 && offer.openIds[0] === "dff429ab-4b6d-4d4a-8c63-071498ee1618" && /too large/.test(offer.why) && /did not answer/.test(offer.why) && !/State House announcements/.test(offer.why));
+check("the foreign-investment story offers the World Bank series and does not open a PDF", offer.available && offer.structuredId === "world-bank-ng-fdi-net-inflows" && offer.searches === 0 && offer.documents === 0 && offer.openIds.length === 0 && /World Bank/i.test(offer.why));
+const capitalOffer = describeContinuation({
+  claim: "Nigeria capital importation annual series",
+  investigation: investigate("Nigeria capital importation annual series", describeSource("Nigeria capital importation annual series")),
+  sources: stored.map((item) => ({ ...item, opened: item.retrievalStatus === "retrieved" })),
+  runs: [{ hash: "a54f14ba580a994fc7880e893326e5d0e0aaf1a654c781cc7eac8bec5970501c", status: "completed", operations: 3 }],
+  continuations: 2,
+  searchCompleted: true,
+  searchesUsed: 4,
+  retrievalsUsed: 2,
+});
+check("a capital-importation question still offers the saved PDF and no new search", capitalOffer.structuredId === null && capitalOffer.available && capitalOffer.searches === 0 && capitalOffer.openIds[0] === "dff429ab-4b6d-4d4a-8c63-071498ee1618");
 
 const ledger = documentLedger(stored, investigation, 2);
 const pdfRow = ledger.find((item) => item.id === "dff429ab-4b6d-4d4a-8c63-071498ee1618");

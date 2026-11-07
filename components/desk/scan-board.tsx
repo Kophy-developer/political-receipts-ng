@@ -102,19 +102,17 @@ export function ScanBoard({
           </ol>
         )}
       </section>
-      <section>
-        <p className="font-mono text-[11px] tracking-[0.16em] text-ink-soft uppercase">Working</p>
-        <h2 className="mt-2 font-serif text-3xl tracking-[-0.03em]">Stories already open.</h2>
-        {workingCards.length === 0 ? (
-          <p className="mt-4 text-sm text-ink-soft">Nothing is in research or drafting.</p>
-        ) : (
+      {workingCards.length > 0 ? (
+        <section>
+          <p className="font-mono text-[11px] tracking-[0.16em] text-ink-soft uppercase">Working</p>
+          <h2 className="mt-2 font-serif text-3xl tracking-[-0.03em]">Stories already open.</h2>
           <ul className="mt-4 space-y-3">
             {workingCards.map((card) => (
               <Card key={card.id} card={card} onPass={() => void pass(card.id)} />
             ))}
           </ul>
-        )}
-      </section>
+        </section>
+      ) : null}
       {earlierCards.length > 0 ? (
         <details>
           <summary className="cursor-pointer font-mono text-[11px] tracking-[0.16em] text-ink-soft uppercase">Earlier open work</summary>

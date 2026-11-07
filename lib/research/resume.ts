@@ -1,6 +1,7 @@
 import { hashOfPlan, stageLabel } from "@/lib/research/canonical";
 import { chooseDocumentIds } from "@/lib/research/examine";
 import type { Investigation } from "@/lib/research/investigate";
+import { matchStructuredQuestion } from "@/lib/research/official-series";
 import type { StoredResearchPlan } from "@/lib/research/types";
 
 export const continuationPlanner = "phase2-statistics";
@@ -47,6 +48,8 @@ export type ContinuationOffer = {
   plan: StoredResearchPlan | null;
   planKey: string | null;
   openIds: string[];
+  structuredId: string | null;
+  structuredLabel: string | null;
 };
 
 const caps = { maxSearches: 3, maxDocuments: 2, dailySearches: 12, dailyRetrievals: 20 };
@@ -176,10 +179,27 @@ export function describeContinuation(input: {
     plan: null,
     planKey: null,
     openIds: [],
+    structuredId: null,
+    structuredLabel: null,
   };
   if (input.published) return { ...empty, why: "A published story stays published." };
   if (input.ready) return { ...empty, why: "A draft is already in Ready for You. Publishing still requires the exact text." };
   if (input.evidenceReady) return { ...empty, why: "Opened evidence is already stored. Develop content can continue the draft. This action does not search again." };
+  const dataset = matchStructuredQuestion(input.claim);
+  if (dataset?.status === "available") {
+    const opened = input.sources.some((item) => item.url === dataset.pageUrl && (item.opened || item.retrievalStatus === "retrieved"));
+    if (!opened && (input.runs.length > 0 || input.searchCompleted)) {
+      return {
+        ...empty,
+        available: true,
+        why: `${dataset.reason} Saved searches and failed downloads stay on the story. State House announcements are not this series. No new search and no PDF download are required.`,
+        searches: 0,
+        documents: 0,
+        structuredId: dataset.id,
+        structuredLabel: dataset.sourceName,
+      };
+    }
+  }
   if (!input.runs.length && !input.searchCompleted) return { ...empty, why: "Research has not started. Develop content shows the cost before the first search." };
   const plan = continuationPlan({ claim: input.claim, investigation: input.investigation, providerId });
   const planKey = hashOfPlan(plan, providerId);

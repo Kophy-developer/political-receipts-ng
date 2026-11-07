@@ -1,5 +1,5 @@
 import { connection } from "next/server";
-import { continueContent, developContent, furtherResearch, openSavedDocuments, previewDevelopment } from "@/lib/db/develop";
+import { continueContent, developContent, furtherResearch, openSavedDocuments, previewDevelopment, readOfficialSeries } from "@/lib/db/develop";
 import { assertEditorRequest } from "@/lib/x/guard";
 
 export const maxDuration = 60;
@@ -15,7 +15,7 @@ export async function POST(request: Request) {
     return Response.json({ ok: false, message: "The desk could not read that request." }, { status: 400 });
   }
   const id = typeof body.id === "string" ? body.id : "";
-  const action = body.action === "start" || body.action === "preview" || body.action === "further-preview" || body.action === "further" || body.action === "continue-preview" || body.action === "continue" || body.action === "open-saved" ? body.action : "";
+  const action = body.action === "start" || body.action === "preview" || body.action === "further-preview" || body.action === "further" || body.action === "continue-preview" || body.action === "continue" || body.action === "open-saved" || body.action === "read-structured" ? body.action : "";
   if (!action) return Response.json({ ok: false, message: "Choose a preview or a start. Nothing was called." }, { status: 400 });
   if (action === "preview") {
     const preview = await previewDevelopment(id);
@@ -28,6 +28,10 @@ export async function POST(request: Request) {
   if (action === "continue-preview" || action === "continue") {
     const continued = await continueContent(id, action === "continue");
     return Response.json(continued, { status: continued.ok ? 200 : 400, headers: { "cache-control": "no-store" } });
+  }
+  if (action === "read-structured") {
+    const read = await readOfficialSeries(id, true);
+    return Response.json(read, { status: read.ok ? 200 : 400, headers: { "cache-control": "no-store" } });
   }
   if (action === "open-saved") {
     const opened = await openSavedDocuments(id, true);
