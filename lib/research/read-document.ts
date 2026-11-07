@@ -1,5 +1,5 @@
-import { tablePassage } from "@/lib/research/extract";
-import { extractPdfDocument } from "@/lib/research/pdf-text";
+import { evidenceFromPdfPages, tablePassage } from "@/lib/research/extract";
+import { extractPdfDocument, readPdfPages } from "@/lib/research/pdf-text";
 import { prepareStoredPassage } from "@/lib/research/passage";
 
 const passageFocus = ["453", "polling unit", "artificial intelligence", "photograph", "biometric", "voter register", "registration centre", "registration center", "fake voter", "capital importation", "foreign direct investment"];
@@ -30,11 +30,30 @@ export function htmlPassage(html: string) {
   return prepareStoredPassage({ text: `${table}\n${focused}`, empty: "The page was retrieved. No readable text was extracted, so no passage is stored." }).excerpt;
 }
 
-export const documentByteLimit = 1_200_000;
+export const htmlByteLimit = 1_200_000;
+export const documentByteLimit = htmlByteLimit;
+export const downloadByteLimit = 8_000_000;
+
+export function isPdfResource(contentType: string, url = "") {
+  const type = contentType.toLowerCase();
+  if (type.includes("html") || type.includes("csv") || type.startsWith("text/")) return false;
+  if (type.includes("pdf")) return true;
+  return /\.pdf(?:$|\?)/i.test(url);
+}
+
+export function previousSizeGate(rejection?: string | null) {
+  return /too large to store an excerpt/i.test(rejection || "");
+}
+
+export function rejectionForDownload(length: number, contentType: string, url = "") {
+  if (!Number.isFinite(length) || length <= 0) return null;
+  const limit = isPdfResource(contentType, url) ? downloadByteLimit : htmlByteLimit;
+  if (length <= limit) return null;
+  return "Download too large";
+}
 
 export function rejectionForSize(length: number) {
-  if (!Number.isFinite(length) || length <= documentByteLimit) return null;
-  return "The file is too large to store an excerpt from.";
+  return rejectionForDownload(length, "text/html");
 }
 
 function decode(bytes: Uint8Array) {
@@ -48,16 +67,46 @@ export type ReadDocument = {
   title: string;
   passage: string;
   pageLabel: string | null;
+  outcome: string;
   kind: "pdf" | "pdf-empty" | "csv" | "html";
 } | {
   ok: false;
   message: string;
 };
 
+export async function readBoundedBody(body: ReadableStream<Uint8Array> | null, limit: number) {
+  if (!body) return { ok: false as const, message: "Download failed. The response had no body." };
+  const reader = body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    while (true) {
+      const step = await reader.read();
+      if (step.done) break;
+      if (!step.value?.byteLength) continue;
+      total += step.value.byteLength;
+      if (total > limit) {
+        await reader.cancel();
+        return { ok: false as const, message: "Download too large" };
+      }
+      chunks.push(step.value);
+    }
+  } catch {
+    return { ok: false as const, message: "Download failed. The page did not answer." };
+  }
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return { ok: true as const, bytes };
+}
+
 export function readRetrievedBytes(input: { url: string; bytes: Uint8Array; contentType: string }): ReadDocument {
-  const tooBig = rejectionForSize(input.bytes.byteLength);
+  const tooBig = rejectionForDownload(input.bytes.byteLength, input.contentType, input.url);
   if (tooBig) return { ok: false, message: tooBig };
-  const type = input.contentType.toLowerCase();
+  const type = isPdfResource(input.contentType, input.url) ? "application/pdf" : input.contentType.toLowerCase();
   const domain = (() => {
     try {
       return new URL(input.url).hostname.replace(/^www\./, "");
@@ -73,19 +122,31 @@ export function readRetrievedBytes(input: { url: string; bytes: Uint8Array; cont
     }
   })();
   if (type.includes("pdf")) {
-    const extracted = extractPdfDocument(input.bytes);
-    const stored = prepareStoredPassage({ text: extracted.passage, pageLabel: extracted.pageLabel });
-    return { ok: true, url: input.url, domain, title: fileName || domain, passage: stored.excerpt, pageLabel: extracted.pageLabel, kind: extracted.passage ? "pdf" : "pdf-empty" };
+    const read = readPdfPages(input.bytes);
+    if (!read.ok && !read.pages.length) return { ok: false, message: read.message };
+    const evidence = evidenceFromPdfPages({ pages: read.pages, url: input.url, truncated: read.truncated });
+    if (evidence.outcome === "Relevant evidence extracted") {
+      return { ok: true, url: input.url, domain, title: fileName || domain, passage: evidence.passage, pageLabel: evidence.pageLabel, outcome: evidence.outcome, kind: "pdf" };
+    }
+    if (evidence.outcome === "Extracted text too large to store") return { ok: false, message: evidence.message };
+    if (input.bytes.byteLength <= htmlByteLimit) {
+      const prose = extractPdfDocument(input.bytes);
+      const stored = prepareStoredPassage({ text: prose.passage, pageLabel: prose.pageLabel });
+      if (prose.passage) {
+        return { ok: true, url: input.url, domain, title: fileName || domain, passage: stored.excerpt, pageLabel: prose.pageLabel, outcome: "No relevant table found", kind: "pdf" };
+      }
+    }
+    return { ok: false, message: read.ok ? evidence.message : read.message };
   }
   if (type.includes("csv")) {
     const passage = prepareStoredPassage({ text: decode(input.bytes), empty: "The file was retrieved. No readable rows were extracted, so no series is stored." }).excerpt;
     if (!passage) return { ok: false, message: "The file had no readable rows." };
-    return { ok: true, url: input.url, domain, title: fileName || domain, passage, pageLabel: null, kind: "csv" };
+    return { ok: true, url: input.url, domain, title: fileName || domain, passage, pageLabel: null, outcome: "Relevant evidence extracted", kind: "csv" };
   }
   if (type.includes("html") || type.includes("text/plain") || type === "") {
     const passage = htmlPassage(decode(input.bytes));
     if (!passage) return { ok: false, message: "The page had no readable text." };
-    return { ok: true, url: input.url, domain, title: fileName || domain, passage, pageLabel: null, kind: "html" };
+    return { ok: true, url: input.url, domain, title: fileName || domain, passage, pageLabel: null, outcome: "Relevant evidence extracted", kind: "html" };
   }
   return { ok: false, message: "That file type is not stored. The desk keeps HTML, CSV, and PDF excerpts." };
 }
@@ -95,10 +156,10 @@ export async function attemptDocumentRead(url: string, load: (url: string) => Pr
   try {
     loaded = await load(url);
   } catch {
-    return { attempted: true as const, ok: false as const, url, message: "The page did not answer." };
+    return { attempted: true as const, ok: false as const, url, message: "Download failed. The page did not answer." };
   }
   if ("message" in loaded) return { attempted: true as const, ok: false as const, url, message: loaded.message };
-  const sized = rejectionForSize(loaded.bytes.byteLength);
+  const sized = rejectionForDownload(loaded.bytes.byteLength, loaded.contentType, url);
   if (sized) return { attempted: true as const, ok: false as const, url, message: sized };
   const read = readRetrievedBytes({ url, bytes: loaded.bytes, contentType: loaded.contentType });
   if (!read.ok) return { attempted: true as const, ok: false as const, url, message: read.message };

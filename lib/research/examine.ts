@@ -1,4 +1,5 @@
 import { extractDocument, type Observation } from "@/lib/research/extract";
+import { previousSizeGate } from "@/lib/research/read-document";
 import type { Investigation } from "@/lib/research/investigate";
 import { analyzeSeries, type SeriesAnalysis } from "@/lib/research/series";
 
@@ -74,9 +75,10 @@ function mentionsSeries(item: Selectable, investigation: Investigation) {
 export function chooseDocumentIds(results: Selectable[], investigation: Investigation, limit: number) {
   const eligible = results.filter((item) => item.url.startsWith("https://") && item.retrievalStatus !== "rejected" && item.inDomain !== false);
   if (investigation.numerical) {
-    const failedUrls = new Set(results.filter((item) => item.retrievalStatus === "failed").map((item) => item.url));
+    const failedUrls = new Set(results.filter((item) => item.retrievalStatus === "failed" && !previousSizeGate(item.rejection)).map((item) => item.url));
     const suitable = eligible.filter((item) => {
-      if (item.retrievalStatus === "failed" || item.retrievalStatus === "retrieved") return false;
+      if (item.retrievalStatus === "retrieved") return false;
+      if (item.retrievalStatus === "failed" && !previousSizeGate(item.rejection)) return false;
       if (failedUrls.has(item.url)) return false;
       const host = hostOf(item.domain);
       if (investigation.rejectedSubstitutes.some((blocked) => host.endsWith(blocked))) return false;
@@ -120,6 +122,9 @@ export function documentLedger(results: Selectable[], investigation: Investigati
     const host = hostOf(item.domain);
     const substitute = investigation.rejectedSubstitutes.some((blocked) => host.endsWith(blocked));
     const priorFailure = item.retrievalStatus !== "retrieved" && item.retrievalStatus !== "failed" ? failedByUrl.get(item.url) : undefined;
+    if (selected.has(item.id) && previousSizeGate(item.rejection)) {
+      return { ...item, status: "selected" as const, reason: "The earlier download was refused at the 1200000 byte gate. The file was not stored. A confirmed open downloads it again and counts against the daily limit." };
+    }
     if (priorFailure) return { ...item, status: "unavailable" as const, reason: `Retrieval was attempted for this URL. ${priorFailure} It will not be requested again.` };
     if (item.retrievalStatus === "retrieved") {
       const extracted = extractDocument({ text: item.text || "", url: item.url, title: item.title });
@@ -191,15 +196,18 @@ export function examineSources(investigation: Investigation, sources: ReadableSo
       continue;
     }
     if (investigation.numerical && relevant) observations.push(...extracted.observations.map((item) => ({ ...item, url: item.url || source.url })));
+    const incomplete = extracted.limitation?.includes("may be incomplete") ? extracted.limitation : "";
     readings.push({
       ...source,
       stance: "contextualizes",
       limitation: relevant
-        ? "An opened document contains a parsed series. The series is evidence of those figures, not a verdict about why they changed."
+        ? `${incomplete ? `${incomplete} ` : ""}An opened document contains a parsed series. The series is evidence of those figures, not a verdict about why they changed.`
         : "An opened page discusses the premise. It is not a statistical series and it is not a verdict.",
     });
   }
   const analysis = investigation.numerical && observations.length ? analyzeSeries(observations, investigation.focusSeries) : null;
+  const incomplete = readings.find((source) => source.limitation?.includes("may be incomplete"))?.limitation;
+  if (analysis && incomplete && !analysis.limitations.includes(incomplete)) analysis.limitations.push(incomplete);
   const openedContext = readings.some((source) => source.opened && source.stance && source.stance !== "does_not_address");
   const ready = Boolean(analysis?.chart && analysis.comparable) || (openedContext && !analysis?.chart);
   const examined = opened > unreadable;

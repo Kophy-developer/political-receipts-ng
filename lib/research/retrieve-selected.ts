@@ -75,7 +75,7 @@ export async function retrieveStoredResults(claimId: string, resultIds: string[]
       tierName: tier.name,
       problem: null,
       question: row.question,
-      notes: `Retrieved for “${row.question}”. The passage is context until an editor accepts a reading. A search result is not evidence until this page is opened and read.`,
+      notes: `Retrieved for “${row.question}”. ${page.outcome}. ${page.bytes ? `${page.bytes} bytes downloaded.` : ""} The stored excerpt is bounded evidence, not the full file.`,
     });
     if (!filed.ok) {
       await markSearchResults(sameUrl, "failed", filed.message);

@@ -193,6 +193,7 @@ export function describeContinuation(input: {
     snippet: item.snippet,
     retrievalStatus: item.retrievalStatus,
     inDomain: item.inDomain,
+    rejection: item.rejection,
   }] : []), input.investigation, input.maxDocumentsPerRun ?? caps.maxDocuments).filter((id) => input.sources.some((item) => item.id === id && item.retrievalStatus !== "retrieved" && item.opened !== true));
   const failed = input.sources.filter((item) => item.retrievalStatus === "failed");
   const attempt = failed.length
@@ -200,12 +201,14 @@ export function describeContinuation(input: {
     : why;
   if (openIds.length) {
     const documents = Math.min(openIds.length, input.maxDocumentsPerRun ?? caps.maxDocuments, documentsRemaining);
-    const nextTitle = input.sources.find((item) => item.id === openIds[0])?.title || "the next saved document";
+    const next = input.sources.find((item) => item.id === openIds[0]);
+    const nextTitle = next?.title || "the next saved document";
+    const again = /too large to store an excerpt/i.test(next?.rejection || "");
     if (documents < 1) return { ...empty, blocker: "Provider or budget failure", why: `${attempt} The daily document limit is reached.` };
     return {
       ...empty,
       available: true,
-      why: `${attempt} The next saved document is “${nextTitle}”. No new search is required.`,
+      why: `${attempt} The next saved document is “${nextTitle}”. ${again ? "That file was not stored. Opening it downloads the PDF again and counts against the daily document limit." : "No new search is required."}`,
       searches: 0,
       documents,
       openIds: openIds.slice(0, documents),

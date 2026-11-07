@@ -17,6 +17,8 @@ export type EvidenceDraft = {
 
 const unreadPdf = "The PDF was retrieved. No readable text was extracted, so no passage is stored.";
 
+export const tableExcerptLimit = 4_000;
+
 export function sanitizeStoredText(value: string, max = 1200) {
   let out = "";
   for (const ch of value) {
@@ -52,7 +54,8 @@ export function prepareEvidenceDraft(input: {
   notes: string;
   empty?: string;
 }): EvidenceDraft {
-  const passage = prepareStoredPassage({ text: input.text, pageLabel: input.pageLabel, empty: input.empty });
+  const table = /^\s*Source URL:/m.test(input.text) && input.text.includes("\nSeries:");
+  const passage = prepareStoredPassage({ text: input.text, pageLabel: input.pageLabel, empty: input.empty, max: table ? tableExcerptLimit : undefined });
   return {
     sourceId: input.sourceId,
     excerpt: passage.excerpt,

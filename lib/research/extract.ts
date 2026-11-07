@@ -1,3 +1,5 @@
+import { tableExcerptLimit } from "@/lib/research/passage";
+
 export type ObservationBasis = "nominal" | "real" | "unknown";
 
 export type Observation = {
@@ -126,25 +128,43 @@ function observationsFromRows(input: {
 }
 
 function observationsFromLines(text: string, url: string) {
-  const unit = unitOf(text);
-  const basis = basisOf(text);
-  const sourceName = sourceNameOf(text);
-  const series = seriesNameOf(text, "Unnamed series");
   const found: Observation[] = [];
-  const push = (yearText: string, raw: string) => {
-    const value = parseNumber(raw);
-    if (value === null) return;
-    if (found.some((item) => item.year === Number(yearText) && item.value === value)) return;
-    found.push({ series, year: Number(yearText), value, unit, basis, sourceName, url });
-  };
+  let series = seriesNameOf(text, "Unnamed series");
+  let unit = unitOf(text);
+  let basis = basisOf(text);
+  let sourceName = sourceNameOf(text);
+  let sawHeader = false;
+  const header = /^Series:\s*(.+?)\s*\|\s*Unit:\s*(.+?)\s*\|\s*Basis:\s*(nominal|real|unknown)(?:\s*\|\s*Source:\s*(.+))?$/i;
+  const row = /^(19[9]\d|20[0-3]\d)\s*[|,:]\s*(-?\(?[\d,]+(?:\.\d+)?\)?)(?:\s*\|\s*p\.\s*\d+)?$/;
   for (const line of text.split(/\n+/)) {
-    const match = line.trim().match(/^(19[9]\d|20[0-3]\d)\s*[|,:]\s*(-?\(?[\d,]+(?:\.\d+)?\)?)$/);
-    if (match) push(match[1], match[2]);
+    const heading = line.trim().match(header);
+    if (heading) {
+      sawHeader = true;
+      series = seriesNameOf(heading[1], heading[1].trim());
+      unit = unitOf(heading[2]) === "unspecified" ? heading[2].trim() : unitOf(heading[2]);
+      const namedBasis = heading[3].toLowerCase();
+      basis = namedBasis === "real" || namedBasis === "nominal" ? namedBasis : "unknown";
+      if (heading[4]) sourceName = sourceNameOf(heading[4]);
+      continue;
+    }
+    const match = line.trim().match(row);
+    if (!match) continue;
+    const value = parseNumber(match[2]);
+    if (value === null) continue;
+    if (found.some((item) => item.series === series && item.year === Number(match[1]) && item.value === value && item.unit === unit)) continue;
+    found.push({ series, year: Number(match[1]), value, unit, basis, sourceName, url });
   }
-  if (!found.length) {
+  if (!found.length && !sawHeader) {
+    const inlineSeries = seriesNameOf(text, "Unnamed series");
     const inline = /(?:^|[\s(])(19[9]\d|20[0-3]\d)\s*[|,:]\s*(-?\(?[\d,]+(?:\.\d+)?\)?)/g;
     let match: RegExpExecArray | null;
-    while ((match = inline.exec(text))) push(match[1], match[2]);
+    while ((match = inline.exec(text))) {
+      const current = match;
+      const value = parseNumber(current[2]);
+      if (value === null) continue;
+      if (found.some((item) => item.year === Number(current[1]) && item.value === value)) continue;
+      found.push({ series: inlineSeries, year: Number(current[1]), value, unit: unitOf(text), basis: basisOf(text), sourceName: sourceNameOf(text), url });
+    }
   }
   return found;
 }
@@ -193,11 +213,102 @@ export function extractDocument(input: { html?: string; csv?: string; text?: str
   ));
   const text = [title, prose, input.text || "", csvText, tablePassage(html)].filter(Boolean).join("\n").replace(/\n{3,}/g, "\n\n").trim();
   const readable = /[A-Za-z]/.test(text);
+  const incomplete = /Pages after \d+ were not read/.test(input.text || "");
   return {
     title,
     text,
     observations,
     readable,
-    limitation: readable ? null : "The document was retrieved, but no readable text was extracted. Its contents were not invented.",
+    limitation: !readable
+      ? "The document was retrieved, but no readable text was extracted. Its contents were not invented."
+      : incomplete
+        ? "Later pages were not read, so this table may be incomplete. No missing year was filled in."
+        : null,
+  };
+}
+
+type PdfEvidenceRow = {
+  series: string;
+  year: number;
+  value: number;
+  unit: string;
+  basis: ObservationBasis;
+  page: number;
+  sourceName: string;
+};
+
+export function evidenceFromPdfPages(input: {
+  pages: Array<{ number: number; lines: string[] }>;
+  url: string;
+  truncated: boolean;
+  focus?: string[];
+  excerptLimit?: number;
+}) {
+  const focus = (input.focus?.length ? input.focus : ["capital importation", "foreign direct investment", "portfolio investment"]).map((item) => item.toLowerCase());
+  const sourceName = sourceNameOf(input.pages.flatMap((page) => page.lines).join("\n"));
+  let series = "";
+  let unit = "unspecified";
+  let basis: ObservationBasis = "unknown";
+  const rows: PdfEvidenceRow[] = [];
+  const rowPattern = /(19[9]\d|20[0-3]\d)\s*[|,:]\s*(-?\(?[\d,]+(?:\.\d+)?\)?)/g;
+  for (const page of input.pages) {
+    for (const line of page.lines) {
+      const named = seriesNameOf(line, "");
+      const lineUnit = unitOf(line);
+      const lineBasis = basisOf(line);
+      if (named) series = named;
+      if (lineUnit !== "unspecified") unit = lineUnit;
+      if (lineBasis !== "unknown") basis = lineBasis;
+      if (!series || !focus.some((item) => series.toLowerCase().includes(item))) continue;
+      rowPattern.lastIndex = 0;
+      let match: RegExpExecArray | null;
+      while ((match = rowPattern.exec(line))) {
+        const value = parseNumber(match[2]);
+        if (value === null) continue;
+        rows.push({ series, year: Number(match[1]), value, unit, basis, page: page.number, sourceName });
+      }
+    }
+  }
+  const unique = rows.filter((row, index) => rows.findIndex((other) => other.series === row.series && other.year === row.year && other.value === row.value && other.unit === row.unit && other.page === row.page) === index);
+  if (!unique.length) {
+    return {
+      outcome: "No relevant table found" as const,
+      message: "No relevant table found. Readable pages were checked and none contained a table for the requested series. No figures were added.",
+      passage: "",
+      pageLabel: null,
+    };
+  }
+  const limit = input.excerptLimit ?? tableExcerptLimit;
+  const groups: PdfEvidenceRow[][] = [];
+  for (const row of unique) {
+    const last = groups[groups.length - 1];
+    if (last && last[0].series === row.series && last[0].unit === row.unit && last[0].basis === row.basis) last.push(row);
+    else groups.push([row]);
+  }
+  const blocks = groups.map((group) => {
+    const head = group[0];
+    const lines = [
+      `Series: ${head.series} | Unit: ${head.unit} | Basis: ${head.basis} | Source: ${head.sourceName}`,
+      ...group.map((row) => `${row.year} | ${row.value} | p. ${row.page}`),
+    ];
+    return lines.join("\n");
+  });
+  const notice = input.truncated ? `Pages after ${input.pages[input.pages.length - 1]?.number ?? 0} were not read. No missing year was filled in.` : "";
+  const passage = [`Source URL: ${input.url}`, ...blocks, notice].filter(Boolean).join("\n");
+  if (passage.length > limit) {
+    return {
+      outcome: "Extracted text too large to store" as const,
+      message: `Extracted text too large to store. The relevant table has ${unique.length} complete rows and was not cut, because a partial table would change the reading.`,
+      passage: "",
+      pageLabel: null,
+    };
+  }
+  const pages = [...new Set(unique.map((row) => row.page))].sort((left, right) => left - right);
+  const pageLabel = pages.length > 1 ? `pp. ${pages[0]}–${pages[pages.length - 1]}` : `p. ${pages[0]}`;
+  return {
+    outcome: "Relevant evidence extracted" as const,
+    message: "Relevant evidence extracted.",
+    passage,
+    pageLabel,
   };
 }

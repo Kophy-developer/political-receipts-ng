@@ -35,11 +35,15 @@ function objectsFrom(source: string): PdfObject[] {
   return items;
 }
 
+const streamByteCap = 1_500_000;
+
 function decodeStream(dict: string, stream: string | null) {
-  if (!stream) return "";
+  if (!stream || stream.length > streamByteCap) return "";
   if (/\/FlateDecode\b/.test(dict)) {
     try {
-      return inflateSync(Buffer.from(stream, "latin1")).toString("latin1");
+      const inflated = inflateSync(Buffer.from(stream, "latin1"));
+      if (inflated.length > streamByteCap) return "";
+      return inflated.toString("latin1");
     } catch {
       return "";
     }
@@ -75,6 +79,7 @@ function unescapePdfString(raw: string) {
 
 function keepString(value: string) {
   const clean = sanitizeStoredText(value, 500);
+  if (/(?:19[9]\d|20[0-3]\d)\s*[|,:]\s*-?\(?[\d,]+/.test(clean)) return clean;
   const letters = clean.match(/[A-Za-z]/g)?.length ?? 0;
   return letters >= 3 && letters / Math.max(clean.length, 1) >= 0.3 ? clean : "";
 }
@@ -92,8 +97,13 @@ function stringsIn(content: string) {
   while ((match = hex.exec(content))) {
     const digits = match[1].replace(/\s+/g, "");
     if (digits.length < 8 || digits.length % 2 !== 0) continue;
+    const utf16 = digits.slice(0, 4).toUpperCase() === "FEFF";
     let raw = "";
-    for (let i = 0; i < digits.length; i += 2) raw += String.fromCharCode(Number.parseInt(digits.slice(i, i + 2), 16));
+    if (utf16) {
+      for (let i = 4; i + 3 < digits.length; i += 4) raw += String.fromCharCode(Number.parseInt(digits.slice(i, i + 4), 16));
+    } else {
+      for (let i = 0; i < digits.length; i += 2) raw += String.fromCharCode(Number.parseInt(digits.slice(i, i + 2), 16));
+    }
     take(raw);
   }
   return found;
@@ -109,19 +119,71 @@ function isPage(dict: string) {
   return /\/Type\s*\/Page(?!s)\b/.test(dict);
 }
 
-export function extractPdfDocument(bytes: Uint8Array) {
-  const source = latin1(bytes);
+export type PdfPageText = { number: number; lines: string[] };
+
+const pageLineCap = 250;
+const pageCountCap = 40;
+
+function statisticalLine(line: string) {
+  return /(?:19[9]\d|20[0-3]\d)\s*[|,:]|capital importation|foreign direct investment|portfolio investment/i.test(line);
+}
+
+function boundedLines(lines: string[]) {
+  if (lines.length <= pageLineCap) return { lines, dropped: false };
+  const must = lines.filter(statisticalLine);
+  if (must.length > pageLineCap) return { lines: must.slice(0, pageLineCap), dropped: true };
+  let extras = pageLineCap - must.length;
+  const kept: string[] = [];
+  for (const line of lines) {
+    if (statisticalLine(line)) kept.push(line);
+    else if (extras > 0) {
+      kept.push(line);
+      extras -= 1;
+    }
+  }
+  return { lines: kept, dropped: kept.length < lines.length };
+}
+
+export function readPdfPages(bytes: Uint8Array, options?: { pageLimit?: number; deadlineMs?: number; now?: () => number }) {
+  const started = (options?.now ?? Date.now)();
+  const deadline = started + (options?.deadlineMs ?? 4_000);
+  const now = options?.now ?? Date.now;
+  const pageLimit = options?.pageLimit ?? pageCountCap;
+  let source = "";
+  try {
+    source = latin1(bytes);
+  } catch {
+    return { ok: false as const, message: "Parsing failed. The file could not be read as a PDF.", pages: [] as PdfPageText[], truncated: false };
+  }
   const objects = objectsFrom(source);
   const byId = new Map(objects.map((item) => [item.id, item]));
   const pages = objects.filter((item) => isPage(item.dict));
-  const pageTexts = (pages.length ? pages : objects.filter((item) => item.stream)).map((page, index) => {
+  const chosen = pages.length ? pages : objects.filter((item) => item.stream);
+  const pageTexts: PdfPageText[] = [];
+  let truncated = false;
+  for (const [index, page] of chosen.entries()) {
+    if (pageTexts.length >= pageLimit || now() > deadline) {
+      truncated = true;
+      break;
+    }
     const ids = contentIds(page.dict);
     const streams = (ids.length ? ids : [page.id]).map((id) => byId.get(id)).filter((item): item is PdfObject => Boolean(item));
-    const text = streams
-      .flatMap((item) => stringsIn(decodeStream(item.dict, item.stream)))
-      .join(" ");
-    return { number: index + 1, text: sanitizeStoredText(text, 8000) };
-  }).filter((page) => readableProse(page.text) || /[A-Za-z]{4,}/.test(page.text));
+    const lines = streams.flatMap((item) => stringsIn(decodeStream(item.dict, item.stream)));
+    const bounded = boundedLines(lines);
+    if (bounded.dropped) truncated = true;
+    const text = bounded.lines.join("\n");
+    if (!bounded.lines.length || (!readableProse(text) && !bounded.lines.some(statisticalLine))) continue;
+    pageTexts.push({ number: index + 1, lines: bounded.lines });
+  }
+  if (!pageTexts.length) {
+    return { ok: false as const, message: "Parsing failed. No readable text was extracted.", pages: pageTexts, truncated };
+  }
+  return { ok: true as const, message: "", pages: pageTexts, truncated };
+}
+
+export function extractPdfDocument(bytes: Uint8Array) {
+  const read = readPdfPages(bytes);
+  const pageTexts = read.pages.map((page) => ({ number: page.number, text: page.lines.join("\n") }));
 
   if (!pageTexts.length) return { passage: "", pageLabel: null as string | null };
   const corpus = pageTexts.map((page) => page.text).join("\n");

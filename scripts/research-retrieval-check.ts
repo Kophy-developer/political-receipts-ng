@@ -84,9 +84,9 @@ async function main() {
   check("the opened fixture parses into a chart and a draft", parsed.observations.length === 10 && analysis?.chart?.points.length === 10 && /5,400/.test(draft) && /5,000/.test(draft));
   check("the draft does not invent a year outside the opened table", [...draft.matchAll(/\b20\d\d\b/g)].every((match) => analysis?.observations.some((item) => String(item.year) === match[0])));
 
-  const tooBig = await attemptDocumentRead("https://www.cbn.gov.ng/out/2023/rsd/2020%20cbn%20annual%20report....pdf", async () => ({ contentType: "application/pdf", bytes: new Uint8Array(1_200_001) }));
+  const tooBig = await attemptDocumentRead("https://statehouse.gov.ng/fg-tinubus-reforms", async () => ({ contentType: "text/html", bytes: new Uint8Array(1_200_001) }));
   const silent = await attemptDocumentRead("https://www.nigerianstat.gov.ng/elibrary/read/1241568", async () => { throw new Error("timed out"); });
-  check("a failed retrieval keeps the precise reason", tooBig.ok === false && tooBig.message === rejectionForSize(1_200_001) && silent.ok === false && silent.message === "The page did not answer.");
+  check("a failed retrieval keeps the precise reason", tooBig.ok === false && tooBig.message === "Download too large" && tooBig.message === rejectionForSize(1_200_001) && silent.ok === false && silent.message === "Download failed. The page did not answer.");
 
   let repeatCalls = 0;
   const again = chooseDocumentIds(openedOnce, investigation, 2);

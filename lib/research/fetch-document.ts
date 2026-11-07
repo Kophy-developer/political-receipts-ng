@@ -1,8 +1,8 @@
 import "server-only";
-import { readRetrievedBytes, rejectionForSize } from "@/lib/research/read-document";
+import { downloadByteLimit, htmlByteLimit, isPdfResource, readBoundedBody, readRetrievedBytes, rejectionForDownload } from "@/lib/research/read-document";
 import { assertPublicUrl } from "@/lib/research/ssrf";
 
-const limitBytes = 1_200_000;
+const limitBytes = htmlByteLimit;
 
 function decode(bytes: Uint8Array) {
   return new TextDecoder("utf-8", { fatal: false }).decode(bytes);
@@ -34,7 +34,7 @@ export async function fetchDocument(raw: string) {
         signal: AbortSignal.timeout(12_000),
       });
     } catch {
-      return { ok: false as const, attempted: true as const, message: "The page did not answer." };
+      return { ok: false as const, attempted: true as const, message: "Download failed. The page did not answer." };
     }
     if (response.status >= 300 && response.status < 400) {
       const location = response.headers.get("location");
@@ -44,12 +44,17 @@ export async function fetchDocument(raw: string) {
       current = next.url;
       continue;
     }
-    if (!response.ok) return { ok: false as const, attempted: true as const, message: `The page returned ${response.status}.` };
+    if (!response.ok) return { ok: false as const, attempted: true as const, message: `Download failed. The page returned ${response.status}.` };
+    const typeHeader = (response.headers.get("content-type") || "").toLowerCase();
+    const pdf = isPdfResource(typeHeader, current.toString());
+    const limit = pdf ? downloadByteLimit : htmlByteLimit;
     const length = Number(response.headers.get("content-length") || "0");
-    const sized = rejectionForSize(length);
+    const sized = rejectionForDownload(length, pdf ? "application/pdf" : typeHeader, current.toString());
     if (sized) return { ok: false as const, attempted: true as const, message: sized };
-    const bytes = new Uint8Array(await response.arrayBuffer());
-    const type = (response.headers.get("content-type") || "").toLowerCase();
+    const bounded = await readBoundedBody(response.body, limit);
+    if (!bounded.ok) return { ok: false as const, attempted: true as const, message: bounded.message };
+    const bytes = bounded.bytes;
+    const type = pdf ? "application/pdf" : typeHeader;
     const read = readRetrievedBytes({ url: current.toString(), bytes, contentType: type });
     if (!read.ok) return { ok: false as const, attempted: true as const, message: read.message };
     const html = type.includes("html") ? decode(bytes) : "";
@@ -62,6 +67,8 @@ export async function fetchDocument(raw: string) {
       published: html ? publishedFrom(html) : null,
       passage: read.passage,
       pageLabel: read.pageLabel,
+      outcome: read.outcome,
+      bytes: bytes.byteLength,
       kind: read.kind,
     };
   }

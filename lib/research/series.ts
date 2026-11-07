@@ -79,7 +79,20 @@ export function analyzeSeries(observations: Observation[], focus?: string | null
     limitations.push("The observations do not share a unit or a nominal/real basis, so they were not compared.");
   }
   const uniqueYears = new Map<number, Observation>();
-  for (const item of primary) uniqueYears.set(item.year, item);
+  const conflicts = new Set<number>();
+  for (const item of primary) {
+    if (conflicts.has(item.year)) continue;
+    const existing = uniqueYears.get(item.year);
+    if (existing && existing.value !== item.value) {
+      uniqueYears.delete(item.year);
+      conflicts.add(item.year);
+      continue;
+    }
+    uniqueYears.set(item.year, item);
+  }
+  if (conflicts.size) {
+    limitations.push(`The same year is stored twice with different values (${[...conflicts].join(", ")}), so neither value was selected.`);
+  }
   const points = [...uniqueYears.values()].sort((left, right) => left.year - right.year);
   const missingYears: number[] = [];
   if (points.length >= 2) {
