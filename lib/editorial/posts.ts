@@ -67,7 +67,7 @@ export function composeEditorialPosts(input: { quality: SourceQuality; analysis:
     ].filter(Boolean).join(" ");
     const punchy = `About ${tenPercent}% from ${ten.fromYear} to ${ten.toYear}. About ${recentPercent}% from ${recent.fromYear} to ${recent.toYear}. ${fdi ? "Same foreign direct investment series." : `Same ${name} series.`} One window is the long run. The other is only the latest years.`;
     const outflow = negative ? ` ${negative.year} was a net outflow, not a tally of firms that shut.` : "";
-    const analytical = `${name.charAt(0).toUpperCase()}${name.slice(1)} was ${start} in ${ten.fromYear} and ${end} in ${ten.toYear}, about ${tenPercent}% across that span. From ${recent.fromYear} to ${recent.toYear} it is about ${recentPercent}%.${outflow} A recent jump inside a flatter stretch is not the name of a cause, and it is not a report on the whole economy.`;
+    const analytical = `${name.charAt(0).toUpperCase()}${name.slice(1)} stood at ${start} in ${ten.fromYear} and ${end} in ${ten.toYear}, about ${tenPercent}% across that span. From ${recent.fromYear} to ${recent.toYear} it is about ${recentPercent}%.${outflow} A recent jump inside a flatter stretch is not the name of a cause, and it is not a report on the whole economy.`;
     return [
       { style: "conversational", text: conversational },
       { style: "punchy", text: punchy },
