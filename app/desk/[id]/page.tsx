@@ -7,6 +7,7 @@ import { EmptyDesk } from "@/components/marks";
 import { PageFrame } from "@/components/shell/page-frame";
 import { getClaim } from "@/lib/db/claims";
 import { storyReadingForClaim } from "@/lib/db/editorial";
+import { storyReturn } from "@/lib/desk/board";
 import { loadFinalPost } from "@/lib/db/final-post";
 import { loadClaimDrafts } from "@/lib/db/drafting";
 import { loadStoredCapability } from "@/lib/db/connections";
@@ -15,17 +16,18 @@ import Loading from "@/app/loading";
 
 export const metadata: Metadata = { title: "Story" };
 
-export default function StoryPage({ params }: { params: Promise<{ id: string }> }) {
+export default function StoryPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ from?: string }> }) {
   return (
     <Suspense fallback={<Loading />}>
-      <StoryBody params={params} />
+      <StoryBody params={params} searchParams={searchParams} />
     </Suspense>
   );
 }
 
-async function StoryBody({ params }: { params: Promise<{ id: string }> }) {
+async function StoryBody({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ from?: string }> }) {
   await connection();
   const { id } = await params;
+  const { from } = await searchParams;
   const result = await getClaim(id);
   if (!result.ok) {
     return (
@@ -70,7 +72,9 @@ async function StoryBody({ params }: { params: Promise<{ id: string }> }) {
       suggestions={suggestions}
       capability={capability}
       publication={published.get(result.claim.id) ?? null}
-      research={research}
+      research={research?.reading ?? null}
+      opportunityId={research?.opportunityId ?? null}
+      back={storyReturn(from)}
     />
   );
 }

@@ -17,7 +17,6 @@ import { recordUsage, usageSince } from "@/lib/db/usage";
 import { judgePost } from "@/lib/intel/classify";
 import type { ExtractionReport } from "@/lib/intel/extract-posts";
 import { extractFromPosts } from "@/lib/intel/extract-posts";
-import { freshClaimAction } from "@/lib/desk/discover";
 import { fileDiscussions } from "@/lib/intel/file";
 import { syncModelOpportunities } from "@/lib/db/opportunities";
 import { lagosDayStart, lookbackStart, publishedRates, scanLimits, usd } from "@/lib/intel/limits";
@@ -273,7 +272,7 @@ export async function runScan(input?: { storagePillar?: "politics" | "finance" |
       deskNote: "Filed by a manual scan. This is not a verdict, and it is not a candidate ranking.",
       pillar: storagePillar,
     });
-    const opportunities = extraction.claims.length > 0 ? await syncModelOpportunities(filed.links, scanId) : { found: 0, created: 0, updated: 0, cards: [] };
+    const opportunities = extraction.claims.length > 0 ? await syncModelOpportunities(filed.links, scanId, storagePillar) : { found: 0, created: 0, updated: 0, cards: [] };
     const aiFailed = extraction.outcome === "failed" || extraction.outcome === "invalid";
     const errors = extraction.outcome === "extracted" && extraction.dropped === 0 ? [] : [extraction.detail];
     const actionablePosts = posts.filter((post) => post.deskClass === "actionable").length;
@@ -297,6 +296,7 @@ export async function runScan(input?: { storagePillar?: "politics" | "finance" |
       detail: {
         groupId: gated.group.id,
         groupName: gated.group.name,
+        contentPillar: storagePillar,
         extraction: extraction.outcome,
         extractionDetail: extraction.detail,
         actionablePosts,
@@ -342,8 +342,8 @@ export async function runScan(input?: { storagePillar?: "politics" | "finance" |
       durationMs: Date.now() - started,
       errors,
       found: opportunities.cards.length > 0
-        ? opportunities.cards.map((item) => ({ id: item.claimId ?? item.id, title: item.title, action: "INVESTIGATE" }))
-        : filed.filedClaims.map((item) => ({ id: item.id, title: item.title, action: freshClaimAction() })),
+        ? opportunities.cards.map((item) => ({ id: item.id, claimId: item.claimId, title: item.title, action: "Open story" }))
+        : filed.filedClaims.map((item) => ({ id: item.id, title: item.title, action: "Open story" })),
       opportunities: opportunities.found,
     });
   } catch {

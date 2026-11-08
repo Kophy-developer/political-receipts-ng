@@ -15,6 +15,7 @@ import { withUnderstandVersions } from "@/lib/editorial/trace";
 import { understandPackets } from "@/lib/editorial/understand-ai";
 import { splitByCurrentVersion } from "@/lib/editorial/history";
 import { storedSources, storyReadingFromDevelopment } from "@/lib/desk/research-state";
+import { storyQuality } from "@/lib/editorial/pillar-reading";
 import { describeSource, replaceUserLabel } from "@/lib/editorial/quality";
 import { inboxRecords, understandingOutcomeMessage } from "@/lib/editorial/understand";
 
@@ -128,11 +129,12 @@ function developmentOf(value: unknown): Pick<PipelineCard, "developmentAngle" | 
 }
 
 function presentCurrent(card: PipelineCard): PipelineCard {
-  const described = card.sourceText ? describeSource(card.sourceText) : null;
+  const described = card.sourceText ? storyQuality(card.sourceText, card.pillar, describeSource(card.sourceText)) : null;
   if (!described?.matched) return { ...card, title: replaceUserLabel(card.title) };
+  const generic = /supporter's reaction|passing on a transfer or injury report/i.test(described.summary);
   return {
     ...card,
-    title: described.summary,
+    title: generic ? replaceUserLabel(card.title) : described.summary,
     type: described.routes[0]?.toLowerCase() ?? card.type,
     research: described.researchNeed,
     reason: described.reason,
@@ -149,10 +151,10 @@ function presentCurrent(card: PipelineCard): PipelineCard {
 export async function storyReadingForClaim(claimId: string) {
   const db = serviceClient();
   if (!db || !isUuid(claimId)) return null;
-  const row = await db.from("opportunities").select("lifecycle, development, status").eq("claim_id", claimId).order("created_at", { ascending: false }).limit(1).maybeSingle();
+  const row = await db.from("opportunities").select("id, lifecycle, development, status").eq("claim_id", claimId).order("created_at", { ascending: false }).limit(1).maybeSingle();
   if (row.error || !row.data) return null;
   const lifecycle = typeof row.data.lifecycle === "string" ? row.data.lifecycle : row.data.status === "ignored" ? "PASSED" : "RANKED";
-  return storyReadingFromDevelopment(row.data.development, lifecycle);
+  return { opportunityId: String(row.data.id), reading: storyReadingFromDevelopment(row.data.development, lifecycle) };
 }
 
 export async function loadStory(id: string) {

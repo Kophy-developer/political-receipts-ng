@@ -84,7 +84,7 @@ export function investigate(sourceText: string, quality: SourceQuality, pillar?:
       focusSeries: null,
     };
   }
-  if (pillar === "finance" && economicFigure && !investmentTopic(text)) {
+  if (pillar === "finance" && (economicFigure || quality.researchNeed === "yes") && !investmentTopic(text)) {
     return {
       numerical: true,
       attribution: quality.summary,

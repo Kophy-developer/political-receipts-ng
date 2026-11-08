@@ -14,7 +14,7 @@ import { listExactFinalPosts } from "@/lib/db/final-post";
 import { publishedByClaim } from "@/lib/db/publishing";
 import { listRecentScans } from "@/lib/db/reprocess-jobs";
 import { loadDiscoveryContext } from "@/lib/db/pillars";
-import { arrangeDesk } from "@/lib/desk/board";
+import { arrangeDesk, storyCounts } from "@/lib/desk/board";
 import { postShape, type PipelineCard } from "@/lib/editorial/model";
 import { chicagoStamp } from "@/lib/format";
 import Loading from "@/app/loading";
@@ -64,7 +64,9 @@ async function DeskHome({ searchParams }: { searchParams: Promise<{ step?: strin
   const scanCards = pipeline.cards.filter((card) => scan && card.scanId === scan.id);
   const understood = scanCards.filter((card) => card.lifecycle !== "PASSED").length;
   const passed = scanCards.filter((card) => card.lifecycle === "PASSED").length;
-  const attention = scanCards.filter((card) => card.storyState === "Needs attention" || card.storyState === "Evidence insufficient").length;
+  const attention = scanCards.filter((card) => card.storyState === "Needs attention").length;
+  const inventory = storyCounts(pipeline.cards);
+  const earlierOpen = arranged.earlier.length;
   const readyClaims = claims.ok
     ? claims.claims.flatMap((claim) => {
         if (published.has(claim.id) || claim.status === "Dismissed") return [];
@@ -79,7 +81,8 @@ async function DeskHome({ searchParams }: { searchParams: Promise<{ step?: strin
     <PageFrame className="max-w-3xl">
       <p className="font-mono text-[11px] tracking-[0.16em] text-ink-soft uppercase">Desk</p>
       <h1 className="mt-2 font-serif text-4xl tracking-[-0.03em]">The desk</h1>
-      <p className="mt-3 text-sm text-ink-soft">Three steps. Each one replaces this page. Older scans stay in history.</p>
+      <p className="mt-3 text-sm text-ink-soft">Three steps. Each one replaces this page. A newer scan does not delete an earlier story.</p>
+      <DeskInventory inventory={inventory} />
       <nav className="mt-6 grid gap-2 sm:grid-cols-3" aria-label="Desk steps">
         {([
           ["discover", "1 Discover"],
@@ -119,9 +122,11 @@ async function DeskHome({ searchParams }: { searchParams: Promise<{ step?: strin
               mix={discovery.mix.items}
               allowance={discovery.allowance}
             />
+            <p className="text-sm">{earlierOpen > 0 ? `${earlierOpen} saved ${earlierOpen === 1 ? "story is" : "stories are"} from earlier scans. They stay on Investigate.` : "No earlier open story is waiting."} <Link href="/desk?step=investigate" className="underline">Open Investigate</Link></p>
             <ScanBoard
+              place="discover"
               thisScan={arranged.thisScan.map((card) => viewOf(card, false))}
-              working={[]}
+              working={arranged.working.map((card) => viewOf(card, Boolean(scan && card.scanId !== scan.id)))}
               earlier={[]}
               passed={[]}
             />
@@ -160,7 +165,9 @@ async function DeskHome({ searchParams }: { searchParams: Promise<{ step?: strin
               <h2 className="font-serif text-3xl">Understood conversations from this scan</h2>
               <p className="mt-2 text-sm text-ink-soft">Research, analysis, reaction, and discussion stay on the story. More than one story can move at the same time.</p>
             </section>
+            <ScanSwitcher recent={recent} latestId={scan?.id ?? null} counts={inventory.byScan} />
             <ScanBoard
+              place="investigate"
               thisScan={arranged.thisScan.map((card) => viewOf(card, false))}
               working={arranged.working.map((card) => viewOf(card, Boolean(scan && card.scanId !== scan.id)))}
               earlier={arranged.earlier.map((card) => viewOf(card, true))}
@@ -197,7 +204,7 @@ async function DeskHome({ searchParams }: { searchParams: Promise<{ step?: strin
                     <p className="text-sm">{card.title}</p>
                     <p className="mt-1 text-sm">{card.storyState}. {card.storyReason}</p>
                     {card.developmentDrafts[0] ? <p className="mt-2 text-sm leading-relaxed">{card.developmentDrafts[0]}</p> : null}
-                    <Link href={card.claimId ? `/desk/${card.claimId}` : `/desk/work/${card.id}`} className="mt-3 inline-flex h-11 items-center bg-ink px-3 text-sm text-paper">Open the story</Link>
+                    <Link href={card.claimId ? `/desk/${card.claimId}?from=ready` : `/desk/work/${card.id}?from=ready`} className="mt-3 inline-flex h-11 items-center bg-ink px-3 text-sm text-paper">Open the story</Link>
                   </li>
                 ))}
                 {readyClaims.map((item) => (
@@ -214,5 +221,35 @@ async function DeskHome({ searchParams }: { searchParams: Promise<{ step?: strin
         <p className="text-sm"><Link href="/archive" className="underline">Archive and history</Link></p>
       </div>
     </PageFrame>
+  );
+}
+
+function DeskInventory({ inventory }: { inventory: ReturnType<typeof storyCounts> }) {
+  const stages = Object.entries(inventory.byStage);
+  return (
+    <section className="mt-6 border border-rule px-4 py-4 text-sm">
+      <p className="font-mono text-[11px] tracking-[0.16em] text-ink-soft uppercase">Open stories</p>
+      <p className="mt-2">{inventory.open} open · Politics {inventory.byPillar.politics} · Finance {inventory.byPillar.finance} · Manchester United {inventory.byPillar.manchester_united}</p>
+      <p className="mt-1 text-ink-soft">{stages.length ? stages.map(([stage, count]) => `${stage} ${count}`).join(" · ") : "No open story is stored."}</p>
+    </section>
+  );
+}
+
+function ScanSwitcher({ recent, latestId, counts }: { recent: Array<{ id: string; startedAt: string; posts: number; analysis: string }>; latestId: string | null; counts: Map<string, number> }) {
+  return (
+    <section className="border border-rule px-4 py-4">
+      <p className="font-mono text-[11px] tracking-[0.16em] text-ink-soft uppercase">Scans</p>
+      <h2 className="mt-2 font-serif text-2xl">Switch to an earlier scan</h2>
+      <ul className="mt-3 space-y-2 text-sm">
+        {recent.map((item) => (
+          <li key={item.id} className="border border-rule px-3 py-3">
+            <p>{chicagoStamp(item.startedAt)} · {item.posts} posts · {counts.get(item.id) ?? 0} open {item.id === latestId ? "· latest" : ""}</p>
+            <p className="text-ink-soft">{item.analysis}</p>
+            <Link href={`/desk/scans/${item.id}`} className="mt-1 inline-block underline">Open this scan</Link>
+          </li>
+        ))}
+        {recent.length === 0 ? <li>No scan is stored.</li> : null}
+      </ul>
+    </section>
   );
 }

@@ -7,6 +7,7 @@ import { characterCount } from "@/lib/format";
 import { checklist } from "@/lib/system";
 import { standardPostLimit, urlPriceNote, type PublishCapability } from "@/lib/publish/capability";
 import { openingFormat, publishPlan, splitForThread, threadText, type PostFormat } from "@/lib/publish/format";
+import { StartStory } from "@/components/desk/start-story";
 import {
   completedStages,
   evidenceBrief,
@@ -44,6 +45,8 @@ export function StoryWorkspace({
   capability,
   publication,
   research = null,
+  opportunityId = null,
+  back = { href: "/desk?step=investigate", label: "Back to Investigate" },
 }: {
   claim: ClaimCard;
   finalPostId: string | null;
@@ -53,6 +56,8 @@ export function StoryWorkspace({
   capability: PublishCapability;
   publication: { url: string | null; publishedAt: string } | null;
   research?: { state: string; reason: string; action: string } | null;
+  opportunityId?: string | null;
+  back?: { href: string; label: string };
 }) {
   const router = useRouter();
   const editorRef = useRef<HTMLTextAreaElement>(null);
@@ -141,7 +146,11 @@ export function StoryWorkspace({
 
   return (
     <div className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-8 sm:py-8 lg:px-10">
-      <Link href="/desk" className="font-mono text-[11px] tracking-[0.14em] text-ink-soft uppercase">Desk</Link>
+      <p className="flex flex-wrap gap-4">
+        <Link href={back.href} className="font-mono text-[11px] tracking-[0.14em] text-ink-soft uppercase">{back.label}</Link>
+        <Link href="/desk?step=investigate" className="font-mono text-[11px] tracking-[0.14em] text-ink-soft uppercase">Back to Investigate</Link>
+        <Link href="/desk?step=investigate#working" className="font-mono text-[11px] tracking-[0.14em] text-ink-soft uppercase">Back to Working</Link>
+      </p>
       <h1 className="mt-3 max-w-3xl font-serif text-4xl leading-tight tracking-[-0.03em]">{claim.title}</h1>
       <ol className="mt-6 flex gap-2 overflow-x-auto pb-1" aria-label="Story progress">
         {storyStages.map((stage) => {
@@ -168,9 +177,14 @@ export function StoryWorkspace({
             {claim.postUrl ? <a className="mt-2 inline-block text-sm underline" href={claim.postUrl}>Open the post</a> : null}
           </details>
           <section className="border border-rule px-4 py-3">
-            <p className="font-mono text-[11px] tracking-[0.14em] text-ink-soft uppercase">{research?.state ?? (accepted.length || recorded.length ? "Evidence examined" : "Not started")}</p>
+            <p className="font-mono text-[11px] tracking-[0.14em] text-ink-soft uppercase">{research?.state ?? (accepted.length || recorded.length ? "Analyzing" : "Not started")}</p>
             <p className="mt-2 text-sm leading-relaxed">{research?.reason ?? brief.line}</p>
-            {research?.action ? <p className="mt-2 text-sm text-ink-soft">{research.action}</p> : null}
+            {research?.action ? <p className="mt-2 text-sm text-ink-soft">Next: {research.action}</p> : null}
+            {opportunityId && research?.state !== "Ready for You" ? (
+              <div className="mt-3">
+                <StartStory id={opportunityId} label={research?.state === "Analyzing" || research?.state === "Writing" ? "Develop content" : "Start investigation"} />
+              </div>
+            ) : null}
             {accepted.length > 0 || recorded.length > 0 ? (
               <ul className="mt-3 space-y-1 text-sm">
                 {accepted.length > 0 ? accepted.map((item) => (

@@ -163,7 +163,7 @@ export async function loadScanPosts(scanId: string) {
   if (!db) return { ok: false as const, message: "The database is not configured." };
   const { data, error } = await db
     .from("x_posts")
-    .select("x_post_id, text, author_id, username, display_name, posted_at, public_metrics, x_conversation_id, referenced, language, source_query, relevance, relevance_reason, desk_class")
+    .select("x_post_id, text, author_id, username, display_name, posted_at, public_metrics, x_conversation_id, referenced, language, source_query, relevance, relevance_reason, desk_class, content_pillar")
     .eq("scan_id", scanId);
   if (error) return { ok: false as const, message: "Stored posts could not be read." };
   return { ok: true as const, rows: data ?? [] };

@@ -26,7 +26,7 @@ export type RecentScanView = {
   provider: string;
 };
 
-type Found = { id: string; title: string; action: string };
+type Found = { id: string; title: string; action: string; href?: string };
 
 type Report = {
   ok: boolean;
@@ -301,7 +301,7 @@ export function DeskDiscover({
           {scanFound.map((item) => (
             <li key={item.id} className="border border-rule px-3 py-3">
               <p className="text-sm leading-relaxed">{item.title}</p>
-              <Link href={`/desk/${item.id}`} className="mt-3 inline-flex h-9 items-center bg-ink px-3 text-sm text-paper">{item.action}</Link>
+              <Link href={item.href ?? (item.action === "INVESTIGATE" ? `/desk/${item.id}?from=discover` : `/desk/work/${item.id}?from=discover`)} className="mt-3 inline-flex h-9 items-center bg-ink px-3 text-sm text-paper">Open story</Link>
             </li>
           ))}
         </ul>

@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { angleFromAnalysis, opinionAngle } from "@/lib/editorial/findings";
 import { validateEditorialPosts } from "@/lib/editorial/posts";
+import { storyQuality } from "@/lib/editorial/pillar-reading";
 import { describeSource, type SourceQuality } from "@/lib/editorial/quality";
 import { examineSources, type ResearchStage } from "@/lib/research/examine";
 import { investigate, type Investigation } from "@/lib/research/investigate";
@@ -142,8 +143,8 @@ export function factualContextNeeded(quality: SourceQuality) {
   return quality.researchNeed === "recommended" && (quality.primaryKind === "event" || quality.checkableFacts.length > 0);
 }
 
-export function developmentPreview(sourceText: string, limits: { maxSearches: number } = { maxSearches: 3 }): DevelopmentPreview {
-  const quality = describeSource(sourceText);
+export function developmentPreview(sourceText: string, limits: { maxSearches: number } = { maxSearches: 3 }, pillar?: string | null): DevelopmentPreview {
+  const quality = storyQuality(sourceText, pillar, describeSource(sourceText));
   const empty = {
     quality,
     blocked: true,
@@ -211,8 +212,8 @@ export function developmentPreview(sourceText: string, limits: { maxSearches: nu
   };
 }
 
-export function initialDevelopment(sourceText: string): DevelopmentState {
-  const quality = describeSource(sourceText);
+export function initialDevelopment(sourceText: string, pillar?: string | null): DevelopmentState {
+  const quality = storyQuality(sourceText, pillar, describeSource(sourceText));
   return {
     sourceHash: sourceHash(sourceText),
     sourceText,
@@ -254,6 +255,18 @@ export function angleFor(quality: SourceQuality, evidence: DevelopmentState["evi
     return {
       title: "Treat the election line as speculation. Do not forecast a winner or say who survives.",
       points: ["The post is predicting, not reporting a result.", "Say that this desk does not forecast the election.", voicePoint],
+    };
+  }
+  if (/not sent through a political fact-check/i.test(quality.reason)) {
+    return {
+      title: "Respond to the judgment in the post.",
+      points: ["Do not invent a personal reaction the account owner did not write.", "Do not turn a reaction into a score, a transfer, or an injury.", voicePoint],
+    };
+  }
+  if (/Manchester United, the Premier League/i.test(quality.reason)) {
+    return {
+      title: "The post reports a club fact. Keep it as a report until the club or the competition record is opened.",
+      points: ["Do not state a score, a signing, or an injury as confirmed without that record.", "A rumour is not a transfer.", voicePoint],
     };
   }
   if (quality.primaryKind === "event") {
@@ -354,7 +367,7 @@ export type DevelopmentStep =
   | { kind: "draft"; angle: string; points: string[]; verdict: string; analysis: SeriesAnalysis | null }
   | { kind: "ready" };
 
-export function nextStep(state: DevelopmentState): DevelopmentStep {
+export function nextStep(state: DevelopmentState, pillar?: string | null): DevelopmentStep {
   if (state.published) return { kind: "blocked", message: "A published story stays published. It was not developed again." };
   if (state.ready) return { kind: "ready" };
   if (state.gateFailed) return { kind: "review", question: state.unresolved || `${editorialReview}. The draft could not be presented responsibly.` };
@@ -373,7 +386,7 @@ export function nextStep(state: DevelopmentState): DevelopmentStep {
   }
   if (required && state.evidenceStatus !== "EVIDENCE_READY") {
     const question = state.quality.checkableFacts[0] || state.quality.summary;
-    const investigation = state.investigation ?? investigate(state.sourceText, state.quality);
+    const investigation = state.investigation ?? investigate(state.sourceText, state.quality, pillar);
     if (investigation.numerical && state.completed.includes("research")) {
       return { kind: "review", question: `Search completed is not a statistical series. ${question} Continue research on this story. Nothing runs until you confirm.` };
     }
@@ -399,7 +412,7 @@ export function nextStep(state: DevelopmentState): DevelopmentStep {
   return { kind: "ready" };
 }
 
-function withResearch(state: DevelopmentState, result: ResearchResult): DevelopmentState {
+function withResearch(state: DevelopmentState, result: ResearchResult, pillar?: string | null): DevelopmentState {
   if (!result.ok) {
     return {
       ...state,
@@ -408,7 +421,7 @@ function withResearch(state: DevelopmentState, result: ResearchResult): Developm
       researchCalls: state.researchCalls + (result.called ? 1 : 0),
     };
   }
-  const investigation = investigate(state.sourceText, state.quality);
+  const investigation = state.investigation ?? investigate(state.sourceText, state.quality, pillar);
   const examined = investigation.numerical ? examineSources(investigation, result.sources) : null;
   const classified = classifyEvidence({
     premises: state.quality.checkableFacts.length ? state.quality.checkableFacts : [state.quality.summary],
@@ -481,11 +494,11 @@ function withDraft(state: DevelopmentState, result: DraftResult): DevelopmentSta
   };
 }
 
-export async function advanceDevelopment(state: DevelopmentState, ports: DevelopmentPorts) {
+export async function advanceDevelopment(state: DevelopmentState, ports: DevelopmentPorts, pillar?: string | null) {
   const checked = revalidateDevelopment(state);
   let current: DevelopmentState = { ...checked, error: checked.draftFailed || checked.researchFailed ? null : checked.error };
   for (let step = 0; step < 6; step += 1) {
-    const next = nextStep(current);
+    const next = nextStep(current, pillar);
     if (next.kind === "blocked") {
       return { ...current, ready: false, review: current.quality.review, error: null, unresolved: next.message };
     }
@@ -504,7 +517,7 @@ export async function advanceDevelopment(state: DevelopmentState, ports: Develop
     if (next.kind === "ready") return { ...current, ready: true, review: null };
     if (next.kind === "research") {
       const result = await ports.research({ premises: next.premises, context: next.context });
-      current = withResearch(current, result);
+      current = withResearch(current, result, pillar);
       if (!result.ok) return current;
       continue;
     }

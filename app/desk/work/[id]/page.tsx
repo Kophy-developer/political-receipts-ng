@@ -5,13 +5,16 @@ import { connection } from "next/server";
 import { notFound } from "next/navigation";
 import { PageFrame } from "@/components/shell/page-frame";
 import { ContinueResearch } from "@/components/desk/continue-research";
+import { StartStory } from "@/components/desk/start-story";
 import { SeriesChart } from "@/components/desk/series-chart";
 import { StoryDrafts } from "@/components/desk/story-drafts";
 import { formatInvestment, provenanceSentence } from "@/lib/editorial/money";
 import { continuationOffer, loadDocumentPassages } from "@/lib/db/develop";
 import { loadSearchResults } from "@/lib/db/search-results";
 import { loadStory } from "@/lib/db/editorial";
+import { storyQuality } from "@/lib/editorial/pillar-reading";
 import { describeSource } from "@/lib/editorial/quality";
+import { storyReturn } from "@/lib/desk/board";
 import { documentLedger } from "@/lib/research/examine";
 import { investigate } from "@/lib/research/investigate";
 import { reviveAnalysis } from "@/lib/research/series";
@@ -39,21 +42,22 @@ function developmentOptions(value: unknown) {
   });
 }
 
-export default function WorkPage({ params }: { params: Promise<{ id: string }> }) {
+export default function WorkPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ from?: string }> }) {
   return (
     <Suspense fallback={<Loading />}>
-      <WorkBody params={params} />
+      <WorkBody params={params} searchParams={searchParams} />
     </Suspense>
   );
 }
 
-async function WorkBody({ params }: { params: Promise<{ id: string }> }) {
+async function WorkBody({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ from?: string }> }) {
   await connection();
   const { id } = await params;
+  const { from } = await searchParams;
   const story = await loadStory(id);
   if (!story) notFound();
-  const quality = describeSource(story.card.sourceText || "");
-  const plan = investigate(story.card.sourceText || "", quality);
+  const quality = storyQuality(story.card.sourceText || "", story.card.pillar, describeSource(story.card.sourceText || ""));
+  const plan = investigate(story.card.sourceText || "", quality, story.card.pillar);
   const analysis = reviveAnalysis((story.development as { analysis?: unknown } | null)?.analysis);
   const stage = (story.development as { researchStage?: unknown } | null)?.researchStage;
   const inventory = story.card.claimId ? await loadSearchResults(story.card.claimId) : null;
@@ -78,6 +82,11 @@ async function WorkBody({ params }: { params: Promise<{ id: string }> }) {
     text: passages.get(item.url) ?? null,
   })), plan, 2);
   const found = inventory?.results.length ?? 0;
+  const back = storyReturn(from, story.card.scanId);
+  const investigateLink = storyReturn(undefined);
+  const workingLink = storyReturn("working");
+  const startLabel = story.card.research === "no" ? "Develop content" : "Start investigation";
+  const canStart = story.card.storyState !== "Ready for You" && !(offer.ok && offer.available);
   const opened = inventory?.results.filter((item) => item.retrievalStatus === "retrieved").length ?? story.sources.filter((item) => item.opened).length;
   const showInventory = found > 0 || story.sources.length > 0;
 
@@ -86,8 +95,13 @@ async function WorkBody({ params }: { params: Promise<{ id: string }> }) {
       <p className="font-mono text-[11px] tracking-[0.16em] text-ink-soft uppercase">Story</p>
       <h1 className="mt-2 font-serif text-4xl tracking-[-0.03em]">{story.card.title}</h1>
       <p className="mt-3 text-sm">{story.card.storyState}</p>
-      <p className="mt-2 text-sm leading-relaxed">{latestAttempt}</p>
-      <p className="mt-2 text-sm text-ink-soft">{nextAction}</p>
+      <p className="mt-2 text-sm leading-relaxed">{story.card.storyReason}</p>
+      <p className="mt-2 text-sm text-ink-soft">Next: {nextAction}</p>
+      <p className="mt-4 flex flex-wrap gap-4 text-sm">
+        <Link href={back.href} className="underline">{back.label}</Link>
+        {back.href !== investigateLink.href ? <Link href={investigateLink.href} className="underline">Back to Investigate</Link> : null}
+        {back.href !== workingLink.href ? <Link href={workingLink.href} className="underline">Back to Working</Link> : null}
+      </p>
       <div className="mt-8 space-y-6">
         <section className="border border-rule px-4 py-4">
           <h2 className="font-serif text-2xl">Source</h2>
@@ -168,9 +182,11 @@ async function WorkBody({ params }: { params: Promise<{ id: string }> }) {
           ) : null}
           <p className="mt-3 text-sm">{story.card.storyState === "Ready for You" ? "Ready for You: a draft is waiting. Nothing has been published." : `Ready for You: not yet. Current status is ${story.card.storyState}.`}</p>
         </section>
+        {canStart ? <StartStory id={id} label={startLabel} /> : null}
         <section className="border border-rule px-4 py-4">
           <h2 className="font-serif text-2xl">Next action</h2>
-          <p className="mt-2 text-sm">{story.card.storyState}. {nextAction}</p>
+          <p className="mt-2 text-sm">{story.card.storyState}. {story.card.storyAction}</p>
+          <p className="mt-2 text-sm text-ink-soft">{nextAction}</p>
           {offer.ok && offer.available ? (
             <div className="mt-3 space-y-2 text-sm">
               <p>Question: {offer.question}</p>
@@ -198,7 +214,11 @@ async function WorkBody({ params }: { params: Promise<{ id: string }> }) {
           ) : (
             <p className="mt-3 text-sm text-ink-soft">This card has no claim yet, so the publish gate is not available.</p>
           )}
-          <p className="mt-3 text-sm"><Link href="/desk" className="underline">Back to the desk</Link></p>
+          <p className="mt-3 flex flex-wrap gap-4 text-sm">
+            <Link href={back.href} className="underline">{back.label}</Link>
+            <Link href={investigateLink.href} className="underline">Back to Investigate</Link>
+            <Link href={workingLink.href} className="underline">Back to Working</Link>
+          </p>
         </section>
       </div>
     </PageFrame>

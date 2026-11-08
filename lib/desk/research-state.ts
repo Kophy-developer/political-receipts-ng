@@ -1,10 +1,8 @@
 export const storyStates = [
   "Not started",
-  "Searching",
-  "Sources found but not opened",
-  "Evidence insufficient",
-  "Evidence examined",
-  "Drafting",
+  "Researching",
+  "Analyzing",
+  "Writing",
   "Ready for You",
   "Needs attention",
 ] as const;
@@ -54,33 +52,33 @@ export function storyReading(input: {
   }
   if (input.evidenceStatus === "EVIDENCE_READY" || (opened && input.evidenceStatus !== "EVIDENCE_INSUFFICIENT" && input.evidenceStatus !== "RELEVANT_EVIDENCE_FOUND")) {
     if (input.lifecycle === "DRAFTING" || input.completed?.includes("draft")) {
-      return { state: "Drafting", reason: unresolved || "A draft is in progress.", action: "Stay on this story." };
+      return { state: "Writing", reason: unresolved || "A draft is in progress.", action: "Stay on this story. A repeat click does not start another model request." };
     }
     return {
-      state: "Evidence examined",
+      state: "Analyzing",
       reason: unresolved || "An opened source addresses the premise. It is not a verdict.",
-      action: input.nextAction || "Continue from this story when you want a draft.",
+      action: input.nextAction || "Develop content to continue the draft. Nothing runs until you confirm.",
     };
   }
   if (input.lifecycle === "DRAFTING") {
-    return { state: "Drafting", reason: unresolved || "A draft is in progress.", action: "Stay on this story." };
+    return { state: "Writing", reason: unresolved || "A draft is in progress.", action: "Stay on this story. A repeat click does not start another model request." };
   }
   if (input.evidenceStatus === "RELEVANT_EVIDENCE_FOUND" || (input.searchStatus === "SEARCH_COMPLETED" && sources.length > 0 && !opened && input.evidenceStatus !== "EVIDENCE_INSUFFICIENT")) {
     return {
-      state: "Sources found but not opened",
+      state: "Researching",
       reason: unresolved || "Search results are stored. No page has been opened, so none of them is proof.",
-      action: input.nextAction || "Open a page from this story, or leave it for editorial review.",
+      action: input.nextAction || "Open a saved page from this story. A new search does not start on its own.",
     };
   }
   if (input.evidenceStatus === "EVIDENCE_INSUFFICIENT" || input.review) {
     return {
-      state: "Evidence insufficient",
+      state: "Needs attention",
       reason: unresolved || "The saved results do not establish the premise.",
       action: input.nextAction || "Review the story. A further search does not start on its own.",
     };
   }
   if (input.running || (input.lifecycle === "RESEARCHING" && input.searchStatus !== "SEARCH_COMPLETED")) {
-    return { state: "Searching", reason: "Research was started and has not produced a stored result yet.", action: "Wait on this story. Do not start a second search." };
+    return { state: "Researching", reason: unresolved || "Research was started and has not produced a stored result yet.", action: "Wait on this story. Do not start a second search." };
   }
   return {
     state: "Not started",

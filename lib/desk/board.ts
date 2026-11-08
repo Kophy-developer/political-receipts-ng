@@ -64,6 +64,28 @@ export function applyPass<T extends { id: string }>(cards: T[], id: string) {
   return cards.filter((card) => card.id !== id);
 }
 
+export function storyCounts<T extends { pillar: string | null; storyState: string; lifecycle: string; scanId: string | null }>(cards: T[]) {
+  const open = cards.filter((card) => card.lifecycle !== "PASSED");
+  const byPillar = { politics: 0, finance: 0, manchester_united: 0 };
+  const byStage: Record<string, number> = {};
+  const byScan = new Map<string, number>();
+  for (const card of open) {
+    const pillar = card.pillar === "football" || card.pillar === "manchester_united" ? "manchester_united" : card.pillar === "finance" ? "finance" : "politics";
+    byPillar[pillar] += 1;
+    byStage[card.storyState] = (byStage[card.storyState] ?? 0) + 1;
+    if (card.scanId) byScan.set(card.scanId, (byScan.get(card.scanId) ?? 0) + 1);
+  }
+  return { open: open.length, byPillar, byStage, byScan };
+}
+
+export function storyReturn(from: string | undefined, scanId?: string | null) {
+  if (from === "scan" && scanId) return { href: `/desk/scans/${scanId}`, label: "Back to this scan" };
+  if (from === "ready") return { href: "/desk?step=ready", label: "Back to Ready for You" };
+  if (from === "discover") return { href: "/desk", label: "Back to Discover" };
+  if (from === "working") return { href: "/desk?step=investigate#working", label: "Back to Working" };
+  return { href: "/desk?step=investigate", label: "Back to Investigate" };
+}
+
 export function restoreCard<T extends { id: string }>(cards: T[], card: T, index: number) {
   if (cards.some((item) => item.id === card.id)) return cards;
   const next = cards.slice();

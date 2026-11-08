@@ -1,5 +1,5 @@
 import type { SourceQuality } from "@/lib/editorial/quality";
-import type { ContentPillar } from "@/lib/pillars/catalog";
+import { contentPillarFromStorage, type ContentPillar } from "@/lib/pillars/catalog";
 
 function clip(value: string, max = 240) {
   const text = value.replace(/https?:\/\/\S+/g, " ").replace(/\s+/g, " ").trim();
@@ -7,7 +7,7 @@ function clip(value: string, max = 240) {
 }
 
 function economicFigure(text: string) {
-  return /\d/.test(text) && /\b(percent|per cent|%|naira|₦|inflation|mpr|interest rate|exchange rate|basis point|billion|million)\b/i.test(text);
+  return /\d/.test(text) && /\b(percent|per cent|%|naira|₦|inflation|mpr|interest rate|exchange rate|basis point|billion|million|trillion)\b|(?:tn|bn|trn)\b/i.test(text);
 }
 
 function financeReading(text: string, quality: SourceQuality): SourceQuality {
@@ -43,6 +43,22 @@ function footballReading(text: string, quality: SourceQuality): SourceQuality {
   const rumour = /\b(linked with|in talks|could sign|set to sign|according to reports|rumour|rumou?r|interest in)\b/i.test(text);
   const official = /\b(the club (says|confirms|confirmed)|manchester united (says|confirmed)|premier league confirmed|uefa confirmed)\b/i.test(text);
   const score = /\b\d{1,2}\s*[-–]\s*\d{1,2}\b/.test(text);
+  const game = /\b(efootball|video game|in the game|mobile game)\b/i.test(text);
+  const record = /\b(scored|conceded|won|lost|drawn|signed|injured|sidelined)\b/i.test(text) && /\d/.test(text);
+  if (game && (score || record)) {
+    return {
+      matched: true,
+      summary: "The score is inside a game. It is not a Manchester United match result.",
+      primaryKind: "opinion",
+      routes: ["OPINION", "REACTION"],
+      researchNeed: "no",
+      reason: "A game score is not a club result. Do not write it as a match fact.",
+      checkableFacts: [],
+      lowValue: false,
+      draftingCandidate: true,
+      review: null,
+    };
+  }
   if (rumour && !official) {
     return {
       matched: true,
@@ -57,7 +73,7 @@ function footballReading(text: string, quality: SourceQuality): SourceQuality {
       review: null,
     };
   }
-  if (score || official) {
+  if (score || official || record) {
     return {
       matched: true,
       summary: quality.matched ? quality.summary : `The post reports a club fact: ${clip(text)}`,
@@ -83,6 +99,10 @@ function footballReading(text: string, quality: SourceQuality): SourceQuality {
     draftingCandidate: true,
     review: null,
   };
+}
+
+export function storyQuality(sourceText: string, pillar: string | null | undefined, described: SourceQuality): SourceQuality {
+  return readingForPillar(contentPillarFromStorage(pillar) ?? "politics", sourceText, described);
 }
 
 /** Politics keeps the shared source reading. Finance and United do not inherit a political template. */

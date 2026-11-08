@@ -424,6 +424,7 @@ async function sendToResearch(row: {
 export async function syncModelOpportunities(
   links: Array<{ conversationId: string; claimId: string | null; title: string; why: string; needed: string }>,
   scanId: string | null = null,
+  pillar: "politics" | "finance" | "football" = "politics",
 ) {
   const db = serviceClient();
   const empty = { found: 0, created: 0, updated: 0, cards: [] as Array<{ id: string; title: string; claimId: string | null }> };
@@ -437,12 +438,12 @@ export async function syncModelOpportunities(
     seen.add(link.conversationId);
     const existing = await db
       .from("opportunities")
-      .select("id, status, editor_take")
+      .select("id, status, editor_take, lifecycle")
       .eq("conversation_id", link.conversationId)
       .eq("opportunity_type", "check")
       .eq("source", "model")
       .limit(1);
-    const row = existing.data?.[0];
+    const row = existing.data?.[0] as { id?: string; status?: string; editor_take?: string | null; lifecycle?: string | null } | undefined;
     const current = row
       ? { status: String(row.status), editorTake: typeof row.editor_take === "string" ? row.editor_take : null }
       : null;
@@ -458,7 +459,8 @@ export async function syncModelOpportunities(
       continue;
     }
     if (decision === "update" && row?.id) {
-      const changes: Record<string, unknown> = { ...fields };
+      const changes: Record<string, unknown> = { ...fields, content_pillar: pillar };
+      if (!row.lifecycle) changes.lifecycle = "RANKED";
       if (scanId) changes.scan_id = scanId;
       const updatedRow = await db.from("opportunities").update(changes as typeof fields).eq("id", row.id);
       if (updatedRow.error && columnMissing(updatedRow.error.message) && scanId) {
@@ -471,9 +473,10 @@ export async function syncModelOpportunities(
     const record = {
       conversation_id: link.conversationId,
       ...fields,
-      content_pillar: "politics",
+      content_pillar: pillar,
       opportunity_type: "check",
       research_required: "yes",
+      lifecycle: "RANKED",
       score: "medium",
       score_reason: "Filed from the stored scan. The extraction asked only for a checkable sentence.",
       angles: [],

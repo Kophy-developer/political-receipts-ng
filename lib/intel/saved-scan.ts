@@ -16,8 +16,6 @@ import type { PostMetrics, WorkingPost } from "@/lib/intel/posts";
 import type { Relevance } from "@/lib/intel/relevance";
 import { noteFinished, noteTrying, type ReprocessJob } from "@/lib/intel/progress";
 import { analysisFailureReason, providerDisplay, reprocessSummary, scanNeedsReprocess } from "@/lib/intel/stage";
-import { freshClaimAction } from "@/lib/desk/discover";
-
 export type SavedScanView = {
   scanId: string;
   postsSaved: number;
@@ -41,6 +39,16 @@ export type SavedScanReport = {
   detail: string;
   job: ReprocessJob | null;
 };
+
+function storedScanPillar(rows: Array<Record<string, unknown>>): "politics" | "finance" | "football" {
+  const counts = { politics: 0, finance: 0, football: 0 };
+  for (const row of rows) {
+    if (row.content_pillar === "finance" || row.content_pillar === "football" || row.content_pillar === "politics") counts[row.content_pillar] += 1;
+  }
+  if (counts.football > 0 && counts.football >= counts.finance && counts.football >= counts.politics) return "football";
+  if (counts.finance > counts.politics) return "finance";
+  return "politics";
+}
 
 function metricsOf(value: unknown): PostMetrics {
   const row = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
@@ -186,7 +194,9 @@ export async function reprocessSavedScan(scanId: string): Promise<SavedScanRepor
   const loaded = await loadScanPosts(scanId);
   if (!loaded.ok) return fail(loaded.message);
   if (loaded.rows.length === 0) return fail("That scan has no stored posts.");
-  const posts = postsFrom(loaded.rows as Array<Record<string, unknown>>);
+  const rows = loaded.rows as Array<Record<string, unknown>>;
+  const posts = postsFrom(rows);
+  const pillar = storedScanPillar(rows);
   const claim = await claimReprocessJob(scanId, randomUUID(), posts.length);
   if (!claim.ok) return fail(claim.message);
   if (!claim.claimed) return reportFrom(claim.job, [], "This scan is already being reprocessed. No second request was made.");
@@ -217,10 +227,11 @@ export async function reprocessSavedScan(scanId: string): Promise<SavedScanRepor
       entities: await knownEntities(),
       topicSlugFor: (source) => (source && topics.get(source)) || "desk-elections",
       deskNote: "Reprocessed from the stored scan. No new X request was made.",
+      pillar,
     });
     await saveReprocessJob(job.id, { phase: "opportunities", conversations: filed.conversationIds.length, steps });
     const opportunities = extraction.claims.length > 0
-      ? await syncModelOpportunities(filed.links, scanId)
+      ? await syncModelOpportunities(filed.links, scanId, pillar)
       : { found: 0, created: 0, updated: 0, cards: [] as Array<{ id: string; title: string; claimId: string | null }> };
     const aiFailed = extraction.outcome === "failed" || extraction.outcome === "invalid";
     const db = serviceClient();
@@ -254,7 +265,7 @@ export async function reprocessSavedScan(scanId: string): Promise<SavedScanRepor
     await saveReprocessJob(job.id, finished);
     return reportFrom(
       finished,
-      opportunities.cards.map((item) => ({ id: item.claimId ?? item.id, title: item.title, action: freshClaimAction() })),
+      opportunities.cards.map((item) => ({ id: item.id, title: item.title, action: "Open story" })),
       extraction.detail,
     );
   } catch {

@@ -40,12 +40,16 @@ async function ScanHistory({ params }: { params: Promise<{ id: string }> }) {
               <p className="font-mono text-[11px] uppercase">#{card.displayNumber} · Earlier scan · stored rank {card.rank ?? "none"}</p>
               <p className="mt-2 text-sm">{card.title}</p>
               <p className="mt-1 text-sm">{card.storyState}. {card.storyReason}</p>
-              <Link href={`/desk/work/${card.id}`} className="mt-2 inline-flex h-11 items-center underline text-sm">Open story</Link>
+              <p className="mt-1 text-sm">Next: {card.storyAction}</p>
+              <Link href={`/desk/work/${card.id}?from=scan`} className="mt-2 inline-flex h-11 items-center underline text-sm">Open story</Link>
             </li>
           ))}
         </ol>
       )}
-      <p className="mt-6 text-sm"><Link href="/desk" className="underline">Back to the desk</Link></p>
+      <p className="mt-6 flex flex-wrap gap-4 text-sm">
+        <Link href="/desk?step=investigate" className="underline">Back to Investigate</Link>
+        <Link href="/desk?step=investigate#working" className="underline">Back to Working</Link>
+      </p>
     </PageFrame>
   );
 }

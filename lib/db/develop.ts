@@ -27,6 +27,7 @@ import { chooseDocumentIds, examineSources } from "@/lib/research/examine";
 import { investigate } from "@/lib/research/investigate";
 import { retrieveStoredResults } from "@/lib/research/retrieve-selected";
 import { reviveAnalysis } from "@/lib/research/series";
+import { storyQuality } from "@/lib/editorial/pillar-reading";
 import { describeSource } from "@/lib/editorial/quality";
 import { draftWithProviders } from "@/lib/drafts/chain";
 import { publicPostUrl, sanitizeText } from "@/lib/intel/text";
@@ -55,8 +56,8 @@ function sourceFromUnderstanding(value: unknown) {
   return typeof text === "string" ? text.trim() : "";
 }
 
-function asState(value: unknown, sourceText: string): DevelopmentState {
-  const fresh = initialDevelopment(sourceText);
+function asState(value: unknown, sourceText: string, pillar?: string | null): DevelopmentState {
+  const fresh = initialDevelopment(sourceText, pillar);
   if (!value || typeof value !== "object" || Array.isArray(value)) return fresh;
   const row = value as Partial<DevelopmentState>;
   if (row.sourceHash !== fresh.sourceHash) return fresh;
@@ -114,7 +115,7 @@ function asState(value: unknown, sourceText: string): DevelopmentState {
     gateFailed: row.gateFailed === true,
     ready: row.ready === true,
     running: false,
-    quality: describeSource(sourceText),
+    quality: fresh.quality,
     investigation: null,
     analysis: reviveAnalysis((row as { analysis?: unknown }).analysis),
     seriesProvenance: readProvenance((row as { seriesProvenance?: unknown }).seriesProvenance),
@@ -162,7 +163,7 @@ async function loadOpportunity(id: string) {
 export async function previewDevelopment(id: string) {
   const loaded = await loadOpportunity(id);
   if (!loaded.ok) return { ...loaded, researchSearches: 0, modelRequests: 0 };
-  const preview = developmentPreview(loaded.sourceText, { maxSearches: researchLimits.maxSearchesPerRun });
+  const preview = developmentPreview(loaded.sourceText, { maxSearches: researchLimits.maxSearchesPerRun }, loaded.pillar);
   if (loaded.published) {
     return {
       ok: true as const,
@@ -257,7 +258,7 @@ export async function developContent(id: string) {
   const db = serviceClient();
   if (!db) return { ok: false as const, message: "The database is not configured.", researchCalls: 0, modelCalls: 0 };
   const updatedAt = textOf(loaded.row.updated_at);
-  const state = asState(loaded.row.development, loaded.sourceText);
+  const state = asState(loaded.row.development, loaded.sourceText, loaded.pillar);
   const locked = await db.from("opportunities").update({
     development: { ...state, running: true },
     lifecycle: state.ready ? "READY_FOR_EDITOR" : "RESEARCHING",
@@ -339,7 +340,7 @@ export async function developContent(id: string) {
         const listed = await loadSearchResults(claim.claimId);
         return { ok: false, called: run.started === true, label: "none" as const, sources: retrievedSources(listed.results), message: run.message };
       }
-      const plan = investigate(loaded.sourceText, describeSource(loaded.sourceText));
+      const plan = investigate(loaded.sourceText, storyQuality(loaded.sourceText, loaded.pillar, describeSource(loaded.sourceText)), loaded.pillar);
       const listed = await loadSearchResults(claim.claimId);
       const pending = chooseDocumentIds(listed.results, plan, researchLimits.maxDocumentsPerRun)
         .filter((resultId) => listed.results.some((item) => item.id === resultId && item.retrievalStatus !== "retrieved"));
@@ -429,7 +430,7 @@ export async function developContent(id: string) {
       }
       return { ok: true, called, drafts: result.drafts.map((draft) => ({ style: draft.style, text: draft.text })), message: result.message };
     },
-  });
+  }, loaded.pillar);
   finished.running = false;
   const lifecycle = lifecycleForDevelopment(finished);
   const saved = await db.from("opportunities").update({
@@ -522,7 +523,7 @@ async function continuationInputs(claimId: string | null) {
 export async function continuationOffer(id: string) {
   const loaded = await loadOpportunity(id);
   if (!loaded.ok) return { ok: false as const, message: loaded.message, available: false };
-  const state = asState(loaded.row.development, loaded.sourceText);
+  const state = asState(loaded.row.development, loaded.sourceText, loaded.pillar);
   const records = await continuationInputs(loaded.claimId);
   const usage = await usageSince(lagosDayStart());
   const investigation = investigate(loaded.sourceText, state.quality);
@@ -571,7 +572,7 @@ async function applyOfficialSeries(id: string, mode: "live" | "saved") {
   const db = serviceClient();
   if (!db) return { ok: false as const, message: "The database is not configured.", called: false as const, searched: false as const };
   const updatedAt = textOf(loaded.row.updated_at);
-  const state = asState(loaded.row.development, loaded.sourceText);
+  const state = asState(loaded.row.development, loaded.sourceText, loaded.pillar);
   const dataset = matchStructuredQuestion(`${loaded.sourceText}\n${state.quality.summary}`);
   if (!dataset || dataset.status !== "available" || !dataset.apiUrl) {
     return { ok: false as const, message: dataset?.reason || "No official series matches this story. No search was sent.", called: false as const, searched: false as const };
@@ -706,16 +707,16 @@ export async function continueContent(id: string, confirm: boolean) {
     const stored = await storeResearchPlan(loaded.claimId, preview.plan);
     if (!stored) return { ok: false as const, message: "The research plan could not be stored. No search was sent.", called: false as const };
   }
-  const state = asState(loaded.row.development, loaded.sourceText);
+  const state = asState(loaded.row.development, loaded.sourceText, loaded.pillar);
   const priorPlans = [...state.priorPlans, { hash: records.previous ? hashOfPlan(records.previous, records.previous.providerId) : null, queries: records.previous?.searches.map((item) => item.query) ?? [] }];
-  const resumed = { ...state, completed: ["interpret"] as DevelopmentState["completed"], ready: false, review: null, priorPlans, blocker: null, investigation: investigate(loaded.sourceText, state.quality) };
+  const resumed = { ...state, completed: ["interpret"] as DevelopmentState["completed"], ready: false, review: null, priorPlans, blocker: null, investigation: investigate(loaded.sourceText, state.quality, loaded.pillar) };
   const updatedAt = textOf(loaded.row.updated_at);
   const locked = await db.from("opportunities").update({ development: { ...resumed, running: true }, lifecycle: "RESEARCHING" }).eq("id", id).eq("updated_at", updatedAt).select("id");
   if (locked.error || !locked.data?.length) return { ok: false as const, message: "This conversation changed before research continued. Nothing was called.", called: false as const };
   const result = await developContent(id);
   const after = await loadOpportunity(id);
   if (after.ok) {
-    const finished = asState(after.row.development, after.sourceText);
+    const finished = asState(after.row.development, after.sourceText, after.pillar);
     const blocker: ResearchBlocker | null = finished.ready ? null : researchBlocker(finished, finished.error);
     const kept = finished.researchFailed
       ? { ...finished, completed: finished.completed.includes("research") ? finished.completed : [...finished.completed, "research"] as DevelopmentState["completed"], continuations: finished.continuations + 1, blocker, running: false }
@@ -737,7 +738,7 @@ export async function openSavedDocuments(id: string, confirm: boolean) {
   const db = serviceClient();
   if (!db || !loaded.claimId) return { ok: false as const, message: "The database is not configured.", called: false as const, searched: false as const };
   const updatedAt = textOf(loaded.row.updated_at);
-  const state = asState(loaded.row.development, loaded.sourceText);
+  const state = asState(loaded.row.development, loaded.sourceText, loaded.pillar);
   const locked = await db.from("opportunities").update({ development: { ...state, running: true }, lifecycle: "RESEARCHING" }).eq("id", id).eq("updated_at", updatedAt).select("id");
   if (locked.error || !locked.data?.length) return { ok: false as const, message: "This conversation changed before a document was opened. Nothing was retrieved.", called: false as const, searched: false as const };
   const retrieved = await retrieveStoredResults(loaded.claimId, preview.openIds);

@@ -39,14 +39,14 @@ const numbered = numberWithinScan([
 check("ties keep a stable sequence", numbered.map((card) => `${card.displayNumber}:${card.id}`).join(",") === "1:x,2:y,3:z");
 
 check("not started is explicit", storyReading({}).state === "Not started" && storyReading({}).reason.length > 0);
-check("searching is explicit", storyReading({ lifecycle: "RESEARCHING" }).state === "Searching");
-check("unopened sources are not treated as examined", storyReading({ searchStatus: "SEARCH_COMPLETED", evidenceStatus: "RELEVANT_EVIDENCE_FOUND", sources: [{ title: "State House", opened: false }] }).state === "Sources found but not opened");
-check("insufficient evidence stays insufficient", storyReading({ evidenceStatus: "EVIDENCE_INSUFFICIENT", sources: [{ title: "State House", opened: false }] }).state === "Evidence insufficient");
-check("opened evidence is examined", storyReading({ evidenceStatus: "EVIDENCE_READY", sources: [{ title: "Budget", opened: true }] }).state === "Evidence examined");
-check("drafting is named", storyReading({ lifecycle: "DRAFTING" }).state === "Drafting");
+check("searching is explicit", storyReading({ lifecycle: "RESEARCHING" }).state === "Researching");
+check("unopened sources stay in research", storyReading({ searchStatus: "SEARCH_COMPLETED", evidenceStatus: "RELEVANT_EVIDENCE_FOUND", sources: [{ title: "State House", opened: false }] }).state === "Researching" && /is proof/.test(storyReading({ searchStatus: "SEARCH_COMPLETED", evidenceStatus: "RELEVANT_EVIDENCE_FOUND", sources: [{ title: "State House", opened: false }] }).reason));
+check("insufficient evidence needs attention and keeps the reason", storyReading({ evidenceStatus: "EVIDENCE_INSUFFICIENT", error: "No page addressed the debt figure." }).state === "Needs attention" && /debt figure/.test(storyReading({ evidenceStatus: "EVIDENCE_INSUFFICIENT", error: "No page addressed the debt figure." }).reason));
+check("opened evidence is analysis", storyReading({ evidenceStatus: "EVIDENCE_READY", sources: [{ title: "Budget", opened: true }] }).state === "Analyzing");
+check("drafting is writing", storyReading({ lifecycle: "DRAFTING" }).state === "Writing");
 check("ready is named", storyReading({ lifecycle: "READY_FOR_EDITOR" }).state === "Ready for You");
-check("a failed step needs attention", storyReading({ researchFailed: true, error: "The search stopped." }).state === "Needs attention");
-check("every story state is one of the eight", storyStates.length === 8);
+check("a failed step needs attention", storyReading({ researchFailed: true, error: "The search stopped." }).state === "Needs attention" && /search stopped/.test(storyReading({ researchFailed: true, error: "The search stopped." }).reason));
+check("every story state is one of the six", storyStates.length === 6 && storyStates.join(",") === "Not started,Researching,Analyzing,Writing,Ready for You,Needs attention");
 
 check("missing configuration is refused", editorAccess({ configured: false, session: false, sameOrigin: true }).status === 503);
 check("a missing session is refused", editorAccess({ configured: true, session: false, sameOrigin: true }).status === 401);

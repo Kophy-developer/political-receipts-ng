@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { applyPass, restoreCard } from "@/lib/desk/board";
@@ -21,8 +21,8 @@ export type BoardCard = {
   older: boolean;
 };
 
-function hrefFor(card: BoardCard) {
-  return `/desk/work/${card.id}`;
+function hrefFor(card: BoardCard, from: string) {
+  return `/desk/work/${card.id}?from=${from}`;
 }
 
 export function ScanBoard({
@@ -30,11 +30,13 @@ export function ScanBoard({
   working,
   earlier,
   passed,
+  place = "investigate",
 }: {
   thisScan: BoardCard[];
   working: BoardCard[];
   earlier: BoardCard[];
   passed: BoardCard[];
+  place?: "discover" | "investigate";
 }) {
   const [scanCards, setScanCards] = useState(thisScan);
   const [workingCards, setWorkingCards] = useState(working);
@@ -94,36 +96,39 @@ export function ScanBoard({
         <p className="font-mono text-[11px] tracking-[0.16em] text-ink-soft uppercase">This scan</p>
         <h2 className="mt-2 font-serif text-3xl tracking-[-0.03em]">What this scan understood.</h2>
         {scanCards.length === 0 ? (
-          <p className="mt-4 text-sm text-ink-soft">This scan has no open cards. Older scans are not listed here.</p>
+          <p className="mt-4 text-sm text-ink-soft">This scan has no open cards. Earlier discoveries stay on Investigate. They were not deleted.</p>
         ) : (
           <ol className="mt-4 space-y-3">
             {scanCards.map((card, index) => (
-              <Card key={card.id} card={{ ...card, displayNumber: index + 1 }} onPass={() => void pass(card.id)} />
+              <Card key={card.id} card={{ ...card, displayNumber: index + 1 }} from={place} onPass={() => void pass(card.id)} />
             ))}
           </ol>
         )}
       </section>
-      {workingCards.length > 0 ? (
-        <section>
-          <p className="font-mono text-[11px] tracking-[0.16em] text-ink-soft uppercase">Working</p>
-          <h2 className="mt-2 font-serif text-3xl tracking-[-0.03em]">Stories already open.</h2>
+      <section id="working">
+        <p className="font-mono text-[11px] tracking-[0.16em] text-ink-soft uppercase">Working</p>
+        <h2 className="mt-2 font-serif text-3xl tracking-[-0.03em]">Stories already open.</h2>
+        {workingCards.length === 0 ? (
+          <p className="mt-4 text-sm text-ink-soft">Nothing is in progress. Starting an investigation from a story puts it here, across every scan and pillar.</p>
+        ) : (
           <ul className="mt-4 space-y-3">
             {workingCards.map((card) => (
-              <Card key={card.id} card={card} onPass={() => void pass(card.id)} />
+              <Card key={card.id} card={card} from="working" onPass={() => void pass(card.id)} />
+            ))}
+          </ul>
+        )}
+      </section>
+      {earlierCards.length > 0 ? (
+        <section>
+          <p className="font-mono text-[11px] tracking-[0.16em] text-ink-soft uppercase">Earlier discoveries</p>
+          <h2 className="mt-2 font-serif text-3xl tracking-[-0.03em]">Saved from earlier scans.</h2>
+          <p className="mt-2 text-sm text-ink-soft">These cards stay stored. A newer scan does not remove them, and their stored ranks are unchanged.</p>
+          <ul className="mt-3 space-y-3">
+            {earlierCards.map((card) => (
+              <Card key={card.id} card={card} from="investigate" onPass={() => void pass(card.id)} />
             ))}
           </ul>
         </section>
-      ) : null}
-      {earlierCards.length > 0 ? (
-        <details>
-          <summary className="cursor-pointer font-mono text-[11px] tracking-[0.16em] text-ink-soft uppercase">Earlier open work</summary>
-          <p className="mt-2 text-sm text-ink-soft">These cards are from older scans. They are not part of this scan, and their stored ranks are unchanged.</p>
-          <ul className="mt-3 space-y-3">
-            {earlierCards.map((card) => (
-              <Card key={card.id} card={card} onPass={() => void pass(card.id)} />
-            ))}
-          </ul>
-        </details>
       ) : null}
       {passed.length > 0 ? (
         <details>
@@ -142,7 +147,7 @@ export function ScanBoard({
   );
 }
 
-function Card({ card, onPass }: { card: BoardCard; onPass: () => void }) {
+function Card({ card, from, onPass }: { card: BoardCard; from: string; onPass: () => void }) {
   const pillar = contentPillarFromStorage(card.pillar);
   return (
     <li className="border border-rule px-4 py-4">
@@ -155,13 +160,14 @@ function Card({ card, onPass }: { card: BoardCard; onPass: () => void }) {
       <p className="mt-2 text-sm leading-relaxed">{card.title}</p>
       <p className="mt-2 text-sm">{card.storyState}</p>
       <p className="mt-1 text-sm text-ink-soft">{card.storyReason}</p>
+      <p className="mt-1 text-sm">Next: {card.storyAction}</p>
       {card.sourceText ? <p className="mt-2 text-sm text-ink-soft">{card.sourceText}</p> : null}
       <div className="mt-3 flex flex-wrap gap-2">
         <DevelopButton id={card.id} />
         <button type="button" onClick={onPass} className="inline-flex h-11 items-center border border-ink px-3 text-sm">
           Pass
         </button>
-        <Link href={hrefFor(card)} className="inline-flex h-11 items-center px-3 text-sm underline">Open story</Link>
+        <Link href={hrefFor(card, from)} className="inline-flex h-11 items-center px-3 text-sm underline">Open story</Link>
       </div>
     </li>
   );
@@ -169,10 +175,13 @@ function Card({ card, onPass }: { card: BoardCard; onPass: () => void }) {
 
 function DevelopButton({ id }: { id: string }) {
   const router = useRouter();
+  const busy = useRef(false);
   const [phase, setPhase] = useState<"idle" | "confirm" | "working" | "done">("idle");
   const [message, setMessage] = useState<string | null>(null);
 
   async function send(action: "preview" | "start") {
+    if (busy.current) return;
+    busy.current = true;
     setPhase(action === "preview" ? "confirm" : "working");
     setMessage(action === "start" ? "Developing this story. Stay on this card." : null);
     try {
@@ -189,10 +198,12 @@ function DevelopButton({ id }: { id: string }) {
       }
       setPhase("done");
       setMessage(body.message || "Development stopped.");
-      router.push(`/desk/work/${id}`);
+      router.push(`/desk/work/${id}?from=working`);
     } catch {
       setPhase("idle");
       setMessage("The desk could not reach the server. This story is still here.");
+    } finally {
+      busy.current = false;
     }
   }
 
