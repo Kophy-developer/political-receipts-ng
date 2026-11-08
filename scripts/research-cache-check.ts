@@ -94,7 +94,7 @@ async function main() {
   const reading = readyState ? storyReading({ ready: true, unresolved: readyState.unresolved, lifecycle: lifecycleForDevelopment(readyState) }) : null;
   check("the development workflow drafts from the saved series", prepared?.ready === true && prepared.stage === "EVIDENCE_READY" && lifecycleForDevelopment(readyState || initialDevelopment(pidgin)) === "READY_FOR_EDITOR" && reading?.state === "Ready for You" && analysis?.chart?.points.length === 10 && analysis.tenYear?.fromYear === 2016 && analysis.tenYear.toYear === 2025 && analysis.tenYear.percent === percentChange(firstYear?.value || 0, lastYear?.value || 0) && !analysis.observations.some((item) => item.year === 2026));
   const draft = prepared?.draft || "";
-  check("the draft keeps the attribution and does not claim a cause or a live retrieval", /did not say foreign companies are not investing/i.test(draft) && /does not say why/i.test(draft) && /Not a live retrieval/.test(draft) && /2026 is not in the published series/.test(draft) && !/because of Tinubu, inflows/i.test(draft));
+  check("the draft keeps the attribution and leaves provenance in the research record", /did not say foreign companies are not investing/i.test(draft) && /does not say why/i.test(draft) && !/Not a live retrieval/.test(draft) && !/2026 is not in the published series/.test(draft) && !/Live World Bank retrieval/.test(draft) && !/because of Tinubu/.test(draft) && (prepared?.drafts.length ?? 0) === 3);
   const same = analysis ? analyzeSeries(analysis.observations, "foreign direct investment") : null;
   check("the chart years are the saved observations", same?.threeYear?.fromYear === 2023 && same.threeYear.toYear === 2025 && same.changes.at(-1)?.fromYear === 2024 && same.changes.at(-1)?.toYear === 2025);
 
@@ -146,9 +146,10 @@ async function main() {
   check("a failed JSON and CSV stop after those attempts", down.ok === false && attempts.length === 2 && /503/.test(down.message) && down.attempts.some((item) => item.status === 503 && item.contentType === "text/html" && item.json === false));
 
   const route = readFileSync("app/api/desk/develop/route.ts", "utf8");
-  const page = readFileSync("app/desk/work/[id]/page.tsx", "utf8");
+  const page = readFileSync("app/desk/work/[id]/page.tsx", "utf8") + readFileSync("components/desk/story-drafts.tsx", "utf8");
   const publish = readFileSync("lib/x/publish.ts", "utf8");
-  check("the story can resume from saved data and publishing still needs the exact text", route.includes("resume-saved") && page.includes("Resume with validated saved data") && page.includes("Not a live retrieval") && publish.includes("input.confirm !== true"));
+  const provenance = readFileSync("lib/editorial/money.ts", "utf8");
+  check("the story can resume from saved data and publishing still needs the exact text", route.includes("resume-saved") && page.includes("Resume with validated saved data") && page.includes("Save this as final text") && provenance.includes("Not a live retrieval") && publish.includes("input.confirm !== true"));
 
   if (failures.length) {
     console.error(failures.join("\n"));

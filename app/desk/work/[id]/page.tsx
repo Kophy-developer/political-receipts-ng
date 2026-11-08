@@ -6,6 +6,8 @@ import { notFound } from "next/navigation";
 import { PageFrame } from "@/components/shell/page-frame";
 import { ContinueResearch } from "@/components/desk/continue-research";
 import { SeriesChart } from "@/components/desk/series-chart";
+import { StoryDrafts } from "@/components/desk/story-drafts";
+import { formatInvestment, provenanceSentence } from "@/lib/editorial/money";
 import { continuationOffer, loadDocumentPassages } from "@/lib/db/develop";
 import { loadSearchResults } from "@/lib/db/search-results";
 import { loadStory } from "@/lib/db/editorial";
@@ -17,6 +19,25 @@ import { readProvenance } from "@/lib/research/structured-cache";
 import Loading from "@/app/loading";
 
 export const metadata: Metadata = { title: "Story" };
+
+function storedTime(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return `${new Intl.DateTimeFormat("en-US", { timeZone: "America/Chicago", dateStyle: "long", timeStyle: "short" }).format(date)} CT`;
+}
+
+function developmentOptions(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return [];
+  const drafts = (value as { drafts?: unknown }).drafts;
+  if (!Array.isArray(drafts)) return [];
+  return drafts.flatMap((item) => {
+    if (!item || typeof item !== "object") return [];
+    const style = (item as { style?: unknown }).style;
+    const text = (item as { text?: unknown }).text;
+    if (typeof style !== "string" || typeof text !== "string" || !text.trim()) return [];
+    return [{ style, label: style, text }];
+  });
+}
 
 export default function WorkPage({ params }: { params: Promise<{ id: string }> }) {
   return (
@@ -40,6 +61,8 @@ async function WorkBody({ params }: { params: Promise<{ id: string }> }) {
   const offer = await continuationOffer(id);
   const latestAttempt = offer.ok ? offer.why : story.card.storyReason;
   const provenance = readProvenance((story.development as { seriesProvenance?: unknown } | null)?.seriesProvenance);
+  const options = developmentOptions(story.development);
+  const provenanceTime = provenance?.retrievedAt ? storedTime(provenance.retrievedAt) : null;
   const nextAction = offer.ok && offer.available
     ? (offer.savedData ? "Resume with validated saved data. The live API is not called." : offer.structuredId ? "Read the official series. No search and no PDF download run until you confirm." : offer.searches === 0 ? "Open saved documents. No new search runs until you confirm." : "Continue research on this story. Nothing runs until you confirm.")
     : (offer.ok ? [offer.blocker, offer.why].filter(Boolean).join(". ") : story.card.storyAction);
@@ -106,8 +129,7 @@ async function WorkBody({ params }: { params: Promise<{ id: string }> }) {
           {provenance ? (
             <div className="mt-4 space-y-1 text-sm">
               <h3 className="font-serif text-xl">Official series</h3>
-              <p>{provenance.live ? "Live source." : "Cached official data. Not a live retrieval."}</p>
-              <p>{provenance.label}</p>
+              <p>{provenanceSentence({ ...provenance, retrievedAt: provenanceTime })}</p>
               <p>Indicator {provenance.indicator} · {provenance.country} · {provenance.unit}</p>
               <p>Source update: {provenance.sourceUpdated || "not stated"}</p>
               <p>Years available: {provenance.years.length ? `${provenance.years[0]}–${provenance.years[provenance.years.length - 1]}` : "none"}</p>
@@ -123,7 +145,8 @@ async function WorkBody({ params }: { params: Promise<{ id: string }> }) {
                 <thead>
                   <tr className="border-b border-rule">
                     <th className="py-1 font-normal">Year</th>
-                    <th className="py-1 font-normal">Value</th>
+                    <th className="py-1 font-normal">Reading</th>
+                    <th className="py-1 font-normal">Exact value</th>
                     <th className="py-1 font-normal">Basis</th>
                   </tr>
                 </thead>
@@ -131,6 +154,7 @@ async function WorkBody({ params }: { params: Promise<{ id: string }> }) {
                   {analysis.observations.map((item) => (
                     <tr key={`${item.series}-${item.year}`} className="border-b border-rule">
                       <td className="py-1">{item.year}</td>
+                      <td className="py-1">{formatInvestment(item.value, item.unit)}</td>
                       <td className="py-1">{item.value}</td>
                       <td className="py-1">{item.basis}</td>
                     </tr>
@@ -161,21 +185,10 @@ async function WorkBody({ params }: { params: Promise<{ id: string }> }) {
         </section>
         <section className="border border-rule px-4 py-4">
           <h2 className="font-serif text-2xl">Draft</h2>
-          {story.drafts.length === 0 && story.card.developmentDrafts.length === 0 ? (
-            <p className="mt-2 text-sm text-ink-soft">No draft is stored.</p>
-          ) : (
-            <ul className="mt-3 space-y-3">
-              {story.drafts.map((draft) => (
-                <li key={draft.id} className="text-sm">
-                  <p className="font-mono text-[11px] uppercase">{draft.version || "draft"} · {draft.status}</p>
-                  <p className="mt-1 leading-relaxed">{draft.content}</p>
-                </li>
-              ))}
-              {story.drafts.length === 0 ? story.card.developmentDrafts.map((text) => (
-                <li key={text} className="text-sm leading-relaxed">{text}</li>
-              )) : null}
-            </ul>
-          )}
+          <StoryDrafts id={id} claimId={story.card.claimId} options={options.length ? options : story.card.developmentDrafts.map((text, index) => ({ style: `saved-${index}`, label: "Draft", text }))} sourceUrl={provenance?.pageUrl || analysis?.url || null} />
+          {story.drafts.filter((draft) => draft.version === "M").map((draft) => (
+            <p key={draft.id} className="mt-3 text-sm">Saved final text: {draft.content}</p>
+          ))}
         </section>
         <section className="border border-rule px-4 py-4">
           <h2 className="font-serif text-2xl">Approval</h2>

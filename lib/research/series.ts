@@ -1,3 +1,4 @@
+import { formatInvestment, formatPercentPoint } from "@/lib/editorial/money";
 import type { Observation } from "@/lib/research/extract";
 
 export type Change = {
@@ -137,7 +138,7 @@ export function analyzeSeries(observations: Observation[], focus?: string | null
   const unit = points[0]?.unit || "unspecified";
   const basis = points[0]?.basis || "unknown";
   const url = points.find((item) => item.url)?.url || "";
-  const interpretations = interpretationsFor({ series: primaryName, tenYear, threeYear, changes, missingYears });
+  const interpretations = interpretationsFor({ series: primaryName, unit, tenYear, threeYear, changes, missingYears });
   const chart = comparable && points.length >= 2 && (names.length === 1 || Boolean(wanted))
     ? {
         metric: primaryName,
@@ -168,31 +169,32 @@ export function analyzeSeries(observations: Observation[], focus?: string | null
   };
 }
 
-function formatNumber(value: number) {
-  return new Intl.NumberFormat("en-US", { maximumFractionDigits: 3 }).format(value);
+function formatNumber(value: number, unit: string) {
+  return formatInvestment(value, unit);
 }
 
 function formatPercent(value: number | null) {
-  if (value === null) return "not calculated because the starting value is zero";
-  const rounded = Number.isInteger(value) ? value.toFixed(0) : String(value);
-  return `${value > 0 ? "up" : value < 0 ? "down" : "unchanged"} ${rounded.replace("-", "")} percent`;
+  const point = formatPercentPoint(value);
+  if (!point) return "not calculated because the starting value is zero";
+  return `${point.word} ${point.body} percent`;
 }
 
-function interpretationsFor(input: { series: string; tenYear: Change | null; threeYear: Change | null; changes: Change[]; missingYears: number[] }) {
+function interpretationsFor(input: { series: string; unit: string; tenYear: Change | null; threeYear: Change | null; changes: Change[]; missingYears: number[] }) {
   const lines: string[] = [];
+  const amount = (value: number) => formatNumber(value, input.unit);
   if (input.tenYear) {
-    lines.push(`${input.series} is ${formatNumber(input.tenYear.end)} in ${input.tenYear.toYear}, compared with ${formatNumber(input.tenYear.start)} in ${input.tenYear.fromYear}. That is ${formatPercent(input.tenYear.percent)} over the opened span.`);
+    lines.push(`${input.series} is ${amount(input.tenYear.end)} in ${input.tenYear.toYear}, compared with ${amount(input.tenYear.start)} in ${input.tenYear.fromYear}. That is ${formatPercent(input.tenYear.percent)} over the opened span.`);
   } else if (input.missingYears.length) {
     lines.push("Missing years were left blank, so no ten-year comparison is stated.");
   } else {
     lines.push("The opened table does not cover about ten years, so no ten-year comparison is stated.");
   }
   if (input.threeYear) {
-    lines.push(`The latest three stored years move from ${formatNumber(input.threeYear.start)} in ${input.threeYear.fromYear} to ${formatNumber(input.threeYear.end)} in ${input.threeYear.toYear}, ${formatPercent(input.threeYear.percent)}.`);
+    lines.push(`The latest three stored years move from ${amount(input.threeYear.start)} in ${input.threeYear.fromYear} to ${amount(input.threeYear.end)} in ${input.threeYear.toYear}, ${formatPercent(input.threeYear.percent)}.`);
   }
   const latest = input.changes[input.changes.length - 1];
   if (latest) {
-    lines.push(`The latest one-year change, ${latest.fromYear} to ${latest.toYear}, is ${formatNumber(latest.absolute)} (${formatPercent(latest.percent)}).`);
+    lines.push(`The latest one-year change, ${latest.fromYear} to ${latest.toYear}, is ${amount(latest.absolute)} (${formatPercent(latest.percent)}).`);
   }
   if (input.tenYear && input.threeYear && input.tenYear.percent !== null && input.threeYear.percent !== null && Math.sign(input.tenYear.percent) !== Math.sign(input.threeYear.percent)) {
     lines.push("The longer window and the latest three years do not move in the same direction. Both readings stay visible.");

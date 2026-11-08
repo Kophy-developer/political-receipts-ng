@@ -114,8 +114,8 @@ const ports: DevelopmentPorts = {
 };
 const developed = await advanceDevelopment(initialDevelopment(pidgin), ports);
 const draft = developed.drafts[0]?.text ?? "";
-check("development reaches Ready for You with the calculated figures", developed.ready === true && /5,400/.test(draft) && /5,000/.test(draft) && /nigerianstat\.gov\.ng/.test(draft));
-check("the draft does not invent the author's position or a cause", /did not say foreign companies are not investing/i.test(draft) && /does not say why/i.test(draft) && !/because of Tinubu, inflows/i.test(draft));
+check("development reaches Ready for You with the calculated figures", developed.ready === true && /\$5\.40bn/.test(draft) && /\$5\.00bn/.test(draft) && !/nigerianstat\.gov\.ng/.test(draft));
+check("the draft does not invent the author's position or a cause", /did not say foreign companies are not investing/i.test(draft) && /does not say why/i.test(draft) && !/because of Tinubu/.test(draft));
 check("the angle is a finding rather than a generic instruction", /capital importation/i.test(developed.angle || "") && !/keep the claim with the speaker/i.test(developed.angle || ""));
 
 const failed: typeof developed = { ...developed, draftFailed: true, ready: false, completed: developed.completed.filter((item) => item !== "draft"), drafts: [] };

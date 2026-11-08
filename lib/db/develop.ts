@@ -9,7 +9,7 @@ import { recordEvent } from "@/lib/db/events";
 import { isUuid } from "@/lib/db/labels";
 import { publishedByClaim } from "@/lib/db/publishing";
 import { loadSearchResults } from "@/lib/db/search-results";
-import { composeFromAnalysis } from "@/lib/editorial/findings";
+import { composeEditorialPosts } from "@/lib/editorial/findings";
 import {
   advanceDevelopment,
   angleFor,
@@ -26,7 +26,7 @@ import {
 import { chooseDocumentIds, examineSources } from "@/lib/research/examine";
 import { investigate } from "@/lib/research/investigate";
 import { retrieveStoredResults } from "@/lib/research/retrieve-selected";
-import { reviveAnalysis, type SeriesAnalysis } from "@/lib/research/series";
+import { reviveAnalysis } from "@/lib/research/series";
 import { describeSource } from "@/lib/editorial/quality";
 import { draftWithProviders } from "@/lib/drafts/chain";
 import { publicPostUrl, sanitizeText } from "@/lib/intel/text";
@@ -237,14 +237,6 @@ async function passagesByUrl(claimId: string) {
   return found;
 }
 
-function draftDomain(analysis: SeriesAnalysis) {
-  try {
-    return analysis.url ? new URL(analysis.url).hostname.replace(/^www\./, "") : analysis.sourceName;
-  } catch {
-    return analysis.sourceName;
-  }
-}
-
 function retrievedSources(results: Array<{ domain: string; url: string; title: string; snippet?: string | null; retrievalStatus?: string }>) {
   return results
     .filter((item) => item.url.startsWith("https://"))
@@ -380,8 +372,8 @@ export async function developContent(id: string) {
         return {
           ok: true,
           called: false,
-          drafts: [{ style: "conversational", text: composeFromAnalysis({ quality: state.quality, analysis, domain: draftDomain(analysis) }) }],
-          message: "The draft was written from the opened series. No model request was made.",
+          drafts: composeEditorialPosts({ quality: state.quality, analysis }),
+          message: "The drafts were written from the opened series. No model request was made.",
         };
       }
       const used = await calledToday();
@@ -391,7 +383,7 @@ export async function developContent(id: string) {
           return {
             ok: true,
             called: false,
-            drafts: [{ style: "conversational", text: composeFromAnalysis({ quality: state.quality, analysis, domain: draftDomain(analysis) }) }],
+            drafts: composeEditorialPosts({ quality: state.quality, analysis }),
             message: "The draft was written from the opened series. No model request was made.",
           };
         }
@@ -657,7 +649,7 @@ async function applyOfficialSeries(id: string, mode: "live" | "saved") {
     completed: ready ? ["interpret", "research", "angle", "draft"] : state.completed,
     angle: prepared.angle?.title ?? state.angle,
     anglePoints: prepared.angle?.points ?? state.anglePoints,
-    drafts: prepared.draft ? [{ style: "conversational", text: prepared.draft, sourceHash: state.sourceHash }] : state.drafts,
+    drafts: prepared.drafts.length ? prepared.drafts.map((item) => ({ style: item.style, text: item.text, sourceHash: state.sourceHash })) : state.drafts,
     ready,
     review: ready ? null : "Needs editorial review",
     blocker: ready ? null : "No relevant source found",
@@ -758,10 +750,10 @@ export async function openSavedDocuments(id: string, confirm: boolean) {
   });
   const examined = examineSources(investigation, sources);
   const angle = examined.analysis?.chart && examined.analysis.comparable ? angleFor(state.quality, { label: "usable", sources }, examined.analysis) : null;
-  const draft = examined.analysis?.chart && examined.analysis.comparable
-    ? composeFromAnalysis({ quality: state.quality, analysis: examined.analysis, domain: draftDomain(examined.analysis) })
-    : "";
-  const ready = Boolean(draft);
+  const posts = examined.analysis?.chart && examined.analysis.comparable
+    ? composeEditorialPosts({ quality: state.quality, analysis: examined.analysis })
+    : [];
+  const ready = posts.length === 3;
   const finished: DevelopmentState = {
     ...state,
     running: false,
@@ -774,7 +766,7 @@ export async function openSavedDocuments(id: string, confirm: boolean) {
     completed: ready ? ["interpret", "research", "angle", "draft"] : state.completed.includes("research") ? state.completed : [...state.completed, "research"],
     angle: angle?.title ?? state.angle,
     anglePoints: angle?.points ?? state.anglePoints,
-    drafts: draft ? [{ style: "conversational", text: draft, sourceHash: state.sourceHash }] : state.drafts,
+    drafts: posts.length ? posts.map((item) => ({ style: item.style, text: item.text, sourceHash: state.sourceHash })) : state.drafts,
     ready,
     review: ready ? null : "Needs editorial review",
     blocker: ready ? null : researchBlocker({ ...state, analysis: examined.analysis, evidence: { label: "insufficient", sources: examined.sources }, researchFailed: !retrieved.ok }, retrieved.ok ? null : retrieved.message),

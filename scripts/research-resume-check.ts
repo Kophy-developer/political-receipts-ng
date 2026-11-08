@@ -130,7 +130,7 @@ check("incompatible units are not compared", incompatible?.comparable === false 
 
 const draft = analysis ? composeFromAnalysis({ quality, analysis, domain: "nigerianstat.gov.ng" }) : "";
 const years = new Set(analysis?.observations.map((item) => String(item.year)));
-check("the draft uses only opened figures", /5,400/.test(draft) && /5,000/.test(draft) && !/2015/.test(draft) && !/9,999/.test(draft) && [...draft.matchAll(/\b20\d\d\b/g)].every((match) => years.has(match[0])));
+check("the draft uses only opened figures", /\$5\.40bn/.test(draft) && /\$5\.00bn/.test(draft) && !/2015/.test(draft) && !/9,999/.test(draft) && [...draft.matchAll(/\b20\d\d\b/g)].every((match) => years.has(match[0])));
 
 async function main() {
 let researchCalls = 0;

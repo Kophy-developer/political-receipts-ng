@@ -92,7 +92,7 @@ async function main() {
   const parsed = extractDocument({ text: read.ok ? read.passage : "", url: capitalUrl, title: "Nigeria Capital Importation" });
   const analysis = analyzeSeries(parsed.observations, "capital importation");
   const draft = analysis?.chart ? composeFromAnalysis({ quality: describeSource(pidgin), analysis, domain: "nigerianstat.gov.ng" }) : "";
-  check("the opened fixture parses into a chart and a draft", parsed.observations.length === 10 && analysis?.chart?.points.length === 10 && /5,400/.test(draft) && /5,000/.test(draft));
+  check("the opened fixture parses into a chart and a draft", parsed.observations.length === 10 && analysis?.chart?.points.length === 10 && /\$5\.40bn/.test(draft) && /\$5\.00bn/.test(draft));
   check("the draft does not invent a year outside the opened table", [...draft.matchAll(/\b20\d\d\b/g)].every((match) => analysis?.observations.some((item) => String(item.year) === match[0])));
 
   const tooBig = await attemptDocumentRead("https://statehouse.gov.ng/fg-tinubus-reforms", async () => ({ contentType: "text/html", bytes: new Uint8Array(1_200_001) }));

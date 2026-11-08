@@ -106,7 +106,7 @@ async function main() {
   const parsed = extractDocument({ text: opened.ok ? opened.passage : "", url, title: "Nigeria Capital Importation" });
   const analysis = analyzeSeries(parsed.observations, "capital importation");
   const draft = analysis?.chart ? composeFromAnalysis({ quality: describeSource("The post rejects another person's claim about foreign investment."), analysis, domain: "nigerianstat.gov.ng" }) : "";
-  check("a large readable PDF is downloaded in the test and the relevant table is extracted", opened.ok === true && opened.passage.includes("Source URL:") && parsed.observations.map((item) => item.value).join(",") === "5000,6200,4100" && analysis?.chart?.points.length === 3 && /5,000/.test(draft) && !/8,000/.test(draft));
+  check("a large readable PDF is downloaded in the test and the relevant table is extracted", opened.ok === true && opened.passage.includes("Source URL:") && parsed.observations.map((item) => item.value).join(",") === "5000,6200,4100" && analysis?.chart?.points.length === 3 && /\$5\.00bn/.test(draft) && !/\$8\.00bn/.test(draft));
   check("the stored passage keeps the source page and does not keep the padding", opened.ok === true && opened.passage.includes("p. 2") && !opened.passage.includes("Merchandise exports") && opened.passage.length < 4_000);
 
   const repeated = await attemptDocumentRead(url, async () => ({ contentType: "application/pdf", bytes: large }));

@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { angleFromAnalysis, opinionAngle } from "@/lib/editorial/findings";
+import { validateEditorialPosts } from "@/lib/editorial/posts";
 import { describeSource, type SourceQuality } from "@/lib/editorial/quality";
 import { examineSources, type ResearchStage } from "@/lib/research/examine";
 import { investigate, type Investigation } from "@/lib/research/investigate";
@@ -304,7 +305,12 @@ function cites(text: string, sources: RetrievedSource[]) {
 
 export function judgeDevelopmentDrafts(state: DevelopmentState, drafts: Array<{ text: string }>) {
   if (drafts.length === 0) return { ok: false as const, question: "No draft was saved." };
-    const sources = (state.evidence?.sources ?? []).filter((source) => source.opened && source.stance && source.stance !== "does_not_address");
+  if (state.analysis?.chart && state.analysis.comparable) {
+    const judged = validateEditorialPosts(state.analysis, state.quality, drafts);
+    if (!judged.ok) return { ok: false as const, question: judged.reason };
+    return { ok: true as const, unresolved: judged.reason };
+  }
+  const sources = (state.evidence?.sources ?? []).filter((source) => source.opened && source.stance && source.stance !== "does_not_address");
   for (const draft of drafts) {
     const text = draft.text;
     if (/https?:\/\//i.test(text)) return { ok: false as const, question: "A draft contains a link. Sources stay on the card, and the draft was not moved to Ready for You." };
