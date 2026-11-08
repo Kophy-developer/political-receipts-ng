@@ -1,20 +1,17 @@
 import "server-only";
 import { recentSearchEndpoint } from "@/lib/intel/budget";
 import { xUserGet } from "@/lib/x/oauth1";
-import { postsFromSearchBody, tweetFields, type RetrievedPost } from "@/lib/x/parse";
+import { postsFromSearchBody, recentSearchParams, tweetFields, type RetrievedPost } from "@/lib/x/parse";
 
 export { tweetFields, type RetrievedPost };
 
 export async function searchRecent(input: { query: string; maxResults: number; startTime: string }) {
   const maxResults = Math.min(recentSearchEndpoint.maxResults, Math.max(recentSearchEndpoint.minResults, input.maxResults));
-  const result = await xUserGet("https://api.twitter.com/2/tweets/search/recent", {
+  const result = await xUserGet("https://api.twitter.com/2/tweets/search/recent", recentSearchParams({
     query: input.query,
-    max_results: String(maxResults),
-    start_time: input.startTime,
-    "tweet.fields": tweetFields,
-    expansions: "author_id",
-    "user.fields": "username,name",
-  });
+    maxResults,
+    startTime: input.startTime,
+  }));
   if (!result.ok) return { ok: false as const, status: result.status, message: result.message, posts: [] as RetrievedPost[] };
   return { ok: true as const, posts: postsFromSearchBody(result.data).slice(0, maxResults) };
 }

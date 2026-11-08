@@ -3,6 +3,18 @@ import { cleanUsername, sanitizeText } from "@/lib/intel/text";
 
 export const tweetFields = "created_at,public_metrics,conversation_id,lang,referenced_tweets,author_id";
 
+/** The query parameter is the completed recent-search string, including any engagement operator. */
+export function recentSearchParams(input: { query: string; maxResults: number; startTime: string }) {
+  return {
+    query: input.query,
+    max_results: String(input.maxResults),
+    start_time: input.startTime,
+    "tweet.fields": tweetFields,
+    expansions: "author_id",
+    "user.fields": "username,name",
+  };
+}
+
 export type RetrievedPost = {
   id: string;
   text: string;

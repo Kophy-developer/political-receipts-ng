@@ -35,7 +35,7 @@ export async function latestScanHeadline(): Promise<ScanHeadline | null> {
     posts: typeof row.posts_stored === "number" ? row.posts_stored : 0,
     conversations: typeof row.conversations_created === "number" ? row.conversations_created : null,
     pillar: named ? pillarLabels[named] : "Not recorded",
-    query: typeof detail.groupName === "string" ? detail.groupName : null,
+    query: typeof detail.query === "string" ? detail.query : typeof detail.groupName === "string" ? detail.groupName : null,
     error: typeof row.error === "string" && row.error.trim() ? row.error : null,
     extraction: typeof detail.extractionDetail === "string" ? detail.extractionDetail : null,
   };

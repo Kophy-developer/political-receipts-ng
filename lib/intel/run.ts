@@ -13,7 +13,9 @@ import {
   termRules,
   touchGroup,
 } from "@/lib/db/intel";
+import { loadEngagement } from "@/lib/db/engagement";
 import { recordUsage, usageSince } from "@/lib/db/usage";
+import { engagementMiss, withEngagement } from "@/lib/intel/engagement";
 import { judgePost } from "@/lib/intel/classify";
 import type { ExtractionReport } from "@/lib/intel/extract-posts";
 import { extractFromPosts } from "@/lib/intel/extract-posts";
@@ -103,7 +105,10 @@ async function gate(storagePillar: "politics" | "finance" | "football" = "politi
       : "That pillar has no discovery query yet. No X request was made.";
     return { ok: false as const, estimate: blockedEstimate(message) };
   }
-  if (group.query.length > 480) return { ok: false as const, estimate: blockedEstimate("The next search query is too long. No X request was made.") };
+  const engagement = await loadEngagement();
+  if (!engagement.ok) return { ok: false as const, estimate: blockedEstimate(engagement.message) };
+  const built = withEngagement(group.query, engagement.setting);
+  if (!built.ok) return { ok: false as const, estimate: blockedEstimate(built.message) };
   const xRemaining = Math.max(0, scanLimits.dailyXRequests - usage.totals.xRequests);
   const postsRemaining = Math.max(0, scanLimits.dailyPosts - usage.totals.posts);
   const geminiRemaining = Math.max(0, scanLimits.dailyGeminiRequests - usage.totals.geminiRequests);
@@ -125,7 +130,7 @@ async function gate(storagePillar: "politics" | "finance" | "football" = "politi
       estimate: { ...estimate, ready: false, message: "The daily post ceiling leaves fewer than 10 reads. No search was sent." },
     };
   }
-  return { ok: true as const, estimate, group, geminiRemaining };
+  return { ok: true as const, estimate, group, requestQuery: built.query, operator: built.operator, geminiRemaining };
 }
 
 export async function previewScan() {
@@ -193,6 +198,8 @@ export async function runScan(input?: { storagePillar?: "politics" | "finance" |
     const opened = await openScan({
       groupId: gated.group.id,
       groupName: gated.group.name,
+      query: gated.requestQuery,
+      engagement: gated.operator,
       maxPosts: scanLimits.maxPostsPerScan,
       lookbackHours: scanLimits.lookbackHours,
       contentPillar: storagePillar,
@@ -202,7 +209,7 @@ export async function runScan(input?: { storagePillar?: "politics" | "finance" |
     scanId = opened.id;
 
     const searched = await searchRecent({
-      query: gated.group.query,
+      query: gated.requestQuery,
       maxResults: scanLimits.maxPostsPerScan,
       startTime: lookbackStart(scanLimits.lookbackHours),
     });
@@ -227,6 +234,32 @@ export async function runScan(input?: { storagePillar?: "politics" | "finance" |
     }
 
     await touchGroup(gated.group.id);
+    if (searched.posts.length === 0) {
+      await finishScan(scanId, {
+        status: "completed",
+        finished_at: new Date().toISOString(),
+        x_requests: 1,
+        posts_returned: 0,
+        posts_stored: 0,
+        error: engagementMiss,
+        stage: "COMPLETE",
+        duration_ms: Date.now() - started,
+        detail: {
+          groupId: gated.group.id,
+          groupName: gated.group.name,
+          contentPillar: storagePillar,
+          query: gated.requestQuery,
+          engagement: gated.operator,
+        },
+      });
+      return emptyReport(engagementMiss, {
+        ok: false,
+        xRequests: 1,
+        postsReturned: 0,
+        durationMs: Date.now() - started,
+        errors: [engagementMiss],
+      });
+    }
     const rules = await termRules();
     const posts: WorkingPost[] = searched.posts.map((post) => {
       const judged = judgePost(post.text, rules);
@@ -296,6 +329,8 @@ export async function runScan(input?: { storagePillar?: "politics" | "finance" |
       detail: {
         groupId: gated.group.id,
         groupName: gated.group.name,
+        query: gated.requestQuery,
+        engagement: gated.operator,
         contentPillar: storagePillar,
         extraction: extraction.outcome,
         extractionDetail: extraction.detail,

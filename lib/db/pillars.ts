@@ -1,17 +1,25 @@
 import "server-only";
 import { contentPillarFromStorage, contentPillars, storagePillar, type ContentPillar, type StoragePillar } from "@/lib/pillars/catalog";
+import { pickSearchGroup, type StoredGroup } from "@/lib/pillars/groups";
 import { contentMix, type PillarSignal, type ScanAllowance } from "@/lib/pillars/scan";
 import { serviceClient } from "@/lib/db/client";
 import { usageSince } from "@/lib/db/usage";
 import { scanBudget } from "@/lib/intel/budget";
 import { lagosDayStart } from "@/lib/intel/limits";
 
+export type NextDiscoveryGroup = { name: string; query: string };
+
 export type DiscoveryContext = {
   publishedTotal: number;
   signals: PillarSignal[];
   mix: ReturnType<typeof contentMix>;
   allowance: ScanAllowance;
+  nextGroups: Record<ContentPillar, NextDiscoveryGroup | null>;
 };
+
+function blankNext(): Record<ContentPillar, NextDiscoveryGroup | null> {
+  return { politics: null, finance: null, manchester_united: null };
+}
 
 function hoursSince(iso: string | null, now: number) {
   if (!iso) return null;
@@ -35,7 +43,7 @@ function emptyContext(): DiscoveryContext {
     configured: true,
     timeliness: "medium" as const,
   }));
-  return { publishedTotal: 0, signals, mix: contentMix([]), allowance: openAllowance() };
+  return { publishedTotal: 0, signals, mix: contentMix([]), allowance: openAllowance(), nextGroups: blankNext() };
 }
 
 export async function loadDiscoveryContext(now = Date.now()): Promise<DiscoveryContext> {
@@ -75,7 +83,7 @@ export async function loadDiscoveryContext(now = Date.now()): Promise<DiscoveryC
     if (!post.pillar || !post.publishedAt || latestPost.has(post.pillar)) continue;
     latestPost.set(post.pillar, post.publishedAt);
   }
-  const groups = await db.from("search_groups").select("content_pillar, last_used_at, enabled, query");
+  const groups = await db.from("search_groups").select("content_pillar, last_used_at, enabled, query, name, slug, rotation_order");
   const latestScan = new Map<ContentPillar, string>();
   const configured: Record<ContentPillar, boolean> = { politics: false, finance: false, manchester_united: false };
   const groupRows = groups.error
@@ -84,17 +92,36 @@ export async function loadDiscoveryContext(now = Date.now()): Promise<DiscoveryC
       last_used_at: row.last_used_at,
       enabled: row.enabled,
       query: row.query,
+      name: null as string | null,
+      slug: null as string | null,
+      rotation_order: null as number | null,
     }))
     : groups.data ?? [];
+  const stored: StoredGroup[] = [];
   for (const row of groupRows) {
     const pillar = contentPillarFromStorage(typeof row.content_pillar === "string" ? row.content_pillar : null);
     if (!pillar) continue;
     const query = typeof row.query === "string" ? row.query.trim() : "";
     if (row.enabled !== false && query.length > 0 && query.length <= 480) configured[pillar] = true;
     const used = typeof row.last_used_at === "string" ? row.last_used_at : null;
-    if (!used) continue;
-    const previous = latestScan.get(pillar);
-    if (!previous || used > previous) latestScan.set(pillar, used);
+    if (used) {
+      const previous = latestScan.get(pillar);
+      if (!previous || used > previous) latestScan.set(pillar, used);
+    }
+    stored.push({
+      slug: typeof row.slug === "string" && row.slug ? row.slug : `${storagePillar(pillar)}-${stored.length}`,
+      name: typeof row.name === "string" && row.name.trim() ? row.name : "Search group",
+      query,
+      pillar: storagePillar(pillar),
+      enabled: row.enabled !== false,
+      lastUsedAt: used,
+      rotation: typeof row.rotation_order === "number" ? row.rotation_order : 0,
+    });
+  }
+  const nextGroups = blankNext();
+  for (const pillar of contentPillars) {
+    const picked = pickSearchGroup(stored, storagePillar(pillar));
+    nextGroups[pillar] = picked ? { name: picked.name, query: picked.query } : null;
   }
   const queue = await db.from("opportunities").select("content_pillar, lifecycle, status");
   const queued: Record<ContentPillar, number> = { politics: 0, finance: 0, manchester_united: 0 };
@@ -129,7 +156,7 @@ export async function loadDiscoveryContext(now = Date.now()): Promise<DiscoveryC
     configured: configured[pillar],
     timeliness: "medium",
   }));
-  return { publishedTotal: mix.counted, signals, mix, allowance };
+  return { publishedTotal: mix.counted, signals, mix, allowance, nextGroups };
 }
 
 export function withoutStoredPillar<T extends { content_pillar?: string }>(row: T) {

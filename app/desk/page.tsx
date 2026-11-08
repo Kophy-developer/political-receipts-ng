@@ -5,7 +5,9 @@ import { connection } from "next/server";
 import { DeskDiscover } from "@/components/desk/discover";
 import { ScanBoard, type BoardCard } from "@/components/desk/scan-board";
 import { PageFrame } from "@/components/shell/page-frame";
+import { loadEngagement } from "@/lib/db/engagement";
 import { loadDeskSchedule } from "@/lib/db/schedule";
+import { defaultEngagement } from "@/lib/intel/engagement";
 import { scheduleReadiness } from "@/lib/desk/schedule";
 import { listClaims } from "@/lib/db/claims";
 import { listPipeline } from "@/lib/db/editorial";
@@ -49,7 +51,7 @@ async function DeskHome({ searchParams }: { searchParams: Promise<{ step?: strin
   await connection();
   const { step: requested } = await searchParams;
   const step = requested === "investigate" || requested === "ready" ? requested : "discover";
-  const [pipeline, scan, discovery, recent, claims, published, finals, schedule] = await Promise.all([
+  const [pipeline, scan, discovery, recent, claims, published, finals, schedule, engagement] = await Promise.all([
     listPipeline(),
     latestScanHeadline(),
     loadDiscoveryContext(),
@@ -58,6 +60,7 @@ async function DeskHome({ searchParams }: { searchParams: Promise<{ step?: strin
     publishedByClaim(),
     listExactFinalPosts(),
     loadDeskSchedule(),
+    loadEngagement(),
   ]);
   const readiness = scheduleReadiness({ planSupportsCron: false, xCallsRemaining: null, scanCostKnown: false, researchBudgetKnown: false, modelBudgetKnown: false, editorConfirmed: false });
   const arranged = arrangeDesk(pipeline.cards, scan?.id ?? null);
@@ -121,6 +124,10 @@ async function DeskHome({ searchParams }: { searchParams: Promise<{ step?: strin
               publishedTotal={discovery.publishedTotal}
               mix={discovery.mix.items}
               allowance={discovery.allowance}
+              engagement={engagement.ok ? engagement.setting : defaultEngagement}
+              engagementReady={engagement.ok}
+              engagementMessage={engagement.ok ? null : engagement.message}
+              nextGroups={discovery.nextGroups}
             />
             <p className="text-sm">{earlierOpen > 0 ? `${earlierOpen} saved ${earlierOpen === 1 ? "story is" : "stories are"} from earlier scans. They stay on Investigate.` : "No earlier open story is waiting."} <Link href="/desk?step=investigate" className="underline">Open Investigate</Link></p>
             <ScanBoard
