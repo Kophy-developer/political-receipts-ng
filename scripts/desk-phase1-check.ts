@@ -1,8 +1,6 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { performance } from "node:perf_hooks";
 import { claimOnce, editorAccess } from "../lib/auth/access";
-import { passwordsMatch } from "../lib/auth/password";
-import { sessionValid, signSession } from "../lib/auth/token";
 import { applyPass, arrangeDesk, numberWithinScan, restoreCard, type DeskCard } from "../lib/desk/board";
 import { storyReading, storyStates } from "../lib/desk/research-state";
 
@@ -48,28 +46,18 @@ check("ready is named", storyReading({ lifecycle: "READY_FOR_EDITOR" }).state ==
 check("a failed step needs attention", storyReading({ researchFailed: true, error: "The search stopped." }).state === "Needs attention" && /search stopped/.test(storyReading({ researchFailed: true, error: "The search stopped." }).reason));
 check("every story state is one of the six", storyStates.length === 6 && storyStates.join(",") === "Not started,Researching,Analyzing,Writing,Ready for You,Needs attention");
 
-check("missing configuration is refused", editorAccess({ configured: false, session: false, sameOrigin: true }).status === 503);
-check("a missing session is refused", editorAccess({ configured: true, session: false, sameOrigin: true }).status === 401);
-check("a cross-origin write is refused", editorAccess({ configured: true, session: true, sameOrigin: false }).status === 403);
-check("an editor session from the desk is allowed", editorAccess({ configured: true, session: true, sameOrigin: true }).ok === true);
+check("a cross-origin write is refused", editorAccess({ sameOrigin: false }).status === 403);
+check("a same-origin write is allowed", editorAccess({ sameOrigin: true }).ok === true);
 
 const seen = new Set<string>();
 check("a confirmation nonce is single use", claimOnce(seen, "nonce-1") === true && claimOnce(seen, "nonce-1") === false && claimOnce(seen, "nonce-2") === true);
-check("a wrong password does not match", passwordsMatch("correct horse", "correct horse") && !passwordsMatch("correct horse", "wrong") && !passwordsMatch("", "correct horse"));
-
-async function sessionChecks() {
-  const secret = "phase-1-test-secret";
-  const token = await signSession(secret, Date.now() + 60_000);
-  check("a signed session verifies", await sessionValid(secret, token, Date.now()));
-  check("a tampered session is rejected", !(await sessionValid(secret, token.slice(0, -2) + "aa", Date.now())));
-  check("an expired session is rejected", !(await sessionValid(secret, await signSession(secret, Date.now() - 1000), Date.now())));
-}
+check("password auth files are gone", !existsSync("lib/auth/password.ts") && !existsSync("lib/auth/token.ts") && !existsSync("app/api/auth/editor/route.ts"));
 
 const publish = readFileSync("app/api/x/publish/route.ts", "utf8");
 const publishRules = readFileSync("lib/x/publish.ts", "utf8");
 check("publish confirmation is durable", publish.includes("claimPublishConfirmation") && !publish.includes("reservePostNonce"));
 check("exact text confirmation remains", publishRules.includes("confirm") && publish.includes("validatePublishRequest"));
-check("writes require an editor session", readFileSync("app/api/opportunities/decision/route.ts", "utf8").includes("assertEditorRequest"));
+check("writes still require a same-origin request", readFileSync("app/api/opportunities/decision/route.ts", "utf8").includes("assertEditorRequest") && readFileSync("lib/x/guard.ts", "utf8").includes("sameOrigin") && !readFileSync("lib/x/guard.ts", "utf8").includes("EDITOR_PASSWORD"));
 check("the desk page now redirects to the approval queue", readFileSync("app/desk/page.tsx", "utf8").includes('redirect("/")') && readFileSync("components/desk/scan-board.tsx", "utf8").includes("Pass"));
 check("primary navigation is Approve, Published, Settings", readFileSync("lib/nav.ts", "utf8").includes('label: "Approve"') && readFileSync("lib/nav.ts", "utf8").includes('label: "Published"') && readFileSync("lib/nav.ts", "utf8").includes('label: "Settings"') && !readFileSync("lib/nav.ts", "utf8").includes('label: "Ready for You"'));
 
@@ -92,10 +80,8 @@ const arrangeMs = performance.now() - arrangeStarted;
 console.log(`fixture pass ${passMs.toFixed(2)} ms for 50 removals on 400 cards; fixture arrange ${arrangeMs.toFixed(2)} ms for 50 full rearrangements. These are local fixture timings, not production desk latency.`);
 check("pass on the fixture stays under a quarter second", passMs < 250);
 
-sessionChecks().then(() => {
-  if (failures.length) {
-    console.error(failures.join("\n"));
-    process.exit(1);
-  }
-  console.log("desk phase 1 checks passed");
-});
+if (failures.length) {
+  console.error(failures.join("\n"));
+  process.exit(1);
+}
+console.log("desk phase 1 checks passed");

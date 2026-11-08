@@ -1,12 +1,7 @@
-export function editorAccess(input: { configured: boolean; session: boolean; sameOrigin: boolean }) {
-  if (!input.configured) {
-    return { ok: false as const, status: 503, message: "Editor sign-in is not configured." };
-  }
-  if (!input.session) {
-    return { ok: false as const, status: 401, message: "Sign in to the desk before changing anything." };
-  }
+/** Writes must come from this app. There is no editor password. */
+export function editorAccess(input: { sameOrigin: boolean }) {
   if (!input.sameOrigin) {
-    return { ok: false as const, status: 403, message: "This action has to come from the desk." };
+    return { ok: false as const, status: 403, message: "This action has to come from the app." };
   }
   return { ok: true as const, status: 200, message: "" };
 }

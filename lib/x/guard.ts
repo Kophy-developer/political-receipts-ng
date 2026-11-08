@@ -1,23 +1,10 @@
 import "server-only";
 import { editorAccess } from "@/lib/auth/access";
-import { sessionCookie, sessionValid } from "@/lib/auth/token";
-import { readCookie } from "@/lib/x/seal";
 
 const readGapMs = 20_000;
 
-export function editorConfigured() {
-  return Boolean(process.env.EDITOR_PASSWORD?.trim() && process.env.EDITOR_SESSION_SECRET?.trim());
-}
-
 export async function assertEditorRequest(request: Request) {
-  const secret = process.env.EDITOR_SESSION_SECRET?.trim() ?? "";
-  const token = readCookie(request.headers.get("cookie"), sessionCookie);
-  const session = secret ? await sessionValid(secret, token, Date.now()) : false;
-  const decision = editorAccess({
-    configured: editorConfigured(),
-    session,
-    sameOrigin: assertEditorPost(request) === null,
-  });
+  const decision = editorAccess({ sameOrigin: assertEditorPost(request) === null });
   if (!decision.ok) return { status: decision.status, message: decision.message };
   return null;
 }
@@ -27,14 +14,14 @@ type PostBucket = { __prngXPosts?: Set<string> };
 
 export function assertEditorPost(request: Request) {
   const site = request.headers.get("sec-fetch-site");
-  if (site && site !== "same-origin") return "This action has to come from the desk.";
+  if (site && site !== "same-origin") return "This action has to come from the app.";
   const origin = request.headers.get("origin");
   const host = request.headers.get("host");
-  if (!origin || !host) return "This action has to come from the desk.";
+  if (!origin || !host) return "This action has to come from the app.";
   try {
-    if (new URL(origin).host !== host) return "This action has to come from the desk.";
+    if (new URL(origin).host !== host) return "This action has to come from the app.";
   } catch {
-    return "This action has to come from the desk.";
+    return "This action has to come from the app.";
   }
   return null;
 }

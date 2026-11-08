@@ -31,4 +31,4 @@ npm run check:desk
 npm run build
 ```
 
-Private pages need `EDITOR_PASSWORD` and `EDITOR_SESSION_SECRET`. X publishing needs the X credentials already used by this project. The same Supabase database and Vercel project stay in place.
+There is no editor password. Writes must come from the app itself (same-origin). X publishing needs the X credentials already used by this project. The same Supabase database and Vercel project stay in place.
