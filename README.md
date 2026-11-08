@@ -10,7 +10,7 @@ The background work finds activity, researches checkable claims with numbers and
 
 | Route | Purpose |
 | --- | --- |
-| `/` | Approval queue. Exact-text approve, or reject. |
+| `/` | Approval queue. Edit the draft, optionally rephrase with typed or spoken instructions, then exact-text approve or reject. |
 | `/published` | Posts that already went out. |
 | `/settings` | Account and credentials. |
 
@@ -18,7 +18,7 @@ Older desk routes still exist in the repo for internal tooling and redirects. Th
 
 ## Publishing rule
 
-Approve sends only the exact text you confirmed. `confirm` must be true on the server. Source links stay beside the draft; they are not silently rewritten into the post.
+You can edit the draft yourself, or tell the AI how to rewrite it (type or speak). Rephrase never posts. Approve still sends only the exact text you confirmed; `confirm` must be true on the server. Source links stay beside the draft; they are not silently rewritten into the post.
 
 ## Local development
 

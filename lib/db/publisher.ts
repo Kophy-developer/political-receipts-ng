@@ -2,6 +2,7 @@ import "server-only";
 import { saveFinalPost } from "@/lib/db/final-post";
 import { scrubDbMessage, serviceClient } from "@/lib/db/client";
 import { noticeFor, readyItemFromRow } from "@/lib/publisher/read";
+import { parseApprovalText } from "@/lib/publisher/rephrase";
 import type { ReadyItem } from "@/lib/publisher/types";
 
 function claimText(value: unknown) {
@@ -67,10 +68,10 @@ export async function prepareApprovalDraft(input: { opportunityId: string; text:
     development: row.data.development,
     updatedAt: null,
   });
-  if (!item || !item.drafts.some((draft) => draft.text === input.text)) {
-    return { ok: false as const, message: "Choose one of the prepared drafts. The text was not changed on the server." };
-  }
-  const saved = await saveFinalPost({ claimId: row.data.claim_id, text: input.text, sources: [] });
+  if (!item) return { ok: false as const, message: "That draft is not on the approval queue." };
+  const parsed = parseApprovalText(input.text);
+  if (!parsed.ok) return parsed;
+  const saved = await saveFinalPost({ claimId: row.data.claim_id, text: parsed.text, sources: [] });
   if (!saved.ok) return saved;
   return { ok: true as const, claimId: row.data.claim_id, draftId: saved.id, text: saved.text };
 }

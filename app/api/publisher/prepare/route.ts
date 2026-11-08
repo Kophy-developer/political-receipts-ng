@@ -1,5 +1,6 @@
 import { connection } from "next/server";
 import { prepareApprovalDraft } from "@/lib/db/publisher";
+import { parseApprovalText } from "@/lib/publisher/rephrase";
 import { assertEditorRequest } from "@/lib/x/guard";
 
 export async function POST(request: Request) {
@@ -12,9 +13,11 @@ export async function POST(request: Request) {
   } catch {
     return Response.json({ ok: false, message: "The queue could not read that request. Nothing was sent to X." }, { status: 400 });
   }
-  if (typeof body.opportunityId !== "string" || typeof body.text !== "string") {
+  if (typeof body.opportunityId !== "string") {
     return Response.json({ ok: false, message: "Choose a prepared draft. Nothing was sent to X." }, { status: 400 });
   }
-  const prepared = await prepareApprovalDraft({ opportunityId: body.opportunityId, text: body.text });
+  const parsed = parseApprovalText(body.text);
+  if (!parsed.ok) return Response.json({ ok: false, message: parsed.message }, { status: 400, headers: { "cache-control": "no-store" } });
+  const prepared = await prepareApprovalDraft({ opportunityId: body.opportunityId, text: parsed.text });
   return Response.json(prepared, { status: prepared.ok ? 200 : 400, headers: { "cache-control": "no-store" } });
 }

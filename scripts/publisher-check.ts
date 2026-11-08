@@ -1,5 +1,12 @@
 import { readFileSync } from "node:fs";
 import { caveatsFromDevelopment, draftsFromDevelopment, noticeFor, readyItemFromRow } from "../lib/publisher/read";
+import {
+  parseApprovalText,
+  parseRephraseRequest,
+  rephraseSystemPrompt,
+  rephraseUserPrompt,
+  textFromRephrase,
+} from "../lib/publisher/rephrase";
 
 const failures: string[] = [];
 function check(name: string, ok: boolean) {
@@ -59,8 +66,21 @@ check("home is the approval queue", home.includes("ApprovalQueue") && home.inclu
 check("the menu is Approve, Published, Settings", nav.includes('label: "Approve"') && nav.includes('label: "Published"') && nav.includes('label: "Settings"') && !nav.includes('label: "Desk"') && !nav.includes('label: "Intelligence"'));
 check("the old desk page redirects home", desk.includes('redirect("/")'));
 check("approve still requires exact confirmation", queue.includes("confirm: true") && queue.includes("Publish this exact text"));
+check("the queue lets you edit the draft text", queue.includes('value={text}') && queue.includes("Draft text") && queue.includes("Restore prepared draft"));
+check("the queue can send a voice or typed rewrite instruction", queue.includes("/api/publisher/rephrase") && queue.includes("Speak instruction") && queue.includes("Rewrite with AI"));
 check("publish still validates confirm", publish.includes("validatePublishRequest") && prepare.includes("prepareApprovalDraft") && readFileSync(new URL("../lib/x/publish.ts", import.meta.url), "utf8").includes("input.confirm !== true"));
 check("reject does not call X", !readFileSync(new URL("../app/api/publisher/reject/route.ts", import.meta.url), "utf8").includes("publishApprovedPost"));
+
+const rephraseRoute = readFileSync(new URL("../app/api/publisher/rephrase/route.ts", import.meta.url), "utf8");
+check("rephrase refuses empty instructions", !parseRephraseRequest({ text: "A draft.", instruction: "  " }).ok);
+check("rephrase keeps the draft and instruction", (() => {
+  const parsed = parseRephraseRequest({ text: "FDI rose.", instruction: "Make it shorter.", claim: "claim", caveats: ["Not capital importation."] });
+  return parsed.ok && parsed.value.text === "FDI rose." && parsed.value.instruction === "Make it shorter." && parsed.value.caveats?.[0] === "Not capital importation.";
+})());
+check("rephrase prompts forbid invented numbers", rephraseSystemPrompt().includes("Do not invent new statistics") && rephraseUserPrompt({ text: "Draft", instruction: "Shorter" }).includes("Editor instruction: Shorter"));
+check("rephrase reads only the rewritten text", textFromRephrase({ text: " Shorter post. " }) === "Shorter post." && textFromRephrase({ text: "  " }) === null);
+check("approve text can be edited before prepare", parseApprovalText("  Edited exact text.  ").ok && (parseApprovalText("  Edited exact text.  ") as { ok: true; text: string }).text === "Edited exact text." && !parseApprovalText("   ").ok);
+check("rephrase never opens the X publish gate", !rephraseRoute.includes("/api/x/publish") && !rephraseRoute.includes("publishApprovedPost") && rephraseRoute.includes("Nothing was published"));
 
 if (failures.length > 0) {
   console.error(failures.join("\n"));
