@@ -12,6 +12,7 @@ import { serviceClient } from "@/lib/db/client";
 import { extractFromPosts } from "@/lib/intel/extract-posts";
 import { fileDiscussions } from "@/lib/intel/file";
 import type { DeskClass } from "@/lib/intel/classify";
+import { metricsFromStored } from "@/lib/intel/metrics";
 import type { PostMetrics, WorkingPost } from "@/lib/intel/posts";
 import type { Relevance } from "@/lib/intel/relevance";
 import { noteFinished, noteTrying, type ReprocessJob } from "@/lib/intel/progress";
@@ -51,9 +52,7 @@ function storedScanPillar(rows: Array<Record<string, unknown>>): "politics" | "f
 }
 
 function metricsOf(value: unknown): PostMetrics {
-  const row = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
-  const num = (key: string) => (typeof row[key] === "number" && Number.isFinite(row[key]) ? (row[key] as number) : 0);
-  return { replies: num("replies"), reposts: num("reposts"), likes: num("likes"), quotes: num("quotes"), views: typeof row.views === "number" ? row.views : null };
+  return metricsFromStored(value);
 }
 
 function referencedOf(value: unknown) {

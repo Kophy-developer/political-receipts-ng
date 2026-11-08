@@ -1,15 +1,10 @@
 import "server-only";
-import { scanBudget } from "@/lib/intel/budget";
+import { publishedRates, scanBudget } from "@/lib/intel/budget";
 
 /** Conservative Phase 1 ceilings. A scan cannot raise these. */
 export const scanLimits = scanBudget;
 
-/** Published X pay-per-use rates as of October 2026. Not a live invoice. */
-export const publishedRates = {
-  asOf: "October 2026",
-  postReadUsd: 0.005,
-  userReadUsd: 0.01,
-} as const;
+export { publishedRates };
 
 export function lookbackStart(hours: number) {
   const span = Math.min(48, Math.max(1, hours));

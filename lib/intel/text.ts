@@ -91,8 +91,8 @@ export function publicPostUrl(id: string, username: string | null) {
   return `https://x.com/i/status/${id}`;
 }
 
-export function engagementOf(metrics: { replies?: number; reposts?: number; likes?: number; quotes?: number }) {
-  return (metrics.replies ?? 0) + (metrics.reposts ?? 0) + (metrics.likes ?? 0) + (metrics.quotes ?? 0);
+export function engagementOf(metrics: { replies?: number | null; reposts?: number | null; likes?: number | null; quotes?: number | null }) {
+  return [metrics.replies, metrics.reposts, metrics.likes, metrics.quotes].reduce<number>((sum, value) => sum + (typeof value === "number" ? value : 0), 0);
 }
 
 const nonClaim =

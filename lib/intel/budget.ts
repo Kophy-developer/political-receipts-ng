@@ -9,6 +9,13 @@ export const scanBudget = {
   dailyGeminiRequests: 8,
 } as const;
 
+/** Published X pay-per-use rates as of October 2026. Not a live invoice. */
+export const publishedRates = {
+  asOf: "October 2026",
+  postReadUsd: 0.005,
+  userReadUsd: 0.01,
+} as const;
+
 /** X recent search accepts 10 to 100 results per request. This desk does not paginate. */
 export const recentSearchEndpoint = {
   minResults: 10,

@@ -1,13 +1,8 @@
 import type { DeskClass } from "@/lib/intel/classify";
+import type { PostMetrics } from "@/lib/intel/metrics";
 import type { Relevance } from "@/lib/intel/relevance";
 
-export type PostMetrics = {
-  replies: number;
-  reposts: number;
-  likes: number;
-  quotes: number;
-  views: number | null;
-};
+export type { PostMetrics };
 
 export type WorkingPost = {
   id: string;

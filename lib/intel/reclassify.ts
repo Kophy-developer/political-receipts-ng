@@ -10,19 +10,12 @@ import {
 import { judgePost } from "@/lib/intel/classify";
 import { fileDiscussions } from "@/lib/intel/file";
 import { claimDeskLock, releaseDeskLock } from "@/lib/intel/lock";
-import type { PostMetrics, WorkingPost } from "@/lib/intel/posts";
+import { metricsFromStored } from "@/lib/intel/metrics";
+import type { WorkingPost } from "@/lib/intel/posts";
 import { sanitizeText } from "@/lib/intel/text";
 
-function metricsOf(value: unknown): PostMetrics {
-  const row = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
-  const num = (key: string) => (typeof row[key] === "number" && Number.isFinite(row[key]) ? (row[key] as number) : 0);
-  return {
-    replies: num("replies"),
-    reposts: num("reposts"),
-    likes: num("likes"),
-    quotes: num("quotes"),
-    views: typeof row.views === "number" ? row.views : null,
-  };
+function metricsOf(value: unknown) {
+  return metricsFromStored(value);
 }
 
 function referencedOf(value: unknown) {

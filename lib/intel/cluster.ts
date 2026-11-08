@@ -73,6 +73,12 @@ export function discussionTitle(texts: string[]) {
   return sentence.slice(0, 140);
 }
 
+export function postsAreSameTopic(leftText: string, rightText: string) {
+  const left = new Set(distinctiveTokens(leftText));
+  const right = new Set(distinctiveTokens(rightText));
+  return sameStatement(leftText, rightText, left, right);
+}
+
 export function clusterPosts<T extends Clusterable>(posts: T[], entities: ClusterEntity[]): DiscussionCluster<T>[] {
   const parent = posts.map((_, index) => index);
   const find = (index: number): number => {

@@ -6,6 +6,7 @@ import type { AcceptedClaim } from "@/lib/intel/extract-posts";
 import type { ExtractionOutcome } from "@/lib/intel/outcome";
 import type { WorkingPost } from "@/lib/intel/posts";
 import { rankClaim } from "@/lib/intel/rank";
+import { knownSum } from "@/lib/intel/metrics";
 import { engagementOf, publicPostUrl } from "@/lib/intel/text";
 import { inferClaimTypes, inferStatementKind, questionsFor } from "@/lib/research/claim-types";
 import type { Pillar } from "@/lib/research/types";
@@ -62,10 +63,12 @@ export async function fileDiscussions(input: {
       engagement: {
         volume: engagement,
         postCount: posts.length,
-        replies: posts.reduce((sum, post) => sum + post.metrics.replies, 0),
-        reposts: posts.reduce((sum, post) => sum + post.metrics.reposts, 0),
-        likes: posts.reduce((sum, post) => sum + post.metrics.likes, 0),
-        quotes: posts.reduce((sum, post) => sum + post.metrics.quotes, 0),
+        replies: knownSum(posts.map((post) => post.metrics.replies)),
+        reposts: knownSum(posts.map((post) => post.metrics.reposts)),
+        likes: knownSum(posts.map((post) => post.metrics.likes)),
+        quotes: knownSum(posts.map((post) => post.metrics.quotes)),
+        bookmarks: knownSum(posts.map((post) => post.metrics.bookmarks)),
+        views: knownSum(posts.map((post) => post.metrics.views)),
         attention: attention.label,
         deskClass,
         velocityNote: attention.note,

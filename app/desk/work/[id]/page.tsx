@@ -4,6 +4,7 @@ import Link from "next/link";
 import { connection } from "next/server";
 import { notFound } from "next/navigation";
 import { PageFrame } from "@/components/shell/page-frame";
+import { ConversationActivity } from "@/components/desk/conversation-activity";
 import { ContinueResearch } from "@/components/desk/continue-research";
 import { StartStory } from "@/components/desk/start-story";
 import { SeriesChart } from "@/components/desk/series-chart";
@@ -11,6 +12,7 @@ import { StoryDrafts } from "@/components/desk/story-drafts";
 import { formatInvestment, provenanceSentence } from "@/lib/editorial/money";
 import { continuationOffer, loadDocumentPassages } from "@/lib/db/develop";
 import { loadSearchResults } from "@/lib/db/search-results";
+import { loadStoryActivity } from "@/lib/db/activity";
 import { loadStory } from "@/lib/db/editorial";
 import { storyQuality } from "@/lib/editorial/pillar-reading";
 import { describeSource } from "@/lib/editorial/quality";
@@ -63,6 +65,7 @@ async function WorkBody({ params, searchParams }: { params: Promise<{ id: string
   const inventory = story.card.claimId ? await loadSearchResults(story.card.claimId) : null;
   const passages = story.card.claimId ? await loadDocumentPassages(story.card.claimId) : new Map<string, string>();
   const offer = await continuationOffer(id);
+  const activity = await loadStoryActivity(id);
   const latestAttempt = offer.ok ? offer.why : story.card.storyReason;
   const provenance = readProvenance((story.development as { seriesProvenance?: unknown } | null)?.seriesProvenance);
   const options = developmentOptions(story.development);
@@ -107,6 +110,7 @@ async function WorkBody({ params, searchParams }: { params: Promise<{ id: string
           <h2 className="font-serif text-2xl">Source</h2>
           <p className="mt-2 text-sm leading-relaxed">{story.card.sourceText || "No source text is stored on this card."}</p>
         </section>
+        {activity ? <ConversationActivity model={activity} opportunityId={id} /> : null}
         <section className="border border-rule px-4 py-4">
           <h2 className="font-serif text-2xl">Interpretation</h2>
           <p className="mt-2 text-sm leading-relaxed">{story.card.reason || story.card.title}</p>

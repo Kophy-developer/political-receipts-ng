@@ -6,6 +6,7 @@ import { StoryWorkspace } from "@/components/desk/workspace";
 import { EmptyDesk } from "@/components/marks";
 import { PageFrame } from "@/components/shell/page-frame";
 import { getClaim } from "@/lib/db/claims";
+import { loadClaimActivity } from "@/lib/db/activity";
 import { storyReadingForClaim } from "@/lib/db/editorial";
 import { storyReturn } from "@/lib/desk/board";
 import { loadFinalPost } from "@/lib/db/final-post";
@@ -37,12 +38,13 @@ async function StoryBody({ params, searchParams }: { params: Promise<{ id: strin
     );
   }
   if (!result.claim) notFound();
-  const [finalPost, drafts, capability, published, research] = await Promise.all([
+  const [finalPost, drafts, capability, published, research, activity] = await Promise.all([
     loadFinalPost(result.claim.id),
     loadClaimDrafts(result.claim.id),
     loadStoredCapability(),
     publishedByClaim(),
     storyReadingForClaim(result.claim.id),
+    loadClaimActivity(result.claim.id),
   ]);
   const suggestions = drafts
     .filter((draft) => draft.style !== "manual")
@@ -73,7 +75,8 @@ async function StoryBody({ params, searchParams }: { params: Promise<{ id: strin
       capability={capability}
       publication={published.get(result.claim.id) ?? null}
       research={research?.reading ?? null}
-      opportunityId={research?.opportunityId ?? null}
+      opportunityId={research?.opportunityId ?? activity?.opportunityId ?? null}
+      activity={activity?.activity ?? null}
       back={storyReturn(from)}
     />
   );

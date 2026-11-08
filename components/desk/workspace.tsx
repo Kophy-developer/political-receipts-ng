@@ -7,7 +7,9 @@ import { characterCount } from "@/lib/format";
 import { checklist } from "@/lib/system";
 import { standardPostLimit, urlPriceNote, type PublishCapability } from "@/lib/publish/capability";
 import { openingFormat, publishPlan, splitForThread, threadText, type PostFormat } from "@/lib/publish/format";
+import { ConversationActivity } from "@/components/desk/conversation-activity";
 import { StartStory } from "@/components/desk/start-story";
+import type { ActivityModel } from "@/lib/intel/activity";
 import {
   completedStages,
   evidenceBrief,
@@ -47,6 +49,7 @@ export function StoryWorkspace({
   research = null,
   opportunityId = null,
   back = { href: "/desk?step=investigate", label: "Back to Investigate" },
+  activity = null,
 }: {
   claim: ClaimCard;
   finalPostId: string | null;
@@ -58,6 +61,7 @@ export function StoryWorkspace({
   research?: { state: string; reason: string; action: string } | null;
   opportunityId?: string | null;
   back?: { href: string; label: string };
+  activity?: ActivityModel | null;
 }) {
   const router = useRouter();
   const editorRef = useRef<HTMLTextAreaElement>(null);
@@ -180,6 +184,7 @@ export function StoryWorkspace({
             <p className="font-mono text-[11px] tracking-[0.14em] text-ink-soft uppercase">{research?.state ?? (accepted.length || recorded.length ? "Analyzing" : "Not started")}</p>
             <p className="mt-2 text-sm leading-relaxed">{research?.reason ?? brief.line}</p>
             {research?.action ? <p className="mt-2 text-sm text-ink-soft">Next: {research.action}</p> : null}
+            {activity ? <div className="mt-3"><ConversationActivity model={activity} opportunityId={opportunityId} /></div> : null}
             {opportunityId && research?.state !== "Ready for You" ? (
               <div className="mt-3">
                 <StartStory id={opportunityId} label={research?.state === "Analyzing" || research?.state === "Writing" ? "Develop content" : "Start investigation"} />
