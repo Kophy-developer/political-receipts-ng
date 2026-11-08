@@ -1,12 +1,16 @@
 import "server-only";
 import { contentPillarFromStorage, contentPillars, storagePillar, type ContentPillar, type StoragePillar } from "@/lib/pillars/catalog";
-import { contentMix, type PillarSignal } from "@/lib/pillars/scan";
+import { contentMix, type PillarSignal, type ScanAllowance } from "@/lib/pillars/scan";
 import { serviceClient } from "@/lib/db/client";
+import { usageSince } from "@/lib/db/usage";
+import { scanBudget } from "@/lib/intel/budget";
+import { lagosDayStart } from "@/lib/intel/limits";
 
 export type DiscoveryContext = {
   publishedTotal: number;
   signals: PillarSignal[];
   mix: ReturnType<typeof contentMix>;
+  allowance: ScanAllowance;
 };
 
 function hoursSince(iso: string | null, now: number) {
@@ -16,6 +20,10 @@ function hoursSince(iso: string | null, now: number) {
   return Math.max(0, (now - then) / 3_600_000);
 }
 
+function openAllowance(): ScanAllowance {
+  return { requestsRemaining: scanBudget.dailyXRequests, postsRemaining: scanBudget.dailyPosts, known: true };
+}
+
 function emptyContext(): DiscoveryContext {
   const signals = contentPillars.map((pillar) => ({
     pillar,
@@ -23,9 +31,11 @@ function emptyContext(): DiscoveryContext {
     hoursSinceScan: null,
     hoursSincePost: null,
     queued: 0,
+    readyDrafts: 0,
+    configured: true,
     timeliness: "medium" as const,
   }));
-  return { publishedTotal: 0, signals, mix: contentMix([]) };
+  return { publishedTotal: 0, signals, mix: contentMix([]), allowance: openAllowance() };
 }
 
 export async function loadDiscoveryContext(now = Date.now()): Promise<DiscoveryContext> {
@@ -65,28 +75,49 @@ export async function loadDiscoveryContext(now = Date.now()): Promise<DiscoveryC
     if (!post.pillar || !post.publishedAt || latestPost.has(post.pillar)) continue;
     latestPost.set(post.pillar, post.publishedAt);
   }
-  const groups = await db.from("search_groups").select("content_pillar, last_used_at");
+  const groups = await db.from("search_groups").select("content_pillar, last_used_at, enabled, query");
   const latestScan = new Map<ContentPillar, string>();
+  const configured: Record<ContentPillar, boolean> = { politics: false, finance: false, manchester_united: false };
   const groupRows = groups.error
-    ? ((await db.from("search_groups").select("last_used_at")).data ?? []).map((row) => ({ content_pillar: "politics", last_used_at: row.last_used_at }))
+    ? ((await db.from("search_groups").select("last_used_at, enabled, query")).data ?? []).map((row) => ({
+      content_pillar: "politics",
+      last_used_at: row.last_used_at,
+      enabled: row.enabled,
+      query: row.query,
+    }))
     : groups.data ?? [];
   for (const row of groupRows) {
-    const pillar = contentPillarFromStorage(typeof row.content_pillar === "string" ? row.content_pillar : "politics");
+    const pillar = contentPillarFromStorage(typeof row.content_pillar === "string" ? row.content_pillar : null);
+    if (!pillar) continue;
+    const query = typeof row.query === "string" ? row.query.trim() : "";
+    if (row.enabled !== false && query.length > 0 && query.length <= 480) configured[pillar] = true;
     const used = typeof row.last_used_at === "string" ? row.last_used_at : null;
-    if (!pillar || !used) continue;
+    if (!used) continue;
     const previous = latestScan.get(pillar);
     if (!previous || used > previous) latestScan.set(pillar, used);
   }
   const queue = await db.from("opportunities").select("content_pillar, lifecycle, status");
   const queued: Record<ContentPillar, number> = { politics: 0, finance: 0, manchester_united: 0 };
+  const readyDrafts: Record<ContentPillar, number> = { politics: 0, finance: 0, manchester_united: 0 };
   if (!queue.error) {
     for (const row of queue.data ?? []) {
       const pillar = contentPillarFromStorage(typeof row.content_pillar === "string" ? row.content_pillar : null);
       const lifecycle = typeof row.lifecycle === "string" ? row.lifecycle : "";
       const open = lifecycle === "RANKED" || lifecycle === "ASSESSED" || (lifecycle === "" && row.status === "open");
-      if (pillar && open) queued[pillar] += 1;
+      const drafted = lifecycle === "DRAFTING" || lifecycle === "READY_FOR_EDITOR" || lifecycle === "APPROVED";
+      if (!pillar) continue;
+      if (open) queued[pillar] += 1;
+      if (drafted) readyDrafts[pillar] += 1;
     }
   }
+  const usage = await usageSince(lagosDayStart());
+  const allowance: ScanAllowance = usage.ok
+    ? {
+      requestsRemaining: Math.max(0, scanBudget.dailyXRequests - usage.totals.xRequests),
+      postsRemaining: Math.max(0, scanBudget.dailyPosts - usage.totals.posts),
+      known: true,
+    }
+    : { requestsRemaining: 0, postsRemaining: 0, known: false };
   const shareOf = new Map(mix.items.map((item) => [item.pillar, item.share]));
   const signals: PillarSignal[] = contentPillars.map((pillar) => ({
     pillar,
@@ -94,9 +125,11 @@ export async function loadDiscoveryContext(now = Date.now()): Promise<DiscoveryC
     hoursSinceScan: hoursSince(latestScan.get(pillar) ?? null, now),
     hoursSincePost: hoursSince(latestPost.get(pillar) ?? null, now),
     queued: queued[pillar],
+    readyDrafts: readyDrafts[pillar],
+    configured: configured[pillar],
     timeliness: "medium",
   }));
-  return { publishedTotal: mix.counted, signals, mix };
+  return { publishedTotal: mix.counted, signals, mix, allowance };
 }
 
 export function withoutStoredPillar<T extends { content_pillar?: string }>(row: T) {

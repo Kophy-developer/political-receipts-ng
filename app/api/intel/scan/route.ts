@@ -22,7 +22,19 @@ export async function POST(request: Request) {
     return Response.json({ ok: false, stopped: "Choose one scan mode. No X request was made.", posted: false, polling: false, xRequests: 0 }, { status: 400 });
   }
   const context = await loadDiscoveryContext();
-  const choice = chooseScan(mode, context.signals, context.publishedTotal);
+  const choice = chooseScan(mode, context.signals, context.publishedTotal, context.allowance);
+  if (!choice.runnable) {
+    return Response.json({
+      ok: false,
+      stopped: choice.reason,
+      posted: false,
+      polling: false,
+      xRequests: 0,
+      postsReturned: 0,
+      pillar: choice.pillar,
+      estimatedRequests: choice.estimatedRequests,
+    });
+  }
   const report = await runScan({ storagePillar: storagePillar(choice.pillar) });
   return Response.json({ ...report, pillar: choice.pillar, estimatedRequests: choice.estimatedRequests });
 }

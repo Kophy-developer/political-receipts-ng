@@ -4,6 +4,7 @@ import { columnMissing, schemaMissing, scrubDbMessage, serviceClient } from "@/l
 import { recordEvent } from "@/lib/db/events";
 import { claimStatusLabel, confidenceLabel } from "@/lib/db/labels";
 import type { TermRule } from "@/lib/intel/relevance";
+import { pickSearchGroup, type StoredGroup } from "@/lib/pillars/groups";
 
 const intelTables = ["search_groups", "x_posts", "scan_runs", "api_usage", "ai_analyses"];
 
@@ -60,16 +61,21 @@ export async function nextSearchGroupForPillar(pillar: "politics" | "finance" | 
   if (!db) return null;
   const ranked = await db
     .from("search_groups")
-    .select("id, name, slug, query, topic_slug, terms, anchored_terms, rotation_order")
+    .select("id, name, slug, query, topic_slug, terms, anchored_terms, rotation_order, last_used_at, enabled, content_pillar")
     .eq("enabled", true)
-    .eq("content_pillar", pillar)
-    .order("last_used_at", { ascending: true, nullsFirst: true })
-    .order("rotation_order", { ascending: true })
-    .order("name", { ascending: true })
-    .limit(1)
-    .maybeSingle();
+    .eq("content_pillar", pillar);
   if (ranked.error) return pillar === "politics" ? nextSearchGroup() : null;
-  return ranked.data ? toSearchGroup(ranked.data) : null;
+  const picked = pickSearchGroup((ranked.data ?? []).map((row) => ({
+    slug: String(row.slug),
+    name: String(row.name),
+    query: String(row.query),
+    pillar,
+    enabled: row.enabled !== false,
+    lastUsedAt: typeof row.last_used_at === "string" ? row.last_used_at : null,
+    rotation: typeof row.rotation_order === "number" ? row.rotation_order : 0,
+  } satisfies StoredGroup)), pillar);
+  const row = (ranked.data ?? []).find((item) => item.slug === picked?.slug);
+  return row ? toSearchGroup(row) : null;
 }
 
 export async function nextSearchGroup(): Promise<SearchGroup | null> {

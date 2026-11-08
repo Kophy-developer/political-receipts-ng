@@ -1,6 +1,7 @@
 import type { OpportunityType, ResearchNeed } from "@/lib/opportunities/types";
 import { hasCheckableFact } from "@/lib/editorial/assess";
 import { describeSource, replaceUserLabel, type QualityKind } from "@/lib/editorial/quality";
+import { readingForPillar } from "@/lib/editorial/pillar-reading";
 import { plannedNextStage, type Priority } from "@/lib/editorial/model";
 import { fullConversationText, type ConversationPacket } from "@/lib/editorial/packet";
 import type { ContentPillar } from "@/lib/pillars/catalog";
@@ -615,7 +616,7 @@ export function routeUnderstanding(packet: ConversationPacket, reading: Conversa
       draftingCandidate: false,
     };
   }
-  const quality = describeSource(sourceText);
+  const quality = readingForPillar(packet.pillar, sourceText, describeSource(sourceText));
   if (quality.matched) {
     const checkable = quality.researchNeed === "yes";
     const event = quality.primaryKind === "event";

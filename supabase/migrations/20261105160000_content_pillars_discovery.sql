@@ -112,7 +112,7 @@ values
   (
     'Team and manager',
     'united-team',
-    '("Manchester United" OR #MUFC) (manager OR tactic OR injury OR "Old Trafford" OR Amorim) -is:retweet',
+    '("Manchester United" OR #MUFC) (manager OR tactic OR injury OR squad OR "Old Trafford") -is:retweet',
     'desk-manchester-united',
     array['manchester united', 'manager', 'injury', 'old trafford'],
     array['manchester united'],
@@ -129,6 +129,17 @@ values
     array['manchester united'],
     'topic',
     303,
+    'football'
+  ),
+  (
+    'Club finances',
+    'united-finances',
+    '("Manchester United" OR #MUFC) (revenue OR wages OR "financial results" OR sponsorship OR "club debt") -is:retweet',
+    'desk-manchester-united',
+    array['manchester united', 'revenue', 'wages', 'financial results'],
+    array['manchester united'],
+    'topic',
+    304,
     'football'
   )
 on conflict (slug) do nothing;

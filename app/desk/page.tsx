@@ -117,6 +117,7 @@ async function DeskHome({ searchParams }: { searchParams: Promise<{ step?: strin
               signals={discovery.signals}
               publishedTotal={discovery.publishedTotal}
               mix={discovery.mix.items}
+              allowance={discovery.allowance}
             />
             <ScanBoard
               thisScan={arranged.thisScan.map((card) => viewOf(card, false))}

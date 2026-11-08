@@ -46,9 +46,9 @@ export function isScanMode(value: unknown): value is ScanMode {
 
 /** One account. The tone changes. The person does not. */
 export const pillarVoice: Record<ContentPillar, string> = {
-  politics: "The same person. Curious and evidence-led, and willing to challenge a claim.",
-  finance: "The same person. Knowledgeable and plain. Use a number when it helps, and explain it. Do not give investment advice to a named person.",
-  manchester_united: "The same person. A supporter: conversational, and funny or frustrated when that fits. A rumour is not a transfer.",
+  politics: "The same person. Curious, evidence-conscious, and conversational. Attribute a claim to the person who made it. Do not forecast an election.",
+  finance: "The same person. Numerically informed, thoughtful, and practical. Explain a figure simply, and keep its unit, period, and definition. Do not give investment advice to a named person.",
+  manchester_united: "The same person. A supporter: conversational, and occasionally funny or frustrated. Do not invent a personal reaction, a transfer, or an injury. A rumour is not a transfer.",
 };
 
 export const researchSources: Record<ContentPillar, string> = {
@@ -160,7 +160,7 @@ export const manchesterDiscovery = {
     {
       slug: "united-team",
       name: "Team and manager",
-      query: '("Manchester United" OR #MUFC) (manager OR tactic OR injury OR "Old Trafford" OR Amorim) -is:retweet',
+      query: '("Manchester United" OR #MUFC) (manager OR tactic OR injury OR squad OR "Old Trafford") -is:retweet',
       terms: ["manchester united", "manager", "injury", "old trafford"],
     },
     {
@@ -168,6 +168,12 @@ export const manchesterDiscovery = {
       name: "Club news",
       query: '("Manchester United" OR #MUFC) (transfer OR signing OR contract OR "club statement") -is:retweet',
       terms: ["manchester united", "transfer", "contract"],
+    },
+    {
+      slug: "united-finances",
+      name: "Club finances",
+      query: '("Manchester United" OR #MUFC) (revenue OR wages OR "financial results" OR sponsorship OR "club debt") -is:retweet',
+      terms: ["manchester united", "revenue", "wages", "financial results"],
     },
   ] satisfies DiscoveryQuery[],
 };

@@ -1,5 +1,6 @@
+import { readFileSync } from "node:fs";
 import { draftPrompt, type DraftBrief } from "../lib/drafts/rules";
-import { scanBudget } from "../lib/intel/budget";
+import { plannedScanRequest, scanBudget } from "../lib/intel/budget";
 import {
   financeDiscovery,
   manchesterDiscovery,
@@ -11,6 +12,7 @@ import {
   researchExpectation,
   withOptionalTag,
 } from "../lib/pillars/catalog";
+import { pickSearchGroup } from "../lib/pillars/groups";
 import { carriesPillar, chooseScan, contentMix, pillarProgress, rankByQuality, type PillarSignal } from "../lib/pillars/scan";
 
 const failures: string[] = [];
@@ -63,6 +65,39 @@ const queued = chooseScan("smart", [
 ], 20);
 check("a full queue keeps an underrepresented pillar from being forced", queued.pillar !== "manchester_united");
 
+const missingUnited = chooseScan("smart", [
+  signal({ pillar: "politics", share: 80, configured: true }),
+  signal({ pillar: "finance", share: 20, configured: true }),
+  signal({ pillar: "manchester_united", share: 0, configured: false }),
+], 20);
+check("an unconfigured pillar is named and not selected", missingUnited.pillar !== "manchester_united" && missingUnited.unconfigured.includes("manchester_united") && /unconfigured/i.test(missingUnited.reason));
+const manualMissing = chooseScan("finance", [
+  signal({ pillar: "finance", share: 0, configured: false }),
+], 20);
+check("a manual pillar with no search group does not run", manualMissing.pillar === "finance" && manualMissing.runnable === false && /unconfigured/i.test(manualMissing.reason));
+
+const stocked = chooseScan("smart", [
+  signal({ pillar: "politics", share: 40, readyDrafts: 0, hoursSinceScan: 2 }),
+  signal({ pillar: "finance", share: 0, readyDrafts: 3, hoursSinceScan: 48 }),
+  signal({ pillar: "manchester_united", share: 60, readyDrafts: 0, hoursSinceScan: 2 }),
+], 20);
+check("a pillar with drafts waiting is not the next scan", stocked.pillar !== "finance");
+
+const blocked = chooseScan("politics", under, 20, { requestsRemaining: 0, postsRemaining: 40, known: true });
+check("a used daily request budget blocks the scan", blocked.runnable === false && /daily X request limit/i.test(blocked.reason) && blocked.estimatedRequests === 1);
+const plan = plannedScanRequest();
+check("the request stays inside the recent-search endpoint", plan.requests === 1 && plan.posts === scanBudget.maxPostsPerScan && plan.posts >= 10 && plan.posts <= 100 && plan.paginates === false);
+check("the confirmation does not promise a larger page", !plan.note.includes("25") && !plan.note.includes("50") && plan.note.includes(String(plan.posts)));
+
+const financeGroup = pickSearchGroup([
+  { slug: "finance-markets", name: "Markets", query: financeDiscovery.queries[2].query, pillar: "finance", enabled: true, lastUsedAt: "2026-11-01T00:00:00.000Z", rotation: 2 },
+  { slug: "finance-cbn", name: "CBN", query: financeDiscovery.queries[0].query, pillar: "finance", enabled: true, lastUsedAt: null, rotation: 1 },
+  { slug: "united-match", name: "Match", query: manchesterDiscovery.queries[0].query, pillar: "football", enabled: true, lastUsedAt: null, rotation: 1 },
+], "finance");
+check("finance selection stays on an unused finance group", financeGroup?.slug === "finance-cbn");
+check("a pillar with no usable group is empty", pickSearchGroup([], "football") === null);
+check("search groups do not pin one person", [...financeDiscovery.queries, ...manchesterDiscovery.queries].every((item) => !/amorim/i.test(item.query) && item.query.includes("-is:retweet")));
+
 const posts = [
   ...Array.from({ length: 12 }, () => ({ pillar: "politics" as const })),
   ...Array.from({ length: 4 }, () => ({ pillar: "finance" as const })),
@@ -112,6 +147,8 @@ const voiceBrief: DraftBrief = {
 const voice = draftPrompt(voiceBrief);
 check("united drafts use the supporter voice", voice.system.includes("A supporter") && voice.system.includes("Do not add #CheckAm"));
 check("a politics draft without a pillar is unchanged", !draftPrompt({ ...voiceBrief, contentPillar: null }).system.includes("A supporter"));
+const scanRoute = readFileSync("app/api/intel/scan/route.ts", "utf8");
+check("an unconfigured or over-budget choice returns before a scan", scanRoute.indexOf("if (!choice.runnable)") >= 0 && scanRoute.indexOf("if (!choice.runnable)") < scanRoute.indexOf("runScan("));
 
 if (failures.length) {
   console.error(failures.join("\n"));

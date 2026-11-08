@@ -1,4 +1,5 @@
 import "server-only";
+import { recentSearchEndpoint } from "@/lib/intel/budget";
 import { xUserGet } from "@/lib/x/oauth1";
 import { cleanUsername, sanitizeText } from "@/lib/intel/text";
 
@@ -27,7 +28,7 @@ function asRecord(value: unknown) {
 }
 
 export async function searchRecent(input: { query: string; maxResults: number; startTime: string }) {
-  const maxResults = Math.min(100, Math.max(10, input.maxResults));
+  const maxResults = Math.min(recentSearchEndpoint.maxResults, Math.max(recentSearchEndpoint.minResults, input.maxResults));
   const result = await xUserGet("https://api.twitter.com/2/tweets/search/recent", {
     query: input.query,
     max_results: String(maxResults),

@@ -29,13 +29,15 @@ function investmentTopic(text: string) {
   return /\b(invest(?:ing|ment|ed)?|capital importation|foreign direct)\b/i.test(text) && /\b(compan(?:y|ies)|economy|tinubu|foreign|importation)\b/i.test(text);
 }
 
-export function investigate(sourceText: string, quality: SourceQuality): Investigation {
+export function investigate(sourceText: string, quality: SourceQuality, pillar?: string | null): Investigation {
   const text = `${sourceText}\n${quality.summary}`;
   const rejects = /rejects another person's claim|does not assert/i.test(quality.summary);
   const polling = /\b453\b/.test(text) && /polling|inec|voter register/i.test(text);
   const prediction = quality.primaryKind === "prediction";
   const event = quality.primaryKind === "event";
   const football = /\b(manchester united|premier league|goal|fixture)\b/i.test(text);
+  const namedUnited = pillar === "manchester_united" || pillar === "football";
+  const economicFigure = /\d/.test(text) && /\b(percent|per cent|%|naira|inflation|mpr|interest rate|exchange rate|basis point|billion|million)\b/i.test(text);
   const policy = /\b(policy|executive order|appropriation|electoral act|bill)\b/i.test(text);
   const numerical = !polling && !prediction && investmentTopic(text);
 
@@ -50,6 +52,49 @@ export function investigate(sourceText: string, quality: SourceQuality): Investi
       ],
       definitions: [],
       preferredHosts: ["inecnigeria.org"],
+      rejectedSubstitutes: [],
+      focusSeries: null,
+    };
+  }
+  if (namedUnited && quality.researchNeed === "no") {
+    return {
+      numerical: false,
+      attribution: "This is a football reaction. It is not sent through a political fact-check.",
+      authorAssertsQuotedClaim: false,
+      questions: [
+        { purpose: "context", question: "Is this a supporter's judgment, or a report that still needs the club or the competition?" },
+      ],
+      definitions: [],
+      preferredHosts: ["manutd.com", "premierleague.com"],
+      rejectedSubstitutes: [],
+      focusSeries: null,
+    };
+  }
+  if (namedUnited) {
+    return {
+      numerical: false,
+      attribution: quality.summary || "The post states a club fact.",
+      authorAssertsQuotedClaim: false,
+      questions: [
+        { purpose: "verification", question: "What do Manchester United, the Premier League, UEFA, or the FA record for this?" },
+      ],
+      definitions: ["A transfer rumour or an injury report is not a confirmed signing or a confirmed absence."],
+      preferredHosts: ["manutd.com", "premierleague.com", "uefa.com", "thefa.com"],
+      rejectedSubstitutes: [],
+      focusSeries: null,
+    };
+  }
+  if (pillar === "finance" && economicFigure && !investmentTopic(text)) {
+    return {
+      numerical: true,
+      attribution: quality.summary,
+      authorAssertsQuotedClaim: false,
+      questions: [
+        { purpose: "verification", question: "Which office published this figure, for which period, and in which unit?" },
+        { purpose: "numerical_analysis", question: "What definition does that office give the series, and what does a neighbouring period show?" },
+      ],
+      definitions: ["The figure keeps its unit, its reporting period, and the office's definition."],
+      preferredHosts: ["cbn.gov.ng", "nigerianstat.gov.ng", "dmo.gov.ng", "budgetoffice.gov.ng", "ngxgroup.com"],
       rejectedSubstitutes: [],
       focusSeries: null,
     };

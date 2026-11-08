@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { scanDeskSummary, type DiscoveryAction } from "@/lib/desk/discover";
 import { understandConfirmation } from "@/lib/editorial/understand";
 import { scanModes, type ScanMode } from "@/lib/pillars/catalog";
-import { chooseScan, type PillarSignal, type ScanChoice } from "@/lib/pillars/scan";
+import { chooseScan, type PillarSignal, type ScanAllowance, type ScanChoice } from "@/lib/pillars/scan";
 import { deskJobView, type ReprocessJob } from "@/lib/intel/progress";
 
 export type DeskOpportunityView = {
@@ -59,6 +59,7 @@ export function DeskDiscover({
   signals,
   publishedTotal,
   mix,
+  allowance,
 }: {
   scanId: string | null;
   postsSaved: number;
@@ -70,6 +71,7 @@ export function DeskDiscover({
   signals: PillarSignal[];
   publishedTotal: number;
   mix: Array<{ pillar: string; label: string; share: number; target: number }>;
+  allowance: ScanAllowance;
 }) {
   const router = useRouter();
   const [confirming, setConfirming] = useState(false);
@@ -226,7 +228,7 @@ export function DeskDiscover({
         Scan X
       </button>
       {confirming ? (
-        <ScanConfirm choice={chooseScan(mode, signals, publishedTotal)} running={running} onRun={() => void runScan()} />
+        <ScanConfirm choice={chooseScan(mode, signals, publishedTotal, allowance)} running={running} onRun={() => void runScan()} />
       ) : null}
       {scanId ? (
         <div className="mt-6 border border-rule px-4 py-4 text-sm">
@@ -323,17 +325,25 @@ function ScanConfirm({ choice, running, onRun }: { choice: ScanChoice; running: 
           <dd>{choice.reason}</dd>
         </div>
         <div>Maximum: {choice.maximumPosts} posts</div>
-        <div>Estimated X requests: {choice.estimatedRequests}</div>
+        <div>Expected X requests: {choice.estimatedRequests}</div>
       </dl>
-      <p className="mt-3 text-sm text-ink-soft">One search. {choice.scope}. Nothing is sent until you run it.</p>
-      <button
-        type="button"
-        onClick={onRun}
-        disabled={running}
-        className="mt-4 inline-flex h-10 items-center bg-ink px-4 text-sm text-paper disabled:opacity-50"
-      >
-        {running ? "Scanning…" : "Run scan"}
-      </button>
+      <p className="mt-3 text-sm text-ink-soft">{choice.requestNote}</p>
+      <p className="mt-2 text-sm text-ink-soft">One search. {choice.scope}. Nothing is sent until you run it.</p>
+      {choice.unconfigured.length > 0 ? (
+        <p className="mt-2 text-sm">Unconfigured: {choice.unconfigured.map((pillar) => pillar === "manchester_united" ? "Manchester United" : pillar === "finance" ? "Finance" : "Politics").join(", ")}.</p>
+      ) : null}
+      {choice.runnable ? (
+        <button
+          type="button"
+          onClick={onRun}
+          disabled={running}
+          className="mt-4 inline-flex h-10 items-center bg-ink px-4 text-sm text-paper disabled:opacity-50"
+        >
+          {running ? "Scanning…" : "Run scan"}
+        </button>
+      ) : (
+        <p className="mt-4 text-sm">This scan will not be sent.</p>
+      )}
     </div>
   );
 }

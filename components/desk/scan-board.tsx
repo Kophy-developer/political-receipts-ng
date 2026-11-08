@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { applyPass, restoreCard } from "@/lib/desk/board";
+import { contentPillarFromStorage, pillarLabels } from "@/lib/pillars/catalog";
 
 export type BoardCard = {
   id: string;
@@ -142,11 +143,13 @@ export function ScanBoard({
 }
 
 function Card({ card, onPass }: { card: BoardCard; onPass: () => void }) {
+  const pillar = contentPillarFromStorage(card.pillar);
   return (
     <li className="border border-rule px-4 py-4">
       <p className="font-mono text-[11px] tracking-[0.14em] uppercase">
         {card.displayNumber ? `#${card.displayNumber}` : "Working"}
         {card.older ? " · Earlier scan" : " · This scan"}
+        {pillar ? ` · ${pillarLabels[pillar]}` : ""}
         {card.lowValue ? " · Low value" : ""}
       </p>
       <p className="mt-2 text-sm leading-relaxed">{card.title}</p>
