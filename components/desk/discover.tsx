@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { scanDeskSummary, type DiscoveryAction } from "@/lib/desk/discover";
 import { understandConfirmation } from "@/lib/editorial/understand";
 import { engagementOperator, parseEngagement, withEngagement, type EngagementSetting } from "@/lib/intel/engagement";
+import { queryAudit, type QueryRosterItem, type QuerySelection } from "@/lib/intel/query-library";
 import { scanModes, type ContentPillar, type ScanMode } from "@/lib/pillars/catalog";
 import { chooseScan, type PillarSignal, type ScanAllowance, type ScanChoice } from "@/lib/pillars/scan";
 import { deskJobView, type ReprocessJob } from "@/lib/intel/progress";
@@ -64,7 +65,9 @@ export function DeskDiscover({
   engagement,
   engagementReady,
   engagementMessage,
-  nextGroups,
+  audit,
+  selections,
+  rosters,
 }: {
   scanId: string | null;
   postsSaved: number;
@@ -80,7 +83,9 @@ export function DeskDiscover({
   engagement: EngagementSetting;
   engagementReady: boolean;
   engagementMessage: string | null;
-  nextGroups: Record<ContentPillar, { name: string; query: string } | null>;
+  audit: typeof queryAudit;
+  selections: Record<ContentPillar, QuerySelection | null>;
+  rosters: Record<ContentPillar, QueryRosterItem[]>;
 }) {
   const router = useRouter();
   const [confirming, setConfirming] = useState(false);
@@ -197,6 +202,7 @@ export function DeskDiscover({
     }
   }
 
+  const choice = chooseScan(mode, signals, publishedTotal, allowance);
   const results = view.kind === "complete"
     ? (found.length > 0 ? found.map((item) => ({ id: item.id, title: item.title, action: item.action, href: `/desk/${item.id}` })) : latestOpportunities)
     : [];
@@ -237,13 +243,15 @@ export function DeskDiscover({
       >
         Scan X
       </button>
+      <SampleNote audit={audit} />
       {confirming ? (
         <ScanConfirm
-          choice={chooseScan(mode, signals, publishedTotal, allowance)}
+          choice={choice}
           running={running}
           engagement={engagement}
           engagementReady={engagementReady}
-          nextGroups={nextGroups}
+          selection={selections[choice.pillar]}
+          roster={rosters[choice.pillar]}
           onRun={() => void runScan()}
         />
       ) : null}
@@ -332,19 +340,20 @@ function ScanConfirm({
   running,
   engagement,
   engagementReady,
-  nextGroups,
+  selection,
+  roster,
   onRun,
 }: {
   choice: ScanChoice;
   running: boolean;
   engagement: EngagementSetting;
   engagementReady: boolean;
-  nextGroups: Record<ContentPillar, { name: string; query: string } | null>;
+  selection: QuerySelection | null;
+  roster: QueryRosterItem[];
   onRun: () => void;
 }) {
   const title = choice.mode === "smart" ? "Smart scan" : choice.label;
-  const group = nextGroups[choice.pillar];
-  const built = group ? withEngagement(group.query, engagement) : null;
+  const built = selection ? withEngagement(selection.requestQuery, engagement) : null;
   const canRun = choice.runnable && engagementReady && built?.ok === true;
   return (
     <div className="mt-4 border border-ink px-4 py-4">
@@ -355,12 +364,20 @@ function ScanConfirm({
           <dd>{choice.label}</dd>
         </div>
         <div>
-          <dt className="text-ink-soft">Reason</dt>
+          <dt className="text-ink-soft">Why this pillar</dt>
           <dd>{choice.reason}</dd>
         </div>
         <div>
+          <dt className="text-ink-soft">Why this query</dt>
+          <dd>{selection?.reason ?? "That pillar has no discovery query yet."}</dd>
+        </div>
+        <div>
           <dt className="text-ink-soft">Search group</dt>
-          <dd>{group?.name ?? "None"}</dd>
+          <dd>{selection?.name ?? "None"}</dd>
+        </div>
+        <div>
+          <dt className="text-ink-soft">Engagement threshold</dt>
+          <dd>{engagementOperator(engagement)}</dd>
         </div>
         <div>
           <dt className="text-ink-soft">Query sent to X</dt>
@@ -369,13 +386,23 @@ function ScanConfirm({
         <div>Expected X requests: {choice.estimatedRequests}</div>
         <div>Expected post reads: up to {choice.maximumPosts}</div>
       </dl>
+      {selection?.tightened ? <p className="mt-3 text-sm">The stored group text is narrower in the request. Stored text: <span className="break-all font-mono text-xs">{selection.storedQuery}</span></p> : null}
+      {selection ? (
+        <div className="mt-3 text-sm">
+          <p className="font-mono text-[11px] tracking-[0.14em] text-ink-soft uppercase">Supporting evidence</p>
+          <ul className="mt-2 space-y-1">{selection.evidence.map((line) => <li key={line}>{line}</li>)}</ul>
+          <p className="mt-3 font-mono text-[11px] tracking-[0.14em] text-ink-soft uppercase">Limitations</p>
+          <ul className="mt-2 space-y-1 text-ink-soft">{selection.limitations.map((line) => <li key={line}>{line}</li>)}</ul>
+        </div>
+      ) : null}
       <p className="mt-3 text-sm text-ink-soft">{choice.requestNote}</p>
-      <p className="mt-2 text-sm text-ink-soft">One search. {choice.scope}. X applies {engagementOperator(engagement)} before any post reaches this desk. A result of zero stays zero. Nothing is sent until you run it.</p>
+      <p className="mt-2 text-sm text-ink-soft">One search. {choice.scope}. X applies {engagementOperator(engagement)} before any post reaches this desk. A result of zero stays zero. The threshold is not lowered.</p>
       {built && !built.ok ? <p className="mt-2 text-sm">{built.message}</p> : null}
       {!engagementReady ? <p className="mt-2 text-sm">The saved threshold could not be read. No X request will be made.</p> : null}
       {choice.unconfigured.length > 0 ? (
         <p className="mt-2 text-sm">Unconfigured: {choice.unconfigured.map((pillar) => pillar === "manchester_united" ? "Manchester United" : pillar === "finance" ? "Finance" : "Politics").join(", ")}.</p>
       ) : null}
+      <QueryRoster pillar={choice.pillar} roster={roster} />
       {canRun ? (
         <button
           type="button"
@@ -388,6 +415,76 @@ function ScanConfirm({
       ) : (
         <p className="mt-4 text-sm">This scan will not be sent.</p>
       )}
+    </div>
+  );
+}
+
+function SampleNote({ audit }: { audit: typeof queryAudit }) {
+  return (
+    <div className="mt-4 border border-rule px-4 py-4 text-sm">
+      <p className="font-mono text-[11px] tracking-[0.14em] text-ink-soft uppercase">Stored sample</p>
+      <p className="mt-2">{audit.distinctPosts} stored posts from {audit.groupsWithPosts} search groups. {audit.groupsWithoutPosts} stored groups have no posts. Reviewed {audit.reviewedOn}.</p>
+      <p className="mt-2">{audit.sampleLimit}</p>
+      <p className="mt-2">{audit.repliesAtLeast20} stored posts had 20 or more replies. {audit.repliesAtLeast5} had 5 or more. The highest reply count was {audit.maxReplies}. The highest like count was {audit.maxLikes}, and a like count is not proof.</p>
+      <p className="mt-2 text-ink-soft">{audit.googleTrends}</p>
+      <p className="mt-2 text-ink-soft">{audit.fullArchive}</p>
+      <p className="mt-2 text-ink-soft">{audit.news}</p>
+    </div>
+  );
+}
+
+function QueryRoster({ pillar, roster }: { pillar: ContentPillar; roster: QueryRosterItem[] }) {
+  const router = useRouter();
+  const [note, setNote] = useState<string | null>(null);
+  const [saving, setSaving] = useState<string | null>(null);
+  const busy = useRef(false);
+
+  async function choose(slug: string | null) {
+    if (busy.current) return;
+    busy.current = true;
+    setSaving(slug ?? "clear");
+    setNote(null);
+    try {
+      const response = await fetch("/api/desk/query-group", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ pillar, slug }),
+      });
+      const body = (await response.json()) as { ok?: boolean; message?: string };
+      setNote(body.message ?? "The group was not changed. No X request was made.");
+      if (body.ok) router.refresh();
+    } catch {
+      setNote("The group was not changed. No X request was made.");
+    } finally {
+      busy.current = false;
+      setSaving(null);
+    }
+  }
+
+  return (
+    <div className="mt-4">
+      <p className="font-mono text-[11px] tracking-[0.14em] text-ink-soft uppercase">Search groups</p>
+      <ul className="mt-2 space-y-2">
+        {roster.map((item) => (
+          <li key={item.slug} className="border border-rule px-3 py-3">
+            <p>{item.name}{item.selected ? " · next scan" : ""}</p>
+            <p className="mt-1 text-ink-soft">{item.posts} stored posts{item.sampled ? "" : " · no sample"}{item.tightened ? " · narrower query ready" : ""}</p>
+            {item.selected && !item.editorChosen ? <p className="mt-2">Selected from the stored sample.</p> : null}
+            {item.enabled && item.editorChosen ? (
+              <button type="button" onClick={() => void choose(null)} disabled={saving !== null} className="mt-2 inline-flex h-9 items-center border border-ink px-3 text-sm disabled:opacity-50">
+                {saving === "clear" ? "Saving…" : "Use the evidence ranking"}
+              </button>
+            ) : null}
+            {item.enabled && !item.selected ? (
+              <button type="button" onClick={() => void choose(item.slug)} disabled={saving !== null} className="mt-2 inline-flex h-9 items-center border border-ink px-3 text-sm disabled:opacity-50">
+                {saving === item.slug ? "Saving…" : "Use this group"}
+              </button>
+            ) : null}
+            {!item.enabled ? <p className="mt-2">Disabled.</p> : null}
+          </li>
+        ))}
+      </ul>
+      {note ? <p className="mt-2">{note}</p> : null}
     </div>
   );
 }

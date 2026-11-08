@@ -36,7 +36,7 @@ export async function intelReady() {
   return { ok: true as const, db };
 }
 
-function toSearchGroup(data: {
+export function toSearchGroup(data: {
   id: string;
   name: string;
   slug: string;

@@ -6,7 +6,6 @@ import {
   finishScan,
   intelReady,
   knownEntities,
-  nextSearchGroupForPillar,
   openScan,
   releaseStaleScans,
   savePosts,
@@ -14,6 +13,7 @@ import {
   touchGroup,
 } from "@/lib/db/intel";
 import { loadEngagement } from "@/lib/db/engagement";
+import { selectedSearchGroup } from "@/lib/db/query-selection";
 import { recordUsage, usageSince } from "@/lib/db/usage";
 import { engagementMiss, withEngagement } from "@/lib/intel/engagement";
 import { judgePost } from "@/lib/intel/classify";
@@ -98,8 +98,8 @@ async function gate(storagePillar: "politics" | "finance" | "football" = "politi
   if (!ready.ok) return { ok: false as const, estimate: blockedEstimate(ready.message) };
   const usage = await usageSince(lagosDayStart());
   if (!usage.ok) return { ok: false as const, estimate: blockedEstimate("Usage tracking is not readable. No X request was made.") };
-  const group = await nextSearchGroupForPillar(storagePillar);
-  if (!group) {
+  const chosen = await selectedSearchGroup(storagePillar);
+  if (!chosen) {
     const message = storagePillar === "politics"
       ? "No search group is enabled. No X request was made."
       : "That pillar has no discovery query yet. No X request was made.";
@@ -107,7 +107,7 @@ async function gate(storagePillar: "politics" | "finance" | "football" = "politi
   }
   const engagement = await loadEngagement();
   if (!engagement.ok) return { ok: false as const, estimate: blockedEstimate(engagement.message) };
-  const built = withEngagement(group.query, engagement.setting);
+  const built = withEngagement(chosen.selection.requestQuery, engagement.setting);
   if (!built.ok) return { ok: false as const, estimate: blockedEstimate(built.message) };
   const xRemaining = Math.max(0, scanLimits.dailyXRequests - usage.totals.xRequests);
   const postsRemaining = Math.max(0, scanLimits.dailyPosts - usage.totals.posts);
@@ -115,7 +115,7 @@ async function gate(storagePillar: "politics" | "finance" | "football" = "politi
   const estimate = blockedEstimate(null as unknown as string, {
     ready: true,
     message: null,
-    groupName: group.name,
+    groupName: chosen.group.name,
     maxGeminiRequests: readAiEnv().geminiKey && geminiRemaining > 0 ? 1 : 0,
     xRemaining,
     postsRemaining,
@@ -130,7 +130,7 @@ async function gate(storagePillar: "politics" | "finance" | "football" = "politi
       estimate: { ...estimate, ready: false, message: "The daily post ceiling leaves fewer than 10 reads. No search was sent." },
     };
   }
-  return { ok: true as const, estimate, group, requestQuery: built.query, operator: built.operator, geminiRemaining };
+  return { ok: true as const, estimate, group: chosen.group, selection: chosen.selection, requestQuery: built.query, operator: built.operator, geminiRemaining };
 }
 
 export async function previewScan() {
@@ -199,6 +199,8 @@ export async function runScan(input?: { storagePillar?: "politics" | "finance" |
       groupId: gated.group.id,
       groupName: gated.group.name,
       query: gated.requestQuery,
+      storedQuery: gated.selection.storedQuery,
+      selectionReason: gated.selection.reason,
       engagement: gated.operator,
       maxPosts: scanLimits.maxPostsPerScan,
       lookbackHours: scanLimits.lookbackHours,
@@ -249,6 +251,8 @@ export async function runScan(input?: { storagePillar?: "politics" | "finance" |
           groupName: gated.group.name,
           contentPillar: storagePillar,
           query: gated.requestQuery,
+          storedQuery: gated.selection.storedQuery,
+          selectionReason: gated.selection.reason,
           engagement: gated.operator,
         },
       });
@@ -330,6 +334,8 @@ export async function runScan(input?: { storagePillar?: "politics" | "finance" |
         groupId: gated.group.id,
         groupName: gated.group.name,
         query: gated.requestQuery,
+        storedQuery: gated.selection.storedQuery,
+        selectionReason: gated.selection.reason,
         engagement: gated.operator,
         contentPillar: storagePillar,
         extraction: extraction.outcome,
