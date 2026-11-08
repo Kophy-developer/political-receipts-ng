@@ -2,6 +2,7 @@ import { readActiveApproval } from "@/lib/db/approvals";
 import { loadStoredCapability } from "@/lib/db/connections";
 import { failPublication, finishPublication, reservePublication } from "@/lib/db/publishing";
 import { claimPublishConfirmation } from "@/lib/db/confirmations";
+import { markPublishedOpportunity } from "@/lib/db/publisher";
 import { assertEditorRequest } from "@/lib/x/guard";
 import { publishApprovedPost, validatePublishRequest } from "@/lib/x/publish";
 import { takeTicket } from "@/lib/x/ticket";
@@ -58,6 +59,7 @@ export async function POST(request: Request) {
     xPostUrl: posted.url,
     text: body.text as string,
   });
+  await markPublishedOpportunity(approval.claimId);
   return Response.json(
     {
       ok: true,

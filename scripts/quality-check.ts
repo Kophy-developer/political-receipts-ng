@@ -101,10 +101,9 @@ check(
   "the current scan does not present a recovered model response as its outcome",
   !desk.includes("Recovered from 1 previous AI model response.")
     && !scanBoard.includes("Recovered from 1 previous AI model response.")
-    && desk.includes("Previous assessment versions")
-    && desk.includes("not current")
     && board.includes("Previous assessment versions")
-    && board.includes("not current"),
+    && board.includes("not current")
+    && desk.includes('redirect("/")'),
 );
 
 if (failures.length) {

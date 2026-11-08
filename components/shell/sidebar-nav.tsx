@@ -44,7 +44,7 @@ export function SidebarNav({ onNavigate, identity }: { onNavigate?: () => void; 
 
   return (
     <div className="flex h-full flex-col">
-      <Link href="/desk" onClick={onNavigate} className="block px-4 pb-2 pt-5">
+      <Link href="/" onClick={onNavigate} className="block px-4 pb-2 pt-5">
         <span className="flex items-start gap-2.5">
           <ReceiptMark className="mt-0.5 size-8 shrink-0 text-[#f3efe6]" />
           <span>
@@ -60,8 +60,8 @@ export function SidebarNav({ onNavigate, identity }: { onNavigate?: () => void; 
           Politics. Claims. Receipts.
         </span>
       </Link>
-      <nav className="mt-4 flex-1 overflow-y-auto px-2" aria-label="Desk">
-        <NavGroup label="Desk" items={primaryNav} pathname={pathname} onNavigate={onNavigate} />
+      <nav className="mt-4 flex-1 overflow-y-auto px-2" aria-label="Publisher">
+        <NavGroup label="Publisher" items={primaryNav} pathname={pathname} onNavigate={onNavigate} />
       </nav>
       <div className="mt-auto border-t border-white/10 px-4 py-3">
         <DeskClock tone="ink" />

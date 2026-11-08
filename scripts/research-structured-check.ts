@@ -75,7 +75,7 @@ async function main() {
   const page = readFileSync("app/desk/page.tsx", "utf8");
   const story = readFileSync("app/desk/work/[id]/page.tsx", "utf8");
   const publish = readFileSync("lib/x/publish.ts", "utf8");
-  check("the desk has three replacing steps and the story can read the official series", page.includes('step === "discover"') && page.includes('step === "investigate"') && page.includes('step === "ready"') && page.includes("Ready for You") && page.includes("Scheduling is") && route.includes("read-structured") && story.includes("Read the official series"));
+  check("the approval queue replaced the desk steps and the story can still read the official series", page.includes('redirect("/")') && route.includes("read-structured") && story.includes("Read the official series") && readFileSync("app/page.tsx", "utf8").includes("ApprovalQueue"));
   check("publishing still requires the exact confirmation", publish.includes("input.confirm !== true") && publish.includes("The post needs an explicit final confirmation."));
   const migration = readFileSync("supabase/migrations/20261107140000_desk_schedule.sql", "utf8");
   check("the schedule migration defaults to off and blocks a manual enabled row", /enabled boolean not null default false/.test(migration) && /enabled = false or mode <> 'manual'/.test(migration));

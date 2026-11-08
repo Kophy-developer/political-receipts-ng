@@ -70,8 +70,8 @@ const publishRules = readFileSync("lib/x/publish.ts", "utf8");
 check("publish confirmation is durable", publish.includes("claimPublishConfirmation") && !publish.includes("reservePostNonce"));
 check("exact text confirmation remains", publishRules.includes("confirm") && publish.includes("validatePublishRequest"));
 check("writes require an editor session", readFileSync("app/api/opportunities/decision/route.ts", "utf8").includes("assertEditorRequest"));
-check("the desk names this scan", readFileSync("app/desk/page.tsx", "utf8").includes("This scan") && readFileSync("components/desk/scan-board.tsx", "utf8").includes("Pass"));
-check("primary navigation is the four desk items", readFileSync("lib/nav.ts", "utf8").includes('label: "Ready for You"') && readFileSync("lib/nav.ts", "utf8").includes('label: "Settings"'));
+check("the desk page now redirects to the approval queue", readFileSync("app/desk/page.tsx", "utf8").includes('redirect("/")') && readFileSync("components/desk/scan-board.tsx", "utf8").includes("Pass"));
+check("primary navigation is Approve, Published, Settings", readFileSync("lib/nav.ts", "utf8").includes('label: "Approve"') && readFileSync("lib/nav.ts", "utf8").includes('label: "Published"') && readFileSync("lib/nav.ts", "utf8").includes('label: "Settings"') && !readFileSync("lib/nav.ts", "utf8").includes('label: "Ready for You"'));
 
 const fixture = Array.from({ length: 400 }, (_, index) => ({
   id: `card-${index}`,

@@ -1,12 +1,7 @@
 import {
   Archive,
-  Library,
-  Lightbulb,
-  PenLine,
-  Radio,
-  Scale,
+  CheckSquare,
   Settings,
-  SquarePen,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
@@ -16,26 +11,20 @@ export interface NavItem {
   icon: LucideIcon;
 }
 
+/** The product is an approve queue. Old desk routes stay in the repo but leave the menu. */
 export const primaryNav: NavItem[] = [
-  { href: "/desk", label: "Desk", icon: SquarePen },
-  { href: "/ready", label: "Ready for You", icon: PenLine },
+  { href: "/", label: "Approve", icon: CheckSquare },
   { href: "/published", label: "Published", icon: Archive },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 
-export const libraryNav: NavItem[] = [
-  { href: "/intelligence", label: "Intelligence", icon: Radio },
-  { href: "/opportunities", label: "Opportunities", icon: Lightbulb },
-  { href: "/claims", label: "Claims", icon: Scale },
-  { href: "/sources", label: "Sources", icon: Library },
-  { href: "/drafts", label: "Drafts", icon: PenLine },
-];
+export const libraryNav: NavItem[] = [];
 
 export const systemNav: NavItem[] = [
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 
-export const navItems: NavItem[] = [...primaryNav, ...libraryNav, ...systemNav];
+export const navItems: NavItem[] = [...primaryNav];
 
 export function isActive(pathname: string, href: string) {
   if (href === "/") return pathname === "/";
