@@ -10,6 +10,7 @@ import { lagosStamp } from "@/lib/format";
 import type { EditorIdentity } from "@/lib/identity";
 import { xCallbackPath } from "@/lib/system";
 import { IdentityForm } from "@/components/settings/identity-form";
+import { ScheduleDesk } from "@/components/settings/schedule-desk";
 import { xProductionOrigin } from "@/lib/x/public";
 import { XDesk, type XFlags } from "@/components/settings/x-desk";
 import { Input } from "@/components/ui/input";
@@ -24,6 +25,7 @@ const sections = [
   { href: "#sources", label: "Sources" },
   { href: "#rules", label: "Editorial Rules" },
   { href: "#publishing", label: "Publishing" },
+  { href: "#schedule", label: "Schedule" },
   { href: "#identity", label: "Editor identity" },
 ];
 
@@ -200,9 +202,12 @@ export function SettingsPanel({
               <ul className="max-w-2xl space-y-3 text-sm leading-relaxed">
                 <li>The pre-publication checklist must be complete before the server will accept a post.</li>
                 <li>Approve and post opens a preview. X is called only after a second, explicit confirmation of that text.</li>
-                <li>Schedule later is a hold on the desk, not a queued publish.</li>
+                <li>The background schedule can draft and notify. It cannot publish.</li>
                 <li>Reject keeps the package off the approve button until the editor undoes it.</li>
               </ul>
+            </Section>
+            <Section id="schedule" kicker="Schedule" title="Unattended find and draft">
+              <ScheduleDesk />
             </Section>
             <Section id="identity" kicker="Editor identity" title="Who is writing">
               <IdentityForm identity={identity} />
