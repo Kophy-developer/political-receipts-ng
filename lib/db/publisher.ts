@@ -71,7 +71,8 @@ export async function prepareApprovalDraft(input: { opportunityId: string; text:
   if (!item) return { ok: false as const, message: "That draft is not on the approval queue." };
   const parsed = parseApprovalText(input.text);
   if (!parsed.ok) return parsed;
-  const saved = await saveFinalPost({ claimId: row.data.claim_id, text: parsed.text, sources: [] });
+  const sources = [item.sourceUrl, item.chartUrl].flatMap((url) => (url ? [url] : [])).filter((url, index, list) => list.indexOf(url) === index);
+  const saved = await saveFinalPost({ claimId: row.data.claim_id, text: parsed.text, sources });
   if (!saved.ok) return saved;
   return { ok: true as const, claimId: row.data.claim_id, draftId: saved.id, text: saved.text };
 }
@@ -100,10 +101,21 @@ export async function rejectReadyDraft(input: { opportunityId: string; reason?: 
 
 export async function markPublishedOpportunity(claimId: string) {
   const db = serviceClient();
-  if (!db) return;
-  await db
+  if (!db) return { ok: false as const, message: "The database is not configured. The post may still be on X." };
+  const updated = await db
     .from("opportunities")
-    .update({ lifecycle: "PUBLISHED", status: "saved", updated_at: new Date().toISOString() })
+    .update({
+      lifecycle: "PUBLISHED",
+      status: "saved",
+      queue_rank: null,
+      updated_at: new Date().toISOString(),
+    })
     .eq("claim_id", claimId)
-    .eq("lifecycle", "READY_FOR_EDITOR");
+    .eq("lifecycle", "READY_FOR_EDITOR")
+    .select("id");
+  if (updated.error) return { ok: false as const, message: scrubDbMessage(updated.error.message) };
+  if (!updated.data?.length) {
+    return { ok: false as const, message: "The post went out, but the queue could not mark this draft published." };
+  }
+  return { ok: true as const, count: updated.data.length };
 }

@@ -2,7 +2,9 @@ import { Suspense } from "react";
 import type { Metadata } from "next";
 import { connection } from "next/server";
 import { ApprovalQueue } from "@/components/publisher/queue";
+import { ReadyNotify } from "@/components/publisher/ready-banner";
 import { PageFrame } from "@/components/shell/page-frame";
+import { listUnreadReadyNotifications } from "@/lib/db/notifications";
 import { listReadyForApproval } from "@/lib/db/publisher";
 import Loading from "@/app/loading";
 
@@ -18,9 +20,10 @@ export default function HomePage() {
 
 async function ApproveHome() {
   await connection();
-  const queue = await listReadyForApproval();
+  const [queue, unread] = await Promise.all([listReadyForApproval(), listUnreadReadyNotifications()]);
   return (
     <PageFrame className="max-w-3xl">
+      <ReadyNotify initialCount={unread.count} markOnView />
       <ApprovalQueue items={queue.items} notice={queue.notice.message} />
     </PageFrame>
   );

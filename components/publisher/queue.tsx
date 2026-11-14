@@ -215,9 +215,13 @@ function ApprovalCard({ item }: { item: ReadyItem }) {
           confirm: true,
         }),
       });
-      const posted = (await response.json()) as { ok?: boolean; message?: string };
-      setMessage(posted.ok ? "Published." : (posted.message ?? "X did not accept the post."));
-      if (posted.ok) router.refresh();
+      const posted = (await response.json()) as { ok?: boolean; message?: string; queueCleared?: boolean; queueMessage?: string | null };
+      if (!posted.ok) {
+        setMessage(posted.message ?? "X did not accept the post.");
+        return;
+      }
+      setMessage(posted.queueCleared === false && posted.queueMessage ? `Published. ${posted.queueMessage}` : "Published.");
+      router.refresh();
     } catch {
       setMessage("The publish gate was not reached. Nothing was sent.");
     } finally {

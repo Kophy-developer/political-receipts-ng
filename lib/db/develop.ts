@@ -43,6 +43,7 @@ import { fileRetrievedEvidence } from "@/lib/db/research";
 import { describeContinuation, type ResearchBlocker } from "@/lib/research/resume";
 import { storeResearchPlan } from "@/lib/research/plan";
 import { usageSince } from "@/lib/db/usage";
+import { recordReadyNotification } from "@/lib/db/notifications";
 import { lagosDayStart } from "@/lib/intel/limits";
 import type { Pillar, StatementKind } from "@/lib/research/types";
 
@@ -466,6 +467,13 @@ export async function developContent(id: string) {
     },
   });
   if (saved.error) return { ok: false as const, message: scrubDbMessage(saved.error.message), researchCalls: finished.researchCalls - beforeResearch, modelCalls: finished.modelCalls - beforeModel };
+  if (finished.ready) {
+    await recordReadyNotification({
+      opportunityId: id,
+      title: "Draft ready for approval",
+      body: finished.angle || loaded.sourceText.slice(0, 240) || "A draft is waiting on the Approve queue.",
+    });
+  }
   const message = finished.ready
     ? "A draft is ready for you. Nothing was published."
     : finished.review

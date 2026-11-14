@@ -1,14 +1,28 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { editorInitials, type EditorIdentity } from "@/lib/identity";
 import { isActive, primaryNav, type NavItem } from "@/lib/nav";
 import { cn } from "cn";
 import { ReceiptMark } from "@/components/shell/mark";
 import { DeskClock } from "@/components/shell/desk-clock";
+import { ApproveBadge } from "@/components/publisher/ready-banner";
 
-function NavGroup({ label, items, pathname, onNavigate }: { label: string; items: NavItem[]; pathname: string; onNavigate?: () => void }) {
+function NavGroup({
+  label,
+  items,
+  pathname,
+  onNavigate,
+  readyCount,
+}: {
+  label: string;
+  items: NavItem[];
+  pathname: string;
+  onNavigate?: () => void;
+  readyCount: number;
+}) {
   return (
     <div className="mb-4">
       <p className="px-2.5 pb-1 font-mono text-[10px] tracking-[0.16em] text-white/35 uppercase">{label}</p>
@@ -30,6 +44,7 @@ function NavGroup({ label, items, pathname, onNavigate }: { label: string; items
                 {active ? <span className="absolute bottom-1.5 left-0 top-1.5 w-0.5 bg-stamp" /> : null}
                 <Icon className="size-4 shrink-0 opacity-80" />
                 {item.label}
+                {item.href === "/" ? <ApproveBadge count={readyCount} /> : null}
               </Link>
             </li>
           );
@@ -41,6 +56,20 @@ function NavGroup({ label, items, pathname, onNavigate }: { label: string; items
 
 export function SidebarNav({ onNavigate, identity }: { onNavigate?: () => void; gemini?: string; identity: EditorIdentity }) {
   const pathname = usePathname();
+  const [readyCount, setReadyCount] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetch("/api/publisher/notifications", { cache: "no-store" })
+      .then(async (response) => {
+        const body = (await response.json()) as { count?: number };
+        if (!cancelled && typeof body.count === "number") setReadyCount(body.count);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [pathname]);
 
   return (
     <div className="flex h-full flex-col">
@@ -61,7 +90,7 @@ export function SidebarNav({ onNavigate, identity }: { onNavigate?: () => void; 
         </span>
       </Link>
       <nav className="mt-4 flex-1 overflow-y-auto px-2" aria-label="Publisher">
-        <NavGroup label="Publisher" items={primaryNav} pathname={pathname} onNavigate={onNavigate} />
+        <NavGroup label="Publisher" items={primaryNav} pathname={pathname} onNavigate={onNavigate} readyCount={readyCount} />
       </nav>
       <div className="mt-auto border-t border-white/10 px-4 py-3">
         <DeskClock tone="ink" />

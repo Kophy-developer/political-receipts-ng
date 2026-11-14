@@ -27,6 +27,8 @@ const tables = [
   "api_usage",
   "ai_analyses",
   "ai_attempts",
+  "publisher_notifications",
+  "desk_schedule",
 ];
 
 export async function systemHealth(): Promise<SystemHealth> {

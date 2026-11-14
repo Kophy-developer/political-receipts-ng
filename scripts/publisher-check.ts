@@ -70,6 +70,8 @@ check("the queue lets you edit the draft text", queue.includes('value={text}') &
 check("the queue can send a voice or typed rewrite instruction", queue.includes("/api/publisher/rephrase") && queue.includes("Speak instruction") && queue.includes("Rewrite with AI"));
 check("publish still validates confirm", publish.includes("validatePublishRequest") && prepare.includes("prepareApprovalDraft") && readFileSync(new URL("../lib/x/publish.ts", import.meta.url), "utf8").includes("input.confirm !== true"));
 check("reject does not call X", !readFileSync(new URL("../app/api/publisher/reject/route.ts", import.meta.url), "utf8").includes("publishApprovedPost"));
+check("prepare keeps source urls beside the exact text", readFileSync(new URL("../lib/db/publisher.ts", import.meta.url), "utf8").includes("item.sourceUrl") && readFileSync(new URL("../lib/db/publisher.ts", import.meta.url), "utf8").includes("sources"));
+check("publish reports whether the approve queue cleared", publish.includes("queueCleared") && readFileSync(new URL("../lib/db/publisher.ts", import.meta.url), "utf8").includes("markPublishedOpportunity"));
 
 const rephraseRoute = readFileSync(new URL("../app/api/publisher/rephrase/route.ts", import.meta.url), "utf8");
 check("rephrase refuses empty instructions", !parseRephraseRequest({ text: "A draft.", instruction: "  " }).ok);

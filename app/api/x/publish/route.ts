@@ -59,13 +59,15 @@ export async function POST(request: Request) {
     xPostUrl: posted.url,
     text: body.text as string,
   });
-  await markPublishedOpportunity(approval.claimId);
+  const opportunity = await markPublishedOpportunity(approval.claimId);
   return Response.json(
     {
       ok: true,
       id: posted.id,
       url: posted.url,
       retained: stored.ok,
+      queueCleared: opportunity.ok,
+      queueMessage: opportunity.ok ? null : opportunity.message,
     },
     { status: 200, headers: { "cache-control": "no-store", "set-cookie": ticket.clear } },
   );
