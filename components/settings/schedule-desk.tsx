@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { scheduleIntervalHours } from "@/lib/desk/pipeline";
+import { chicagoStamp } from "@/lib/format";
 
 type ScheduleMode = "manual" | "every-3-hours" | "every-4-hours" | "custom";
 
@@ -12,6 +14,23 @@ type ScheduleState = {
   lastStartedAt: string | null;
   lastFinishedAt: string | null;
 };
+
+function nextEligibleCopy(schedule: ScheduleState, mode: ScheduleMode, customHours: number) {
+  const hours = scheduleIntervalHours({
+    enabled: schedule.enabled,
+    mode,
+    customHours: mode === "custom" ? customHours : null,
+    runningSince: schedule.runningSince,
+    lastStartedAt: schedule.lastStartedAt,
+    lastFinishedAt: schedule.lastFinishedAt,
+  });
+  if (!hours) return null;
+  if (!schedule.lastFinishedAt) {
+    return "Next eligible run: first cron after arming may run immediately when due logic allows.";
+  }
+  const nextIso = new Date(Date.parse(schedule.lastFinishedAt) + hours * 3_600_000).toISOString();
+  return `Next eligible run: ${chicagoStamp(nextIso)}`;
+}
 
 export function ScheduleDesk() {
   const [schedule, setSchedule] = useState<ScheduleState | null>(null);
@@ -94,10 +113,18 @@ export function ScheduleDesk() {
     }
   }
 
+  const nextEligible = schedule ? nextEligibleCopy(schedule, mode, customHours) : null;
+
   return (
     <div className="max-w-2xl space-y-4">
       <p className="text-sm leading-relaxed">
-        Background find → research → draft runs through <span className="font-mono text-[12px]">/api/schedule/run</span>. It never publishes. Scheduling stays off until you arm it.
+        Auto every-3-hours runs come from{" "}
+        <span className="font-medium">cron-job.org</span>, not Vercel Hobby. Create a job that{" "}
+        <span className="font-mono text-[12px]">POST</span>s{" "}
+        <span className="font-mono text-[12px]">/api/schedule/run</span> with{" "}
+        <span className="font-mono text-[12px]">Authorization: Bearer</span> set to the server{" "}
+        <span className="font-mono text-[12px]">CRON_SECRET</span>. The daily Vercel cron is only a backup.
+        The runner never publishes. Arm the schedule below with interval Every 3 hours so due logic allows work.
       </p>
       <dl className="grid gap-3 sm:grid-cols-2">
         <div>
@@ -110,13 +137,16 @@ export function ScheduleDesk() {
         </div>
         <div>
           <dt className="font-mono text-[11px] tracking-[0.14em] text-ink-soft uppercase">Last finished</dt>
-          <dd className="mt-1 text-sm">{schedule?.lastFinishedAt ?? "Never"}</dd>
+          <dd className="mt-1 text-sm">
+            {schedule?.lastFinishedAt ? chicagoStamp(schedule.lastFinishedAt) : "Never"}
+          </dd>
         </div>
         <div>
           <dt className="font-mono text-[11px] tracking-[0.14em] text-ink-soft uppercase">Running</dt>
           <dd className="mt-1 text-sm">{schedule?.runningSince ? "Yes" : "No"}</dd>
         </div>
       </dl>
+      {nextEligible ? <p className="text-sm text-ink-soft">{nextEligible}</p> : null}
       <label className="block text-sm">
         <span className="text-ink-soft">Interval</span>
         <select

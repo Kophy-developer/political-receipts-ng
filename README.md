@@ -35,9 +35,34 @@ Apply `supabase/migrations/20261114120000_publisher_notifications.sql` on the ex
 
 `POST/GET /api/schedule/run` runs find → research → draft (up to two ranked stories). It never publishes.
 
-- `vercel.json` registers a daily cron hitting that path (`0 0 * * *`). Hobby plans reject more-frequent expressions (e.g. every 3 hours), which blocked production deploys; use Pro for `0 */3 * * *`.
-- `desk_schedule.enabled` defaults to **off**. Cron calls no-op until you arm the schedule in **Settings → Schedule** and accept the cost checkbox.
-- Set `CRON_SECRET` on the server. Cron (and tools) send `Authorization: Bearer <CRON_SECRET>`. Same-origin **Settings → Schedule → Run pipeline once** can force one test run.
+### Cadence (Vercel Hobby + cron-job.org)
+
+Vercel Hobby only allows daily crons. Every-3-hours expressions such as `0 */3 * * *` are rejected on deploy, so they are not the primary scheduler here.
+
+| Trigger | Schedule | Role |
+| --- | --- | --- |
+| **cron-job.org** (primary) | Every 3 hours | Calls the schedule runner so armed desks can work on a 3-hour cadence |
+| **Vercel cron** (`vercel.json`) | `0 0 * * *` (daily) | Harmless backup only — same endpoint, same due-interval guards |
+
+### Arming (required)
+
+- `desk_schedule.enabled` defaults to **off**. External cron calls no-op until you arm the schedule in **Settings → Schedule**, pick **Every 3 hours** (or 4 / custom), and accept the cost checkbox.
+- Cron never publishes. Publishing stays exact-text approve on `/`.
+- Same-origin **Settings → Schedule → Run pipeline once** still forces one test run (`force: true`).
+
+### cron-job.org setup
+
+1. Create a job at [cron-job.org](https://cron-job.org).
+2. **URL:** `https://political-receipts-ng.vercel.app/api/schedule/run`
+3. **Method:** `POST`
+4. **Header:** `Authorization` = `Bearer <CRON_SECRET>` (same value as the Vercel env var `CRON_SECRET`; do not commit the secret)
+5. **Schedule:** every 3 hours (e.g. cron expression `0 */3 * * *`, or the UI’s every-3-hours option)
+6. **Timezone:** job timezone is only when the HTTP call fires. Eligibility still uses `lastFinishedAt` + the armed interval (product times are America/Chicago / CT). A call that arrives early is skipped until the interval has elapsed.
+7. After the job exists, open **Settings → Schedule**, set interval to **Every 3 hours**, check the cost box, and **Arm schedule**.
+
+### Secrets and backup
+
+- Set `CRON_SECRET` on the Vercel project. Cron-job.org (and tools) send `Authorization: Bearer <CRON_SECRET>`.
 - Ready drafts land on `/` and create notifications as above.
 
 ## Local development
