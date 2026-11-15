@@ -35,9 +35,9 @@ Apply `supabase/migrations/20261114120000_publisher_notifications.sql` on the ex
 
 `POST/GET /api/schedule/run` runs find → research → draft (up to two ranked stories). It never publishes.
 
-- `vercel.json` registers a every-3-hours cron hitting that path.
-- `desk_schedule.enabled` defaults to **off**. Cron calls no-op until you arm the schedule in Settings and accept the cost checkbox.
-- Set `CRON_SECRET` on the server. Cron (and tools) send `Authorization: Bearer <CRON_SECRET>`. Same-origin Settings can force one test run.
+- `vercel.json` registers a daily cron hitting that path (`0 0 * * *`). Hobby plans reject more-frequent expressions (e.g. every 3 hours), which blocked production deploys; use Pro for `0 */3 * * *`.
+- `desk_schedule.enabled` defaults to **off**. Cron calls no-op until you arm the schedule in **Settings → Schedule** and accept the cost checkbox.
+- Set `CRON_SECRET` on the server. Cron (and tools) send `Authorization: Bearer <CRON_SECRET>`. Same-origin **Settings → Schedule → Run pipeline once** can force one test run.
 - Ready drafts land on `/` and create notifications as above.
 
 ## Local development
