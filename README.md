@@ -12,7 +12,7 @@ The background work finds activity, researches checkable claims with numbers and
 | --- | --- |
 | `/` | Approval queue. Edit the draft, optionally rephrase with typed or spoken instructions, then exact-text approve or reject. |
 | `/published` | Posts that already went out. |
-| `/settings` | Account, credentials, and schedule arming. |
+| `/settings` | Account, credentials, and schedule arming (Schedule section: arm cron or Run pipeline once). |
 
 Older desk routes still exist in the repo for internal tooling and redirects. They are not the product.
 
