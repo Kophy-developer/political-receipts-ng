@@ -42,9 +42,14 @@ const sameOrigin = assertScheduleRequest(new Request("https://example.com/api/sc
   method: "POST",
   headers: { origin: "https://example.com", host: "example.com", "sec-fetch-site": "same-origin" },
 }));
+const sameOriginGet = assertScheduleRequest(new Request("https://example.com/api/schedule/run", {
+  method: "GET",
+  headers: { host: "example.com", "sec-fetch-site": "same-origin" },
+}));
 check("cron bearer is accepted", allowed === null && scheduleSecretConfigured());
 check("bad cron bearer is refused without same-origin", refused?.status === 401);
 check("same-origin still works for a forced test run", sameOrigin === null);
+check("same-origin GET without Origin still works for a forced test run", sameOriginGet === null);
 if (previous === undefined) delete process.env.CRON_SECRET;
 else process.env.CRON_SECRET = previous;
 

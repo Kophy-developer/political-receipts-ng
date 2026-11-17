@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { performance } from "node:perf_hooks";
-import { claimOnce, editorAccess } from "../lib/auth/access";
+import { claimOnce, editorAccess, requestFromApp } from "../lib/auth/access";
 import { applyPass, arrangeDesk, numberWithinScan, restoreCard, type DeskCard } from "../lib/desk/board";
 import { storyReading, storyStates } from "../lib/desk/research-state";
 
@@ -48,6 +48,26 @@ check("every story state is one of the six", storyStates.length === 6 && storySt
 
 check("a cross-origin write is refused", editorAccess({ sameOrigin: false }).status === 403);
 check("a same-origin write is allowed", editorAccess({ sameOrigin: true }).ok === true);
+check(
+  "same-origin GET without Origin is accepted via Sec-Fetch-Site",
+  requestFromApp(new Request("https://example.com/api/schedule", {
+    headers: { "sec-fetch-site": "same-origin", host: "example.com" },
+  })) === true,
+);
+check(
+  "cross-site Sec-Fetch-Site is refused even with Origin",
+  requestFromApp(new Request("https://example.com/api/schedule", {
+    method: "POST",
+    headers: { "sec-fetch-site": "cross-site", origin: "https://evil.test", host: "example.com" },
+  })) === false,
+);
+check(
+  "Origin null is refused when Sec-Fetch-Site is absent",
+  requestFromApp(new Request("https://example.com/api/schedule", {
+    method: "POST",
+    headers: { origin: "null", host: "example.com" },
+  })) === false,
+);
 
 const seen = new Set<string>();
 check("a confirmation nonce is single use", claimOnce(seen, "nonce-1") === true && claimOnce(seen, "nonce-1") === false && claimOnce(seen, "nonce-2") === true);
