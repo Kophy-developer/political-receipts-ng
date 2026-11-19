@@ -14,6 +14,16 @@ import { runScan } from "@/lib/intel/run";
 import { chooseScan } from "@/lib/pillars/scan";
 import { loadDiscoveryContext } from "@/lib/db/pillars";
 
+export type PipelineRunResult = {
+  ok: boolean;
+  message: string;
+  scanned: boolean;
+  scanMessage?: string | null;
+  developed: PipelineDevelopOutcome[];
+  lastRun: PipelineLastRun | null;
+  posted: false;
+};
+
 async function markSchedule(patch: {
   runningSince?: string | null;
   lastStartedAt?: string | null;
@@ -89,7 +99,18 @@ function buildLastRun(input: {
   };
 }
 
-export async function runBackgroundPipeline(input?: { force?: boolean; skipScan?: boolean }) {
+function skippedResult(message: string): PipelineRunResult {
+  return {
+    ok: false,
+    message,
+    scanned: false,
+    developed: [],
+    lastRun: null,
+    posted: false,
+  };
+}
+
+export async function claimBackgroundPipeline(input?: { force?: boolean; skipScan?: boolean }) {
   let schedule = await loadDeskSchedule();
   if (await clearStaleRunningLock(schedule.runningSince)) {
     schedule = await loadDeskSchedule();
@@ -97,27 +118,17 @@ export async function runBackgroundPipeline(input?: { force?: boolean; skipScan?
   if (!input?.force) {
     const due = dueForScheduledRun(schedule);
     if (!due.ok) {
-      return {
-        ok: false as const,
-        message: due.reason,
-        scanned: false,
-        developed: [] as PipelineDevelopOutcome[],
-        lastRun: null as PipelineLastRun | null,
-        posted: false as const,
-      };
+      return { claimed: false as const, result: skippedResult(due.reason) };
     }
   } else if (schedule.runningSince) {
-    return {
-      ok: false as const,
-      message: "A scheduled scan is already running.",
-      scanned: false,
-      developed: [] as PipelineDevelopOutcome[],
-      lastRun: null as PipelineLastRun | null,
-      posted: false as const,
-    };
+    return { claimed: false as const, result: skippedResult("A scheduled scan is already running.") };
   }
   const started = new Date().toISOString();
   await markSchedule({ runningSince: started, lastStartedAt: started });
+  return { claimed: true as const, skipScan: input?.skipScan === true, started };
+}
+
+export async function executeClaimedBackgroundPipeline(input?: { skipScan?: boolean }): Promise<PipelineRunResult> {
   let scanned = false;
   let scanMessage: string | null = null;
   let postsReturned = 0;
@@ -179,13 +190,13 @@ export async function runBackgroundPipeline(input?: { force?: boolean; skipScan?
     });
     await markSchedule({ runningSince: null, lastFinishedAt: finishedAt, lastRun });
     return {
-      ok: true as const,
+      ok: true,
       message,
       scanned,
       scanMessage,
       developed,
       lastRun,
-      posted: false as const,
+      posted: false,
     };
   } catch {
     const finishedAt = new Date().toISOString();
@@ -201,14 +212,20 @@ export async function runBackgroundPipeline(input?: { force?: boolean; skipScan?
     });
     await markSchedule({ runningSince: null, lastFinishedAt: finishedAt, lastRun });
     return {
-      ok: false as const,
+      ok: false,
       message,
       scanned,
-      developed: [] as PipelineDevelopOutcome[],
+      developed: [],
       lastRun,
-      posted: false as const,
+      posted: false,
     };
   }
+}
+
+export async function runBackgroundPipeline(input?: { force?: boolean; skipScan?: boolean }) {
+  const claim = await claimBackgroundPipeline(input);
+  if (!claim.claimed) return claim.result;
+  return executeClaimedBackgroundPipeline({ skipScan: claim.skipScan });
 }
 
 export async function saveDeskSchedule(input: {

@@ -66,7 +66,7 @@ const scheduleDesk = readFileSync(new URL("../components/settings/schedule-desk.
 const approveQueue = readFileSync(new URL("../components/publisher/queue.tsx", import.meta.url), "utf8");
 const readme = readFileSync(new URL("../README.md", import.meta.url), "utf8");
 
-check("schedule runner is a separate route from develop", runRoute.includes("runBackgroundPipeline") && !/cron|schedule/i.test(developRoute));
+check("schedule runner is a separate route from develop", (runRoute.includes("claimBackgroundPipeline") || runRoute.includes("runBackgroundPipeline")) && !/cron|schedule/i.test(developRoute));
 check("vercel cron points at the schedule runner", /\/api\/schedule\/run/.test(vercel));
 check("schedule arming stays same-origin", scheduleRoute.includes("assertEditorRequest") && scheduleRoute.includes("saveDeskSchedule"));
 check("pipeline never publishes", pipeline.includes("posted: false") && !pipeline.includes("publishApprovedPost"));
@@ -77,6 +77,9 @@ check("stale schedule lock waits past maxDuration", staleScheduleRunningMs > sch
 check("pipeline persists last run funnel", pipeline.includes("last_run") && pipeline.includes("pipelineFunnelLine"));
 check("schedule and approve surface running or empty funnel", scheduleDesk.includes("Last run funnel") && approveQueue.includes("Pipeline is still running") && approveQueue.includes("/api/schedule"));
 check("readme documents five-minute schedule ceiling", /300|five minutes|5 minutes/i.test(readme) && /cron-job\.org/i.test(readme));
+check("schedule run claims then after execute", runRoute.includes("claimBackgroundPipeline") && runRoute.includes("executeClaimedBackgroundPipeline") && /after\(/.test(runRoute) && runRoute.includes("status: 202"));
+check("skipped schedule runs stay 2xx", runRoute.includes("claim.result") && /status:\s*200/.test(runRoute));
+check("pipeline splits claim from execute", pipeline.includes("export async function claimBackgroundPipeline") && pipeline.includes("export async function executeClaimedBackgroundPipeline"));
 check("funnel line names scan extract develop ready", /Scan found 4 posts/.test(pipelineFunnelLine({
   scanned: true,
   postsReturned: 4,
