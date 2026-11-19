@@ -7,7 +7,7 @@ export async function POST(request: Request) {
   await connection();
   const refused = await assertEditorRequest(request);
   if (refused) return Response.json({ ok: false, message: refused.message }, { status: refused.status, headers: { "cache-control": "no-store" } });
-  let body: { opportunityId?: unknown; text?: unknown };
+  let body: { opportunityId?: unknown; text?: unknown; evidenceUrl?: unknown; mediaUrl?: unknown };
   try {
     body = await request.json();
   } catch {
@@ -18,6 +18,11 @@ export async function POST(request: Request) {
   }
   const parsed = parseApprovalText(body.text);
   if (!parsed.ok) return Response.json({ ok: false, message: parsed.message }, { status: 400, headers: { "cache-control": "no-store" } });
-  const prepared = await prepareApprovalDraft({ opportunityId: body.opportunityId, text: parsed.text });
+  const prepared = await prepareApprovalDraft({
+    opportunityId: body.opportunityId,
+    text: parsed.text,
+    evidenceUrl: body.evidenceUrl,
+    mediaUrl: body.mediaUrl,
+  });
   return Response.json(prepared, { status: prepared.ok ? 200 : 400, headers: { "cache-control": "no-store" } });
 }

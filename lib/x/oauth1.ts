@@ -48,6 +48,24 @@ export async function xUserGet(path: string, params: Record<string, string>) {
   return xUserRequest("GET", url);
 }
 
+async function readXResponse(response: Response) {
+  if (!response.ok) {
+    let message = `X returned ${response.status}.`;
+    try {
+      const data = (await response.json()) as { title?: string; detail?: string; errors?: Array<{ message?: string }> };
+      message = scrubPublicMessage(data.detail || data.title || data.errors?.[0]?.message || message);
+    } catch {
+      message = scrubPublicMessage(message);
+    }
+    return { ok: false as const, status: response.status, message };
+  }
+  try {
+    return { ok: true as const, data: await response.json() };
+  } catch {
+    return { ok: false as const, status: 502, message: "X returned a response the desk could not read." };
+  }
+}
+
 export async function xUserRequest(method: "GET" | "POST", url: string, body?: string) {
   const authorization = authorizationHeader(method, url);
   if (!authorization) {
@@ -67,19 +85,25 @@ export async function xUserRequest(method: "GET" | "POST", url: string, body?: s
   } catch {
     return { ok: false as const, status: 502, message: "The desk could not reach X." };
   }
-  if (!response.ok) {
-    let message = `X returned ${response.status}.`;
-    try {
-      const data = (await response.json()) as { title?: string; detail?: string };
-      message = scrubPublicMessage(data.detail || data.title || message);
-    } catch {
-      message = scrubPublicMessage(message);
-    }
-    return { ok: false as const, status: response.status, message };
+  return readXResponse(response);
+}
+
+/** Multipart upload for X media. Only oauth_* params are signed. */
+export async function xUserMultipart(url: string, form: FormData) {
+  const authorization = authorizationHeader("POST", url);
+  if (!authorization) {
+    return { ok: false as const, status: 503, message: "X API credentials are not configured on the server." };
   }
+  let response: Response;
   try {
-    return { ok: true as const, data: await response.json() };
+    response = await fetch(url, {
+      method: "POST",
+      headers: { Authorization: authorization },
+      body: form,
+      cache: "no-store",
+    });
   } catch {
-    return { ok: false as const, status: 502, message: "X returned a response the desk could not read." };
+    return { ok: false as const, status: 502, message: "The desk could not reach X." };
   }
+  return readXResponse(response);
 }

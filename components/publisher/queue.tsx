@@ -34,7 +34,7 @@ export function ApprovalQueue({ items, notice }: { items: ReadyItem[]; notice: s
     <section>
       <p className="font-mono text-[11px] tracking-[0.16em] text-ink-soft uppercase">Approve</p>
       <h1 className="mt-2 font-serif text-4xl tracking-[-0.03em]">Ready for you.</h1>
-      <p className="mt-3 text-sm text-ink-soft">Edit the draft, or tell the AI how to rephrase it. Publish only when the exact text is right.</p>
+      <p className="mt-3 text-sm text-ink-soft">Edit the draft, attach a verifiable evidence link, and optionally an image. Publish only when the exact text is right.</p>
       <p className="mt-4 text-sm">{notice}</p>
       {items.length === 0 ? (
         <p className="mt-8 text-sm text-ink-soft">When a draft is finished, it lands here and waits for your decision.</p>
@@ -53,6 +53,8 @@ function ApprovalCard({ item }: { item: ReadyItem }) {
   const selected = item.drafts.find((draft) => draft.style === style) ?? item.drafts[0];
   const [text, setText] = useState(selected?.text ?? "");
   const [baseline, setBaseline] = useState(selected?.text ?? "");
+  const [evidenceUrl, setEvidenceUrl] = useState(item.sourceUrl ?? "");
+  const [mediaUrl, setMediaUrl] = useState("");
   const [instruction, setInstruction] = useState("");
   const [agree, setAgree] = useState(false);
   const [busy, setBusy] = useState<"approve" | "reject" | "rephrase" | null>(null);
@@ -194,7 +196,7 @@ function ApprovalCard({ item }: { item: ReadyItem }) {
   }
 
   async function approve() {
-    if (lock.current || !agree || !text.trim()) return;
+    if (lock.current || !agree || !text.trim() || !evidenceUrl.trim()) return;
     stopVoice();
     lock.current = true;
     setBusy("approve");
@@ -203,13 +205,19 @@ function ApprovalCard({ item }: { item: ReadyItem }) {
       const prepared = await fetch("/api/publisher/prepare", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ opportunityId: item.id, text }),
+        body: JSON.stringify({
+          opportunityId: item.id,
+          text,
+          evidenceUrl: evidenceUrl.trim(),
+          mediaUrl: mediaUrl.trim() || null,
+        }),
       });
       const ready = (await prepared.json()) as { ok?: boolean; claimId?: string; draftId?: string; text?: string; message?: string };
       if (!prepared.ok || !ready.ok || !ready.claimId || !ready.draftId || !ready.text) {
         setMessage(ready.message ?? "The draft could not be prepared. Nothing was sent to X.");
         return;
       }
+      setText(ready.text);
       const checks = Object.fromEntries(checklist.map((entry) => [entry.id, true]));
       const intent = await fetch("/api/x/intent", {
         method: "POST",
@@ -284,6 +292,31 @@ function ApprovalCard({ item }: { item: ReadyItem }) {
       </label>
       <p className="mt-2 font-mono text-[11px] text-ink-soft">{text.length} characters{dirty ? " · edited" : ""}</p>
       <div className="mt-4 border border-rule px-4 py-4">
+        <p className="font-mono text-[11px] tracking-[0.14em] text-ink-soft uppercase">Evidence</p>
+        <p className="mt-2 text-sm text-ink-soft">Readers need one https link they can open. Approve adds it to the post if it is not already there. An image URL is optional and is uploaded to X when you publish.</p>
+        <label className="mt-3 block text-sm">
+          <span className="text-ink-soft">Evidence link</span>
+          <input
+            type="url"
+            value={evidenceUrl}
+            onChange={(event) => { setEvidenceUrl(event.target.value); setAgree(false); setMessage(null); }}
+            placeholder="https://"
+            className="mt-2 w-full border border-ink bg-paper px-3 py-2 text-sm"
+          />
+        </label>
+        <label className="mt-3 block text-sm">
+          <span className="text-ink-soft">Evidence image URL, optional</span>
+          <input
+            type="url"
+            value={mediaUrl}
+            onChange={(event) => { setMediaUrl(event.target.value); setAgree(false); setMessage(null); }}
+            placeholder="https://…/chart.png"
+            className="mt-2 w-full border border-rule bg-paper px-3 py-2 text-sm"
+          />
+        </label>
+        <p className="mt-2 text-sm text-ink-soft">JPEG, PNG, WebP, or GIF under 5 MB. Leave blank to publish the link only.</p>
+      </div>
+      <div className="mt-4 border border-rule px-4 py-4">
         <p className="font-mono text-[11px] tracking-[0.14em] text-ink-soft uppercase">Rephrase</p>
         <p className="mt-2 text-sm text-ink-soft">Type an instruction, or speak it. The AI rewrites this draft only. It does not publish.</p>
         <label className="mt-3 block text-sm">
@@ -338,7 +371,7 @@ function ApprovalCard({ item }: { item: ReadyItem }) {
         <button
           type="button"
           onClick={() => void approve()}
-          disabled={!agree || !text.trim() || busy !== null}
+          disabled={!agree || !text.trim() || !evidenceUrl.trim() || busy !== null}
           className="inline-flex h-11 items-center bg-ink px-4 text-sm text-paper disabled:opacity-50"
         >
           {busy === "approve" ? "Publishing…" : "Approve and publish"}

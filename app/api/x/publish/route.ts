@@ -1,9 +1,11 @@
 import { readActiveApproval } from "@/lib/db/approvals";
 import { loadStoredCapability } from "@/lib/db/connections";
+import { loadFinalPost } from "@/lib/db/final-post";
 import { failPublication, finishPublication, reservePublication } from "@/lib/db/publishing";
 import { claimPublishConfirmation } from "@/lib/db/confirmations";
 import { markPublishedOpportunity } from "@/lib/db/publisher";
 import { assertEditorRequest } from "@/lib/x/guard";
+import { uploadEvidenceImage } from "@/lib/x/media";
 import { publishApprovedPost, validatePublishRequest } from "@/lib/x/publish";
 import { takeTicket } from "@/lib/x/ticket";
 
@@ -44,7 +46,20 @@ export async function POST(request: Request) {
   if (!reserved.ok) {
     return Response.json({ ok: false, message: reserved.message }, { status: reserved.status, headers: { "cache-control": "no-store", "set-cookie": ticket.clear } });
   }
-  const posted = await publishApprovedPost(body.text as string);
+  const finalPost = await loadFinalPost(approval.claimId);
+  let mediaIds: string[] | undefined;
+  if (finalPost?.mediaUrl) {
+    const uploaded = await uploadEvidenceImage(finalPost.mediaUrl);
+    if (!uploaded.ok) {
+      await failPublication(reserved.id, approval.approvalId);
+      return Response.json(
+        { ok: false, message: uploaded.message },
+        { status: "status" in uploaded && typeof uploaded.status === "number" ? uploaded.status : 400, headers: { "cache-control": "no-store", "set-cookie": ticket.clear } },
+      );
+    }
+    mediaIds = [uploaded.mediaId];
+  }
+  const posted = await publishApprovedPost(body.text as string, mediaIds);
   if (!posted.ok) {
     await failPublication(reserved.id, approval.approvalId);
     return Response.json(

@@ -434,7 +434,7 @@ export function draftPrompt(brief: DraftBrief, only?: GeneratedStyle, includeLeg
     "Answer what is interesting to say. Do not answer what the research file contained.",
     "Sound like a person on X. Fragments are fine. Rhythm can change. A rhetorical question is fine. Mild humour is fine when it stays fair. Be strong only where the point can stand.",
     "Do not write a compressed fact-check or a bibliography. Do not force a source name into every post. Evidence can sit under the sentence without naming every outlet.",
-    "Do not put URLs in the draft. The editor attaches sources later, including on a #CheckAm follow-up.",
+    "When research gives one corroborating https source URL, prefer ending the draft with that single URL on its own line so readers can verify. Do not dump a list of links. The editor can still edit the link on Approve.",
     "Do not invent a source, a figure, or a verdict. Do not forecast an election. Keep a quoted or attributed claim with the speaker the post names.",
     "If the evidence does not settle the point, say what is unresolved. Do not write as if it were confirmed.",
     "Do not open with: Our investigation found. According to our research. We conducted. Fact check:",

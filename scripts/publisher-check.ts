@@ -1,4 +1,6 @@
 import { readFileSync } from "node:fs";
+import { composeEvidencePost, parseHttpsUrl, parseOptionalHttpsUrl } from "../lib/publish/evidence";
+import { postCreateBody } from "../lib/publish/payload";
 import { caveatsFromDevelopment, draftsFromDevelopment, noticeFor, readyItemFromRow } from "../lib/publisher/read";
 import {
   parseApprovalText,
@@ -67,12 +69,25 @@ check("the menu is Approve, Published, Settings", nav.includes('label: "Approve"
 check("the old desk page redirects home", desk.includes('redirect("/")'));
 check("approve still requires exact confirmation", queue.includes("confirm: true") && queue.includes("Publish this exact text"));
 check("the queue lets you edit the draft text", queue.includes('value={text}') && queue.includes("Draft text") && queue.includes("Restore prepared draft"));
+check("the queue asks for an evidence link", queue.includes("Evidence link") && queue.includes("evidenceUrl") && queue.includes("Evidence image URL, optional"));
 check("the queue can send a voice or typed rewrite instruction", queue.includes("/api/publisher/rephrase") && queue.includes("Speak instruction") && queue.includes("Rewrite with AI"));
 check("speak instruction replaces interim results instead of stacking them", queue.includes("event.resultIndex") && queue.includes("result.isFinal") && queue.includes("voiceFinal.current") && queue.includes("interimResults = true"));
 check("publish still validates confirm", publish.includes("validatePublishRequest") && prepare.includes("prepareApprovalDraft") && readFileSync(new URL("../lib/x/publish.ts", import.meta.url), "utf8").includes("input.confirm !== true"));
 check("reject does not call X", !readFileSync(new URL("../app/api/publisher/reject/route.ts", import.meta.url), "utf8").includes("publishApprovedPost"));
-check("prepare keeps source urls beside the exact text", readFileSync(new URL("../lib/db/publisher.ts", import.meta.url), "utf8").includes("item.sourceUrl") && readFileSync(new URL("../lib/db/publisher.ts", import.meta.url), "utf8").includes("sources"));
+check("prepare composes the evidence link into the exact text", readFileSync(new URL("../lib/db/publisher.ts", import.meta.url), "utf8").includes("composeEvidencePost") && prepare.includes("evidenceUrl"));
+check("publish uploads optional evidence media", publish.includes("uploadEvidenceImage") && publish.includes("mediaIds"));
 check("publish reports whether the approve queue cleared", publish.includes("queueCleared") && readFileSync(new URL("../lib/db/publisher.ts", import.meta.url), "utf8").includes("markPublishedOpportunity"));
+
+const linked = composeEvidencePost({
+  text: "About 16% from 2016 to 2025. About 113.9% from 2023 to 2025.",
+  evidenceUrl: "https://data.worldbank.org/indicator/BX.KLT.DINV.CD.WD?locations=NG",
+});
+check("compose appends one evidence URL", linked.ok && linked.text.endsWith("https://data.worldbank.org/indicator/BX.KLT.DINV.CD.WD?locations=NG") && linked.text.includes("\n\n"));
+check("compose leaves an already-present URL alone", composeEvidencePost({ text: linked.ok ? linked.text : "", evidenceUrl: "https://data.worldbank.org/indicator/BX.KLT.DINV.CD.WD?locations=NG" }).ok === true);
+check("https evidence URLs are required", parseHttpsUrl("http://example.com").ok === false && parseHttpsUrl("https://example.com/report").ok === true);
+check("optional media may be blank", parseOptionalHttpsUrl("").ok && (parseOptionalHttpsUrl("") as { ok: true; url: string | null }).url === null);
+check("tweet payload can carry media ids", JSON.stringify(postCreateBody("Post", ["123"])).includes("media_ids"));
+check("rephrase keeps evidence links", rephraseSystemPrompt().includes("https evidence link"));
 
 const rephraseRoute = readFileSync(new URL("../app/api/publisher/rephrase/route.ts", import.meta.url), "utf8");
 check("rephrase refuses empty instructions", !parseRephraseRequest({ text: "A draft.", instruction: "  " }).ok);

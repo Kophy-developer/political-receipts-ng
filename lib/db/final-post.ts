@@ -30,15 +30,39 @@ export async function loadFinalPost(claimId: string) {
     .eq("version", "M")
     .maybeSingle();
   if (error || !data) return null;
-  const read = readFinalPost({ content: data.content, generation_metadata: data.generation_metadata as { sources?: unknown; source?: unknown; exact?: unknown } | null });
+  const read = readFinalPost({
+    content: data.content,
+    generation_metadata: data.generation_metadata as {
+      sources?: unknown;
+      source?: unknown;
+      exact?: unknown;
+      evidenceUrl?: unknown;
+      mediaUrl?: unknown;
+    } | null,
+  });
   if (!read.exact) return null;
-  return { id: data.id as string, text: read.text, sources: read.sources };
+  return {
+    id: data.id as string,
+    text: read.text,
+    sources: read.sources,
+    evidenceUrl: read.evidenceUrl,
+    mediaUrl: read.mediaUrl,
+  };
 }
 
-export async function saveFinalPost(input: { claimId: string; text: string; sources: string[] }) {
+export async function saveFinalPost(input: {
+  claimId: string;
+  text: string;
+  sources: string[];
+  evidenceUrl?: string | null;
+  mediaUrl?: string | null;
+}) {
   const db = serviceClient();
   if (!db) return { ok: false as const, message: "The database is not configured." };
-  const fields = finalPostRecord(input.text, input.sources);
+  const fields = finalPostRecord(input.text, input.sources, {
+    evidenceUrl: input.evidenceUrl,
+    mediaUrl: input.mediaUrl,
+  });
   const existing = await db.from("drafts").select("id").eq("claim_id", input.claimId).eq("version", "M").maybeSingle();
   if (existing.error) return { ok: false as const, message: scrubDbMessage(existing.error.message) };
   const pillar = await storedPillarForClaim(input.claimId);
