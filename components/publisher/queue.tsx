@@ -7,11 +7,13 @@ import { pillarLabel } from "@/lib/publisher/read";
 import type { ReadyItem } from "@/lib/publisher/types";
 import { chicagoStamp } from "@/lib/format";
 
+type SpeechResult = ArrayLike<{ transcript: string }> & { isFinal: boolean };
+
 type SpeechRecognitionLike = {
   lang: string;
   continuous: boolean;
   interimResults: boolean;
-  onresult: ((event: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null;
+  onresult: ((event: { resultIndex: number; results: ArrayLike<SpeechResult> }) => void) | null;
   onerror: ((event: { error?: string }) => void) | null;
   onend: (() => void) | null;
   start: () => void;
@@ -58,6 +60,8 @@ function ApprovalCard({ item }: { item: ReadyItem }) {
   const [message, setMessage] = useState<string | null>(null);
   const lock = useRef(false);
   const recognition = useRef<SpeechRecognitionLike | null>(null);
+  const voiceBase = useRef("");
+  const voiceFinal = useRef("");
 
   useEffect(() => {
     return () => {
@@ -74,6 +78,11 @@ function ApprovalCard({ item }: { item: ReadyItem }) {
     setMessage(null);
   }
 
+  function applyVoiceText(interim = "") {
+    const parts = [voiceBase.current, voiceFinal.current, interim.trim()].filter(Boolean);
+    setInstruction(parts.join(" "));
+  }
+
   function stopVoice() {
     recognition.current?.stop();
     recognition.current = null;
@@ -88,15 +97,24 @@ function ApprovalCard({ item }: { item: ReadyItem }) {
       return;
     }
     setMessage(null);
+    voiceBase.current = instruction.trim();
+    voiceFinal.current = "";
     session.lang = "en-NG";
     session.continuous = false;
-    session.interimResults = false;
+    session.interimResults = true;
     session.onresult = (event) => {
-      const spoken = Array.from(event.results)
-        .map((result) => result[0]?.transcript ?? "")
-        .join(" ")
-        .trim();
-      if (spoken) setInstruction((current) => (current ? `${current.trim()} ${spoken}` : spoken));
+      let interim = "";
+      for (let i = event.resultIndex; i < event.results.length; i += 1) {
+        const result = event.results[i];
+        const piece = (result?.[0]?.transcript ?? "").trim();
+        if (!piece) continue;
+        if (result.isFinal) {
+          voiceFinal.current = voiceFinal.current ? `${voiceFinal.current} ${piece}` : piece;
+        } else {
+          interim = interim ? `${interim} ${piece}` : piece;
+        }
+      }
+      applyVoiceText(interim);
     };
     session.onerror = (event) => {
       setListening(false);

@@ -68,6 +68,7 @@ check("the old desk page redirects home", desk.includes('redirect("/")'));
 check("approve still requires exact confirmation", queue.includes("confirm: true") && queue.includes("Publish this exact text"));
 check("the queue lets you edit the draft text", queue.includes('value={text}') && queue.includes("Draft text") && queue.includes("Restore prepared draft"));
 check("the queue can send a voice or typed rewrite instruction", queue.includes("/api/publisher/rephrase") && queue.includes("Speak instruction") && queue.includes("Rewrite with AI"));
+check("speak instruction replaces interim results instead of stacking them", queue.includes("event.resultIndex") && queue.includes("result.isFinal") && queue.includes("voiceFinal.current") && queue.includes("interimResults = true"));
 check("publish still validates confirm", publish.includes("validatePublishRequest") && prepare.includes("prepareApprovalDraft") && readFileSync(new URL("../lib/x/publish.ts", import.meta.url), "utf8").includes("input.confirm !== true"));
 check("reject does not call X", !readFileSync(new URL("../app/api/publisher/reject/route.ts", import.meta.url), "utf8").includes("publishApprovedPost"));
 check("prepare keeps source urls beside the exact text", readFileSync(new URL("../lib/db/publisher.ts", import.meta.url), "utf8").includes("item.sourceUrl") && readFileSync(new URL("../lib/db/publisher.ts", import.meta.url), "utf8").includes("sources"));
