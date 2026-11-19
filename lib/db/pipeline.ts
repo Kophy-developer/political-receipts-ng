@@ -6,7 +6,6 @@ import { dueForScheduledRun, pipelineDevelopLimit } from "@/lib/desk/pipeline";
 import { runScan } from "@/lib/intel/run";
 import { chooseScan } from "@/lib/pillars/scan";
 import { loadDiscoveryContext } from "@/lib/db/pillars";
-import { storagePillar } from "@/lib/pillars/catalog";
 
 async function markSchedule(patch: {
   runningSince?: string | null;
@@ -77,9 +76,11 @@ export async function runBackgroundPipeline(input?: { force?: boolean; skipScan?
       if (!choice.runnable) {
         scanMessage = choice.reason;
       } else {
-        const report = await runScan({ storagePillar: storagePillar(choice.pillar) });
+        const report = await runScan({ pillars: choice.pillars });
         scanned = true;
-        scanMessage = report.stopped || (report.ok ? "Scan finished." : "Scan stopped.");
+        scanMessage = report.stopped || (report.ok
+          ? `Scan finished across ${report.pillarsSearched ?? choice.pillarsSearched} pillar(s) with ${report.queriesRun ?? choice.estimatedRequests} X search(es).`
+          : "Scan stopped.");
       }
     }
     const ids = await listRankedForPipeline(pipelineDevelopLimit);

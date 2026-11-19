@@ -15,7 +15,7 @@ import {
 import { loadEngagement } from "@/lib/db/engagement";
 import { selectedSearchGroup } from "@/lib/db/query-selection";
 import { recordUsage, usageSince } from "@/lib/db/usage";
-import { engagementMiss, withEngagement } from "@/lib/intel/engagement";
+import { engagementMiss } from "@/lib/intel/engagement";
 import { judgePost } from "@/lib/intel/classify";
 import type { ExtractionReport } from "@/lib/intel/extract-posts";
 import { extractFromPosts } from "@/lib/intel/extract-posts";
@@ -27,6 +27,8 @@ import type { ExtractionOutcome } from "@/lib/intel/outcome";
 import type { WorkingPost } from "@/lib/intel/posts";
 import { cleanUsername, sanitizeText } from "@/lib/intel/text";
 import { searchRecent } from "@/lib/x/search";
+import { planDiscoveryQueries, type DiscoveryQueryPlan, type KeywordSource } from "@/lib/intel/discovery-plan";
+import { contentPillars, storagePillar, type ContentPillar } from "@/lib/pillars/catalog";
 
 export type ScanEstimate = {
   ready: boolean;
@@ -43,6 +45,9 @@ export type ScanEstimate = {
   postCeilingUsd: string;
   authorCeilingUsd: string;
   rateNote: string;
+  estimatedRequests?: number;
+  pillars?: ContentPillar[];
+  rosterHandles?: number;
 };
 
 export type ScanReport = {
@@ -71,6 +76,9 @@ export type ScanReport = {
   polling: false;
   found: Array<{ id: string; title: string; action: string }>;
   opportunities: number;
+  pillarsSearched?: number;
+  queriesRun?: number;
+  rosterHandlesCovered?: number;
 };
 
 function blockedEstimate(message: string, partial?: Partial<ScanEstimate>): ScanEstimate {
@@ -93,48 +101,85 @@ function blockedEstimate(message: string, partial?: Partial<ScanEstimate>): Scan
   };
 }
 
-async function gate(storagePillar: "politics" | "finance" | "football" = "politics") {
+async function loadKeywordSources(pillars: ContentPillar[]): Promise<KeywordSource[]> {
+  const sources: KeywordSource[] = [];
+  for (const pillar of pillars) {
+    const chosen = await selectedSearchGroup(storagePillar(pillar));
+    if (!chosen) continue;
+    sources.push({
+      pillar,
+      id: chosen.group.id,
+      name: chosen.group.name,
+      slug: chosen.group.slug,
+      topicSlug: chosen.group.topicSlug,
+      storedQuery: chosen.selection.storedQuery,
+      requestQuery: chosen.selection.requestQuery,
+      reason: chosen.selection.reason,
+    });
+  }
+  return sources;
+}
+
+async function gate(pillars: ContentPillar[]) {
   const ready = await intelReady();
   if (!ready.ok) return { ok: false as const, estimate: blockedEstimate(ready.message) };
   const usage = await usageSince(lagosDayStart());
   if (!usage.ok) return { ok: false as const, estimate: blockedEstimate("Usage tracking is not readable. No X request was made.") };
-  const chosen = await selectedSearchGroup(storagePillar);
-  if (!chosen) {
-    const message = storagePillar === "politics"
-      ? "No search group is enabled. No X request was made."
-      : "That pillar has no discovery query yet. No X request was made.";
-    return { ok: false as const, estimate: blockedEstimate(message) };
-  }
   const engagement = await loadEngagement();
   if (!engagement.ok) return { ok: false as const, estimate: blockedEstimate(engagement.message) };
-  const built = withEngagement(chosen.selection.requestQuery, engagement.setting);
-  if (!built.ok) return { ok: false as const, estimate: blockedEstimate(built.message) };
+  const keywords = await loadKeywordSources(pillars);
+  const plan = planDiscoveryQueries({
+    pillars,
+    keywords,
+    keywordEngagement: engagement.setting,
+    includeRoster: true,
+  });
+  if (!plan.ok) return { ok: false as const, estimate: blockedEstimate(plan.message) };
+
   const xRemaining = Math.max(0, scanLimits.dailyXRequests - usage.totals.xRequests);
   const postsRemaining = Math.max(0, scanLimits.dailyPosts - usage.totals.posts);
   const geminiRemaining = Math.max(0, scanLimits.dailyGeminiRequests - usage.totals.geminiRequests);
   const estimate = blockedEstimate(null as unknown as string, {
     ready: true,
     message: null,
-    groupName: chosen.group.name,
-    maxGeminiRequests: readAiEnv().geminiKey && geminiRemaining > 0 ? 1 : 0,
+    groupName: plan.queries.map((query) => query.name).join(" · "),
+    maxXRequests: plan.estimatedRequests,
+    maxPosts: plan.estimatedPosts,
+    maxGeminiRequests: readAiEnv().geminiKey && geminiRemaining > 0 ? Math.min(pillars.length, geminiRemaining) : 0,
     xRemaining,
     postsRemaining,
     geminiRemaining,
+    estimatedRequests: plan.estimatedRequests,
+    pillars: plan.pillars,
+    rosterHandles: plan.rosterHandles.length,
+    postCeilingUsd: usd(plan.estimatedPosts * publishedRates.postReadUsd),
+    authorCeilingUsd: usd(plan.estimatedPosts * publishedRates.userReadUsd),
   });
-  if (xRemaining < 1) {
-    return { ok: false as const, estimate: { ...estimate, ready: false, message: "The daily X request limit is reached. No search was sent." } };
-  }
-  if (postsRemaining < scanLimits.maxPostsPerScan) {
+  if (xRemaining < plan.estimatedRequests) {
     return {
       ok: false as const,
-      estimate: { ...estimate, ready: false, message: "The daily post ceiling leaves fewer than 10 reads. No search was sent." },
+      estimate: {
+        ...estimate,
+        ready: false,
+        message: `The daily X request limit leaves ${xRemaining}, and this run needs ${plan.estimatedRequests} searches covering ${plan.rosterHandles.length} shortlist handles. No search was sent.`,
+      },
     };
   }
-  return { ok: true as const, estimate, group: chosen.group, selection: chosen.selection, requestQuery: built.query, operator: built.operator, geminiRemaining };
+  if (postsRemaining < plan.estimatedPosts) {
+    return {
+      ok: false as const,
+      estimate: {
+        ...estimate,
+        ready: false,
+        message: `The daily post ceiling leaves ${postsRemaining} reads, and this multi-pillar run asks for up to ${plan.estimatedPosts}. No search was sent.`,
+      },
+    };
+  }
+  return { ok: true as const, estimate, plan, geminiRemaining };
 }
 
-export async function previewScan() {
-  const result = await gate();
+export async function previewScan(pillars: ContentPillar[] = [...contentPillars]) {
+  const result = await gate(pillars);
   return result.estimate;
 }
 
@@ -184,168 +229,248 @@ function skippedExtraction(outcome: ExtractionOutcome, detail: string): Extracti
   };
 }
 
-export async function runScan(input?: { storagePillar?: "politics" | "finance" | "football" }): Promise<ScanReport> {
+function contentPillarFromStorage(value: "politics" | "finance" | "football"): ContentPillar {
+  return value === "football" ? "manchester_united" : value;
+}
+
+export async function runScan(input?: {
+  storagePillar?: "politics" | "finance" | "football";
+  storagePillars?: Array<"politics" | "finance" | "football">;
+  pillars?: ContentPillar[];
+}): Promise<ScanReport> {
   const started = Date.now();
   if (!claimDeskLock()) return emptyReport("A scan is already running. No second X request was made.");
   let scanId: string | null = null;
   let xCalls = 0;
   let retrievalSaved = false;
   try {
-    const storagePillar = input?.storagePillar ?? "politics";
-    const gated = await gate(storagePillar);
+    const pillars: ContentPillar[] = input?.pillars?.length
+      ? input.pillars
+      : input?.storagePillars?.length
+        ? input.storagePillars.map(contentPillarFromStorage)
+        : input?.storagePillar
+          ? [contentPillarFromStorage(input.storagePillar)]
+          : [...contentPillars];
+    const gated = await gate(pillars);
     if (!gated.ok) return emptyReport(gated.estimate.message, { durationMs: Date.now() - started });
     await releaseStaleScans();
     const opened = await openScan({
-      groupId: gated.group.id,
-      groupName: gated.group.name,
-      query: gated.requestQuery,
-      storedQuery: gated.selection.storedQuery,
-      selectionReason: gated.selection.reason,
-      engagement: gated.operator,
-      maxPosts: scanLimits.maxPostsPerScan,
+      groupId: gated.plan.queries.find((query) => query.groupId)?.groupId ?? null,
+      groupName: gated.plan.queries.map((query) => query.name).join(" · "),
+      query: gated.plan.queries.map((query) => query.requestQuery).join(" || "),
+      storedQuery: gated.plan.queries.map((query) => query.topicQuery).join(" || "),
+      selectionReason: `Multi-pillar discovery: ${gated.plan.pillars.join(", ")}. Keywords plus ${gated.plan.rosterHandles.length} shortlist handles.`,
+      engagement: gated.plan.queries.map((query) => query.operator).join(", "),
+      maxPosts: gated.plan.estimatedPosts,
       lookbackHours: scanLimits.lookbackHours,
-      contentPillar: storagePillar,
-      estimatedXRequests: 1,
+      contentPillar: "multi",
+      pillars: gated.plan.pillars,
+      estimatedXRequests: gated.plan.estimatedRequests,
+      rosterHandles: gated.plan.rosterHandles,
     });
     if (!opened.ok) return emptyReport(opened.message, { durationMs: Date.now() - started });
     scanId = opened.id;
 
-    const searched = await searchRecent({
-      query: gated.requestQuery,
-      maxResults: scanLimits.maxPostsPerScan,
-      startTime: lookbackStart(scanLimits.lookbackHours),
-    });
-    xCalls = 1;
-    await recordUsage({
-      provider: "x",
-      operation: "search_recent",
-      requests: 1,
-      units: searched.ok ? searched.posts.length : 0,
-      scanId,
-    });
-    if (!searched.ok) {
-      const message = searched.message || "X did not return a search page.";
-      await finishScan(scanId, {
-        status: "failed",
-        finished_at: new Date().toISOString(),
-        x_requests: 1,
-        error: message,
-        duration_ms: Date.now() - started,
+    const rules = await termRules();
+    const entities = await knownEntities();
+    const seen = new Set<string>();
+    const postsByPillar = new Map<ContentPillar, WorkingPost[]>();
+    const queryResults: Array<{ query: DiscoveryQueryPlan; returned: number }> = [];
+    const errors: string[] = [];
+
+    for (const query of gated.plan.queries) {
+      const searched = await searchRecent({
+        query: query.requestQuery,
+        maxResults: scanLimits.maxPostsPerRequest ?? scanLimits.maxPostsPerScan,
+        startTime: lookbackStart(scanLimits.lookbackHours),
       });
-      return emptyReport(message, { ok: false, xRequests: 1, durationMs: Date.now() - started, errors: [message] });
+      xCalls += 1;
+      await recordUsage({
+        provider: "x",
+        operation: "search_recent",
+        requests: 1,
+        units: searched.ok ? searched.posts.length : 0,
+        scanId,
+      });
+      if (!searched.ok) {
+        const message = searched.message || "X did not return a search page.";
+        errors.push(`${query.name}: ${message}`);
+        await finishScan(scanId, {
+          status: "failed",
+          finished_at: new Date().toISOString(),
+          x_requests: xCalls,
+          error: `Stopped after ${xCalls} request(s). Remaining roster/keyword queries were not sent so handles are not silently skipped. ${message}`,
+          duration_ms: Date.now() - started,
+        });
+        return emptyReport(
+          `Stopped after ${xCalls} request(s). Remaining roster/keyword queries were not sent so handles are not silently skipped. ${message}`,
+          { ok: false, xRequests: xCalls, durationMs: Date.now() - started, errors, queriesRun: xCalls, pillarsSearched: gated.plan.pillars.length },
+        );
+      }
+      if (query.groupId) await touchGroup(query.groupId);
+      queryResults.push({ query, returned: searched.posts.length });
+      const bucket = postsByPillar.get(query.pillar) ?? [];
+      for (const post of searched.posts) {
+        if (seen.has(post.id)) continue;
+        seen.add(post.id);
+        const judged = judgePost(post.text, rules);
+        const kept = query.storagePillar !== "politics" && judged.deskClass === "noise"
+          ? { relevance: "possibly_political" as const, deskClass: "discussion" as const }
+          : { relevance: judged.relevance, deskClass: judged.deskClass };
+        bucket.push({
+          id: post.id,
+          text: sanitizeText(post.text),
+          authorId: post.authorId,
+          username: post.username,
+          displayName: post.displayName,
+          createdAt: post.createdAt,
+          metrics: post.metrics,
+          conversationId: post.conversationId,
+          referenced: post.referenced,
+          lang: post.lang,
+          source: query.name,
+          relevance: kept.relevance,
+          deskClass: kept.deskClass,
+          matchedTerm: judged.matchedTerm,
+          reason: judged.reason,
+        });
+      }
+      postsByPillar.set(query.pillar, bucket);
     }
 
-    await touchGroup(gated.group.id);
-    if (searched.posts.length === 0) {
+    const allPosts = [...postsByPillar.values()].flat();
+    if (allPosts.length === 0) {
       await finishScan(scanId, {
         status: "completed",
         finished_at: new Date().toISOString(),
-        x_requests: 1,
+        x_requests: xCalls,
         posts_returned: 0,
         posts_stored: 0,
         error: engagementMiss,
         stage: "COMPLETE",
         duration_ms: Date.now() - started,
         detail: {
-          groupId: gated.group.id,
-          groupName: gated.group.name,
-          contentPillar: storagePillar,
-          query: gated.requestQuery,
-          storedQuery: gated.selection.storedQuery,
-          selectionReason: gated.selection.reason,
-          engagement: gated.operator,
+          pillars: gated.plan.pillars,
+          queries: queryResults.map((item) => ({ name: item.query.name, kind: item.query.kind, handles: item.query.handles, returned: item.returned })),
+          rosterHandles: gated.plan.rosterHandles,
         },
       });
       return emptyReport(engagementMiss, {
         ok: false,
-        xRequests: 1,
+        xRequests: xCalls,
         postsReturned: 0,
         durationMs: Date.now() - started,
         errors: [engagementMiss],
+        queriesRun: xCalls,
+        pillarsSearched: gated.plan.pillars.length,
+        rosterHandlesCovered: gated.plan.rosterHandles.length,
       });
     }
-    const rules = await termRules();
-    const posts: WorkingPost[] = searched.posts.map((post) => {
-      const judged = judgePost(post.text, rules);
-      const kept = storagePillar !== "politics" && judged.deskClass === "noise"
-        ? { relevance: "possibly_political" as const, deskClass: "discussion" as const }
-        : { relevance: judged.relevance, deskClass: judged.deskClass };
-      return {
-        id: post.id,
-        text: sanitizeText(post.text),
-        authorId: post.authorId,
-        username: post.username,
-        displayName: post.displayName,
-        createdAt: post.createdAt,
-        metrics: post.metrics,
-        conversationId: post.conversationId,
-        referenced: post.referenced,
-        lang: post.lang,
-        source: gated.group.name,
-        relevance: kept.relevance,
-        deskClass: kept.deskClass,
-        matchedTerm: judged.matchedTerm,
-        reason: judged.reason,
-      };
-    });
-    const storedCount = await persistPosts(posts, scanId, storagePillar);
-    retrievalSaved = true;
-    await finishScan(scanId, { stage: "X_RETRIEVAL_COMPLETE", x_requests: 1, posts_returned: searched.posts.length, posts_stored: storedCount });
-    await finishScan(scanId, { stage: "AI_PROCESSING" });
-    const candidates = posts.filter((post) => post.deskClass !== "noise" && post.relevance !== "not_political");
-    let extraction: ExtractionReport;
-    if (candidates.length === 0) {
-      extraction = skippedExtraction("not_run", "Extraction did not run. No actionable or discussion post was sent to the model.");
-    } else {
-      extraction = await extractFromPosts(posts, scanId);
+
+    let storedCount = 0;
+    let conversations = 0;
+    let newConversations = 0;
+    let claims = 0;
+    let claimsDropped = 0;
+    let geminiRequests = 0;
+    let inputTokens: number | null = null;
+    let outputTokens: number | null = null;
+    let model: string | null = null;
+    let extractionOutcome: ExtractionOutcome | null = null;
+    let extractionDetail: string | null = null;
+    const found: Array<{ id: string; title: string; action: string }> = [];
+    let opportunities = 0;
+    let actionablePosts = 0;
+    let discussionPosts = 0;
+    let noisePosts = 0;
+    let relevantPosts = 0;
+    const extractionErrors: string[] = [];
+
+    for (const pillar of gated.plan.pillars) {
+      const posts = postsByPillar.get(pillar) ?? [];
+      if (posts.length === 0) continue;
+      storedCount += await persistPosts(posts, scanId, storagePillar(pillar));
+      retrievalSaved = true;
+      actionablePosts += posts.filter((post) => post.deskClass === "actionable").length;
+      discussionPosts += posts.filter((post) => post.deskClass === "discussion").length;
+      noisePosts += posts.filter((post) => post.deskClass === "noise").length;
+      relevantPosts += posts.filter((post) => post.relevance !== "not_political").length;
+
+      const candidates = posts.filter((post) => post.deskClass !== "noise" && post.relevance !== "not_political");
+      let extraction: ExtractionReport;
+      if (candidates.length === 0) {
+        extraction = skippedExtraction("not_run", `Extraction did not run for ${pillar}. No actionable or discussion post was sent to the model.`);
+      } else {
+        extraction = await extractFromPosts(posts, scanId);
+      }
+      geminiRequests += extraction.geminiRequests;
+      if (extraction.inputTokens != null) inputTokens = (inputTokens ?? 0) + extraction.inputTokens;
+      if (extraction.outputTokens != null) outputTokens = (outputTokens ?? 0) + extraction.outputTokens;
+      if (extraction.model) model = extraction.model;
+      extractionOutcome = extraction.outcome;
+      extractionDetail = extraction.detail;
+      if (extraction.outcome !== "extracted" || extraction.dropped > 0) extractionErrors.push(extraction.detail);
+      claimsDropped += extraction.dropped;
+
+      const filed = await fileDiscussions({
+        posts,
+        claims: extraction.claims,
+        outcome: extraction.outcome,
+        entities,
+        topicSlugFor: () => gated.plan.queries.find((query) => query.pillar === pillar)?.topicSlug ?? "multi",
+        deskNote: "Filed by a multi-pillar scan. Keyword discovery and shortlist handles ran in the same pipeline run.",
+        pillar: storagePillar(pillar),
+      });
+      conversations += filed.conversationIds.length;
+      newConversations += filed.conversations;
+      claims += filed.claims;
+      const synced = extraction.claims.length > 0
+        ? await syncModelOpportunities(filed.links, scanId, storagePillar(pillar))
+        : { found: 0, created: 0, updated: 0, cards: [] as Array<{ id: string; claimId: string | null; title: string }> };
+      opportunities += synced.found;
+      for (const card of synced.cards) {
+        found.push({ id: card.id, title: card.title, action: "Open story" });
+      }
+      if (synced.cards.length === 0) {
+        for (const item of filed.filedClaims) {
+          found.push({ id: item.id, title: item.title, action: "Open story" });
+        }
+      }
     }
 
-    const filed = await fileDiscussions({
-      posts,
-      claims: extraction.claims,
-      outcome: extraction.outcome,
-      entities: await knownEntities(),
-      topicSlugFor: () => gated.group.topicSlug,
-      deskNote: "Filed by a manual scan. This is not a verdict, and it is not a candidate ranking.",
-      pillar: storagePillar,
-    });
-    const opportunities = extraction.claims.length > 0 ? await syncModelOpportunities(filed.links, scanId, storagePillar) : { found: 0, created: 0, updated: 0, cards: [] };
-    const aiFailed = extraction.outcome === "failed" || extraction.outcome === "invalid";
-    const errors = extraction.outcome === "extracted" && extraction.dropped === 0 ? [] : [extraction.detail];
-    const actionablePosts = posts.filter((post) => post.deskClass === "actionable").length;
-    const discussionPosts = posts.filter((post) => post.deskClass === "discussion").length;
-    const noisePosts = posts.filter((post) => post.deskClass === "noise").length;
+    const aiFailed = extractionOutcome === "failed" || extractionOutcome === "invalid";
     await finishScan(scanId, {
       status: aiFailed ? "stopped" : "completed",
       finished_at: new Date().toISOString(),
-      x_requests: 1,
-      posts_returned: searched.posts.length,
+      x_requests: xCalls,
+      posts_returned: allPosts.length,
       posts_stored: storedCount,
-      relevant_posts: posts.filter((post) => post.relevance === "political").length,
-      conversations_created: filed.conversations,
-      claims_extracted: filed.claims,
-      gemini_requests: extraction.geminiRequests,
-      input_tokens: extraction.inputTokens,
-      output_tokens: extraction.outputTokens,
+      relevant_posts: relevantPosts,
+      conversations_created: newConversations,
+      claims_extracted: claims,
+      gemini_requests: geminiRequests,
+      input_tokens: inputTokens,
+      output_tokens: outputTokens,
       duration_ms: Date.now() - started,
       stage: aiFailed ? "PARTIAL_FAILURE" : "COMPLETE",
-      error: aiFailed ? extraction.detail : null,
+      error: aiFailed ? extractionDetail : null,
       detail: {
-        groupId: gated.group.id,
-        groupName: gated.group.name,
-        query: gated.requestQuery,
-        storedQuery: gated.selection.storedQuery,
-        selectionReason: gated.selection.reason,
-        engagement: gated.operator,
-        contentPillar: storagePillar,
-        extraction: extraction.outcome,
-        extractionDetail: extraction.detail,
+        pillars: gated.plan.pillars,
+        queries: queryResults.map((item) => ({
+          name: item.query.name,
+          kind: item.query.kind,
+          pillar: item.query.pillar,
+          handles: item.query.handles,
+          returned: item.returned,
+          query: item.query.requestQuery,
+        })),
+        rosterHandles: gated.plan.rosterHandles,
+        extraction: extractionOutcome,
+        extractionDetail,
         actionablePosts,
         discussionPosts,
         noisePosts,
-        claimsRejected: extraction.dropped,
-        extractionProvider: extraction.provider,
-        extractionClass: extraction.classification,
+        claimsRejected: claimsDropped,
       },
     });
     await recordEvent({
@@ -354,38 +479,41 @@ export async function runScan(input?: { storagePillar?: "politics" | "finance" |
       subjectType: "scan",
       subjectId: scanId,
       detail: {
-        xRequests: 1,
-        posts: searched.posts.length,
-        claims: filed.claims,
-        geminiRequests: extraction.geminiRequests,
-        extraction: extraction.outcome,
+        xRequests: xCalls,
+        posts: allPosts.length,
+        claims,
+        geminiRequests,
+        extraction: extractionOutcome,
+        pillars: gated.plan.pillars,
+        rosterHandles: gated.plan.rosterHandles.length,
       },
     });
-    return emptyReport(aiFailed ? extraction.detail : null, {
+    return emptyReport(aiFailed ? extractionDetail : null, {
       ok: !aiFailed,
-      xRequests: 1,
-      postsReturned: searched.posts.length,
+      xRequests: xCalls,
+      postsReturned: allPosts.length,
       postsStored: storedCount,
-      relevantPosts: posts.filter((post) => post.relevance !== "not_political").length,
+      relevantPosts,
       actionablePosts,
       discussionPosts,
       noisePosts,
-      conversations: filed.conversationIds.length,
-      newConversations: filed.conversations,
-      claims: filed.claims,
-      claimsDropped: extraction.dropped,
-      extraction: extraction.outcome,
-      extractionDetail: extraction.detail,
-      model: extraction.model,
-      geminiRequests: extraction.geminiRequests,
-      inputTokens: extraction.inputTokens,
-      outputTokens: extraction.outputTokens,
+      conversations,
+      newConversations,
+      claims,
+      claimsDropped,
+      extraction: extractionOutcome,
+      extractionDetail,
+      model,
+      geminiRequests,
+      inputTokens,
+      outputTokens,
       durationMs: Date.now() - started,
-      errors,
-      found: opportunities.cards.length > 0
-        ? opportunities.cards.map((item) => ({ id: item.id, claimId: item.claimId, title: item.title, action: "Open story" }))
-        : filed.filedClaims.map((item) => ({ id: item.id, title: item.title, action: "Open story" })),
-      opportunities: opportunities.found,
+      errors: extractionErrors,
+      found,
+      opportunities,
+      pillarsSearched: gated.plan.pillars.length,
+      queriesRun: xCalls,
+      rosterHandlesCovered: gated.plan.rosterHandles.length,
     });
   } catch {
     if (scanId) {
@@ -404,7 +532,7 @@ export async function runScan(input?: { storagePillar?: "politics" | "finance" |
   }
 }
 
-async function persistPosts(posts: WorkingPost[], scanId: string, storagePillar: "politics" | "finance" | "football") {
+async function persistPosts(posts: WorkingPost[], scanId: string, storage: "politics" | "finance" | "football") {
   const known = await existingPostIds(posts.map((post) => post.id));
   const rows = posts.map((post) => ({
     x_post_id: post.id,
@@ -422,7 +550,7 @@ async function persistPosts(posts: WorkingPost[], scanId: string, storagePillar:
     relevance: post.relevance,
     relevance_reason: post.reason,
     desk_class: post.deskClass,
-    content_pillar: storagePillar,
+    content_pillar: storage,
     scan_id: scanId,
   }));
   const saved = await savePosts(rows);

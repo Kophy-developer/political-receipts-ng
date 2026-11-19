@@ -56,7 +56,7 @@ check("mixed-case #checkam is returned by the CheckAm filter", visiblePublished(
 check("a post without #CheckAm is left out of the CheckAm filter", visiblePublished(publishedRows, "#CheckAm").every((post) => post.id !== "plain") && editorialTagIn("#Nigeria #Election") === null);
 check("the other signature tags are recognized", editorialTagIn("Working.\n\n#ShowYourWorking") === "#ShowYourWorking" && editorialTagIn("no.\n\n#nottrue") === "#NotTrue");
 
-check("the desk confirmation uses the existing scan budget", scanConfirmation.maximumPosts === scanBudget.maxPostsPerScan && scanConfirmation.estimatedRequests === scanBudget.maxXRequestsPerScan && scanBudget.maxPostsPerScan === 10 && scanBudget.maxXRequestsPerScan === 1);
+check("the desk confirmation uses the existing scan budget", scanConfirmation.maximumPosts === scanBudget.maxPostsPerScan && scanConfirmation.estimatedRequests === scanBudget.maxXRequestsPerScan && scanBudget.maxPostsPerScan === 10 && scanBudget.maxXRequestsPerScan === 12);
 const summary = scanDeskSummary({ postsReturned: 10, conversations: 2, claims: 1 });
 check("a scan summary stays on the desk wording", summary.posts === "10 posts reviewed" && summary.conversations === "2 new conversations" && summary.opportunities === "1 opportunity found");
 check("a new scan claim uses the story's next action", freshClaimAction() === "REVIEW EVIDENCE");

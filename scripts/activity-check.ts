@@ -123,8 +123,9 @@ const panel = readFileSync("components/desk/conversation-activity.tsx", "utf8");
 const publish = readFileSync("lib/x/publish.ts", "utf8");
 check("search and lookup share the field list", search.includes("tweetFields") && search.includes("lookupPosts") && lookup.includes("confirm !== true") && lookup.indexOf("confirm !== true") < lookup.indexOf("lookupPosts("));
 check("lookup does not publish or create an opportunity", !lookup.includes("syncModelOpportunities") && !lookup.includes("publishApprovedPost") && !route.includes("publish"));
-check("the editor can open a post and no reply is sent automatically", panel.includes("Open on X") && panel.includes("No reply is sent") && !panel.includes("/api/x/publish") && panel.includes('confirm: true'));
-check("exact-text publishing is unchanged", publish.includes("input.confirm !== true"));
+check("the editor can open a post without auto-publishing a reply", panel.includes("Open on X") && panel.includes("publishes as a reply under the source tweet") && !panel.includes("/api/x/publish") && panel.includes('confirm: true'));
+check("exact-text publishing still requires confirm", publish.includes("input.confirm !== true"));
+check("approved posts can reply to a source tweet id", publish.includes("replyToTweetId") && readFileSync("lib/publish/payload.ts", "utf8").includes("in_reply_to_tweet_id"));
 
 if (failures.length) {
   console.error(failures.join("\n"));

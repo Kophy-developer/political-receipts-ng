@@ -23,14 +23,24 @@ export async function listReadyForApproval(): Promise<{ items: ReadyItem[]; noti
   if (!db) return { items: [], notice: noticeFor(0) };
   const listed = await db
     .from("opportunities")
-    .select("id, claim_id, content_pillar, what_happened, possible_angle, development, updated_at, claims ( claim_text )")
+    .select("id, claim_id, content_pillar, what_happened, possible_angle, development, updated_at, claims ( claim_text, original_post_id, original_post_url, original_author_username )")
     .eq("lifecycle", "READY_FOR_EDITOR")
     .order("updated_at", { ascending: false })
     .limit(20);
   if (listed.error || !listed.data) return { items: [], notice: noticeFor(0) };
   const items = listed.data.flatMap((row) => {
     const claimId = typeof row.claim_id === "string" ? row.claim_id : "";
+    const claimRow = Array.isArray(row.claims) ? row.claims[0] : row.claims;
     const claim = claimText(row.claims) ?? (typeof row.what_happened === "string" ? row.what_happened : "Ready draft");
+    const replyToPostId = claimRow && typeof claimRow === "object" && typeof (claimRow as { original_post_id?: unknown }).original_post_id === "string"
+      ? (claimRow as { original_post_id: string }).original_post_id
+      : null;
+    const replyToUrl = claimRow && typeof claimRow === "object" && typeof (claimRow as { original_post_url?: unknown }).original_post_url === "string"
+      ? (claimRow as { original_post_url: string }).original_post_url
+      : null;
+    const replyToUsername = claimRow && typeof claimRow === "object" && typeof (claimRow as { original_author_username?: unknown }).original_author_username === "string"
+      ? (claimRow as { original_author_username: string }).original_author_username
+      : null;
     const item = readyItemFromRow({
       id: String(row.id),
       claimId,
@@ -40,6 +50,9 @@ export async function listReadyForApproval(): Promise<{ items: ReadyItem[]; noti
       possibleAngle: typeof row.possible_angle === "string" ? row.possible_angle : null,
       development: row.development,
       updatedAt: typeof row.updated_at === "string" ? row.updated_at : null,
+      replyToPostId,
+      replyToUrl,
+      replyToUsername,
     });
     return item ? [item] : [];
   });

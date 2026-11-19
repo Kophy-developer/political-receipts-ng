@@ -11,7 +11,8 @@ import { extractionOpportunityWrite } from "@/lib/intel/stage";
 import { splitByCurrentVersion } from "@/lib/editorial/history";
 import { describeSource, replaceUserLabel } from "@/lib/editorial/quality";
 import { opportunityTypes, type OpportunityAngle, type OpportunityCard, type OpportunityProposal, type OpportunityScore, type OpportunityType, type ResearchNeed } from "@/lib/opportunities/types";
-import { publicPostUrl, sanitizeText } from "@/lib/intel/text";
+import { resolveConversationSourcePost } from "@/lib/db/source-post";
+import { sanitizeText } from "@/lib/intel/text";
 
 const needs = new Set<ResearchNeed>(["yes", "recommended", "no"]);
 const scores = new Set<OpportunityScore>(["high", "medium", "low"]);
@@ -380,9 +381,7 @@ async function sendToResearch(row: {
   const kind: StatementKind = prediction ? "opinion" : row.voice === "analysis" ? "analysis" : row.voice === "fact" ? "fact" : "opinion";
   const claimText = sanitizeText(row.what_happened, 500);
   const types = inferClaimTypes(claimText, pillar);
-  const post = row.conversation_id
-    ? await db.from("x_posts").select("x_post_id, username, text").eq("conversation_id", row.conversation_id).limit(1).maybeSingle()
-    : { data: null };
+  const post = await resolveConversationSourcePost(row.conversation_id);
   const verdict = prediction
     ? {
         factual: null,
@@ -396,10 +395,10 @@ async function sendToResearch(row: {
   const claim = await db.from("claims").insert({
     claim_text: claimText,
     conversation_id: row.conversation_id,
-    original_post_id: post.data?.x_post_id ?? null,
-    original_post_url: post.data ? publicPostUrl(post.data.x_post_id, post.data.username) : null,
-    original_author_username: post.data?.username ?? null,
-    original_post_text: post.data?.text ?? null,
+    original_post_id: post?.id ?? null,
+    original_post_url: post?.url ?? null,
+    original_author_username: post?.username ?? null,
+    original_post_text: post?.text ?? null,
     detected_at: new Date().toISOString(),
     origin: "live",
     status: "new",

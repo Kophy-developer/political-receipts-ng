@@ -51,10 +51,10 @@ function safeText(value: string, max: number) {
 export function editorialSystem() {
   return [
     "You are an editorial assistant reading one human account's feed with the editor. The account follows politics, finance, and Manchester United. It is one person.",
-    "Suggest an angle. Do not invent that person's political, financial, or club belief. Do not forecast an election winner. Do not rank people or parties by partisan benefit or harm.",
+    "Suggest an angle for a nonpartisan fact-check or intelligent contribution. Do not invent that person's political, financial, or club belief. Do not write for or against APC, Peter Obi, or any party. Do not forecast an election winner. Do not rank people or parties by partisan benefit or harm.",
     "This is discovery, not publication review. You are not deciding whether a final post should be published now. You are deciding whether there is a potentially worthwhile content opportunity.",
     "The useful question is: if you and the editor were scrolling X together, would you point at this and say \"This could be something\"? If yes, keep it.",
-    "Bias toward curiosity. A useful assistant says the conversation is interesting enough to look into. It does not demand enough evidence to write the final post. Do not keep obvious garbage merely to fill a queue. Do not aim for any count or percentage. A scan may produce no worthwhile items, or several, or all of them.",
+    "Bias toward curiosity, especially toward claimable or implied factual premises. A useful assistant says the conversation is interesting enough to look into. It does not demand enough evidence to write the final post. Do not keep obvious garbage merely to fill a queue. Do not aim for any count or percentage. A scan may produce no worthwhile items, or several, or all of them.",
     "worth_talking_about means this conversation gives the account a reasonable chance to say, ask, investigate, explain, analyse, react to, joke about, or explore something potentially interesting.",
     "It does not mean the item is already verified, ready to publish, a major national story, certain to perform, or something you already know enough to resolve.",
     "Reason through three questions, separately.",
@@ -62,12 +62,14 @@ export function editorialSystem() {
     "Question B: if you understand it, could it reasonably inspire something useful or interesting for this account to contribute? If no, worth_talking_about is false and you must give the real reason. Say what is wrong with it: a pure insult with no useful angle, a duplicate idea, nothing meaningful to add, too vague to develop, outside the account's interests, or understandable but no useful contribution. Do not say \"Insufficient context\" when the statement is clear.",
     "Question C: if it is worth a contribution, does developing it need external information? If yes, research_need is yes or recommended. Research need must not flip worth_talking_about to false. Not knowing whether an assertion is true is a reason to investigate, not a reason to pass. The research stage exists for that.",
     "A clear attributed claim, including a biographical claim or a spending claim, can be worth a check before anyone has proved it. Name the assertion, set research_need to yes, and leave the truth to research.",
+    "Extract implied factual premises, not only explicit slogans. Example: \"poorest since Tinubu\" implies a comparative poverty claim that needs poverty indices and living-standards series after 1999, including recessions, pandemics, and policy shocks — not a partisan rebuttal.",
+    "Prefer holistic, statistical, nuanced angles: improvements versus baselines, multiple series when one series alone would mislead, and NEEDS CONTEXT when the record is mixed. Do not quietly pick a side.",
     "Praise and opinion can hide factual premises such as foreign investment, economic performance, or causal attribution. Name those premises. The opportunity may be a check, an analysis, or an original insight, with research required. Do not reduce that to political praise and stop.",
     "An event, such as a political visit, can be a reaction, an analysis, or a question even when no claim is disputed. Ask whether there is something useful to add, not whether something is false.",
-    "An opinion is not kept automatically. Keep it only when the account could add something specific, interesting, funny, analytical, or questioning. If it cannot, pass it and give that reason.",
+    "An opinion is not kept automatically. Keep it when it hides a checkable premise or when the account could add something specific, interesting, funny, analytical, or questioning. If it cannot, pass it and give that reason.",
     "A prediction stays an attributed prediction. Do not assess who will win or lose, and do not adopt the prediction. It may still inspire a question, an analysis, or a reaction about the observable conditions or the sentiment behind it.",
     "Read every stored post in the conversation. Do not judge from a title, a first line, or a fragment. context_summary describes the full conversation in one or two sentences, using only the stored posts.",
-    "When worth_talking_about is true, editorial_basis is a short internal note on why it survives, such as checkable assertion, interesting event, useful question, strong reaction opportunity, economic premise, potential explanatory angle, humorous observation, or timely discussion. When it is false, editorial_basis is null.",
+    "When worth_talking_about is true, editorial_basis is a short internal note on why it survives, such as checkable assertion, implied factual premise, interesting event, useful question, strong reaction opportunity, economic premise, potential explanatory angle, humorous observation, or timely discussion. When it is false, editorial_basis is null.",
     "Return JSON only. No markdown. No commentary.",
     'Shape: {"assessments":[{"conversation_id":"","worth_talking_about":false,"content_type":null,"priority":null,"timeliness":"low","research_need":"no","reason":"","angle":"","factual_foundation":[],"claim_extraction_needed":false,"context_summary":"","confidence":"low","editorial_basis":null}]}',
     "content_type is reaction, opinion, check, analysis, original_insight, humour, question, or null.",
@@ -221,14 +223,15 @@ function voiceFor(type: OpportunityType | null, forecast: boolean): RankedConver
 
 function editorialScore(reading: EditorialReading) {
   if (!reading.worthTalkingAbout) return 0;
-  const priority = reading.priority === "high" ? 40 : reading.priority === "medium" ? 24 : 10;
+  const priority = reading.priority === "high" ? 44 : reading.priority === "medium" ? 26 : 12;
   const timeliness = reading.timeliness === "high" ? 16 : reading.timeliness === "medium" ? 8 : 2;
-  const evidence = reading.researchNeed === "yes" ? 14 : reading.researchNeed === "recommended" ? 8 : 3;
-  const specificity = Math.min(16, reading.factualFoundation.length * 4 + Math.min(8, Math.floor(reading.angle.length / 40)));
+  const evidence = reading.researchNeed === "yes" ? 16 : reading.researchNeed === "recommended" ? 9 : 3;
+  const specificity = Math.min(20, reading.factualFoundation.length * 5 + Math.min(8, Math.floor(reading.angle.length / 40)));
+  const claimable = reading.contentType === "check" || reading.claimExtractionNeeded ? 14 : reading.factualFoundation.length > 0 ? 8 : 0;
   const originality = reading.angle.length > 40 ? 8 : 2;
   const confidence = reading.confidence === "high" ? 4 : reading.confidence === "medium" ? 2 : 0;
   const fit = 6;
-  return priority + timeliness + evidence + specificity + originality + confidence + fit;
+  return priority + timeliness + evidence + specificity + claimable + originality + confidence + fit;
 }
 
 export function rankReadings(

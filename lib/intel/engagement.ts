@@ -7,7 +7,7 @@ export type EngagementSetting = {
   minimum: number;
 };
 
-export const defaultEngagement: EngagementSetting = { metric: "replies", minimum: 20 };
+export const defaultEngagement: EngagementSetting = { metric: "replies", minimum: 5 };
 
 export const engagementMiss = "No posts met your engagement requirement";
 

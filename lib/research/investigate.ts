@@ -179,15 +179,25 @@ export function investigate(sourceText: string, quality: SourceQuality, pillar?:
     };
   }
   if (quality.researchNeed === "yes" && quality.checkableFacts.length) {
+    const facts = quality.checkableFacts;
+    const povertyLike = facts.some((fact) => /povert|hardship|cost of living|poorest|hunger|living standard/i.test(fact));
+    const questions: Array<{ purpose: QuestionPurpose; question: string }> = facts.map((fact) => ({ purpose: "verification", question: `What record addresses this premise: ${fact}` }));
+    if (povertyLike) {
+      questions.push(
+        { purpose: "historical_comparison", question: "What do poverty or living-standards indices show for Nigeria since 1999, including recessions and the COVID period?" },
+        { purpose: "numerical_analysis", question: "How do recent years compare with earlier baselines, and would one series alone mislead?" },
+        { purpose: "context", question: "Which improvements and deteriorations appear together, so the reply stays nonpartisan and holistic?" },
+      );
+    }
     return {
-      numerical: false,
+      numerical: povertyLike,
       attribution: quality.summary,
       authorAssertsQuotedClaim: !rejects,
-      questions: quality.checkableFacts.map((fact) => ({ purpose: "verification" as const, question: `What record addresses this premise: ${fact}` })),
+      questions,
       definitions: [],
-      preferredHosts: [],
+      preferredHosts: povertyLike ? ["nigerianstat.gov.ng", "data.worldbank.org", "worldbank.org"] : [],
       rejectedSubstitutes: [],
-      focusSeries: null,
+      focusSeries: povertyLike ? "poverty / living standards" : null,
     };
   }
   return {

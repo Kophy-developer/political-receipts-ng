@@ -67,7 +67,8 @@ const prepare = readFileSync(new URL("../app/api/publisher/prepare/route.ts", im
 check("home is the approval queue", home.includes("ApprovalQueue") && home.includes("listReadyForApproval"));
 check("the menu is Approve, Published, Settings", nav.includes('label: "Approve"') && nav.includes('label: "Published"') && nav.includes('label: "Settings"') && !nav.includes('label: "Desk"') && !nav.includes('label: "Intelligence"'));
 check("the old desk page redirects home", desk.includes('redirect("/")'));
-check("approve still requires exact confirmation", queue.includes("confirm: true") && queue.includes("Publish this exact text"));
+check("approve still requires exact confirmation", queue.includes("confirm: true") && (queue.includes("Publish this exact text as a reply under the source tweet") || queue.includes("Publish this exact text")));
+check("approve makes the reply target obvious", queue.includes("Reply target") && queue.includes("Approve will publish this as a reply under"));
 check("the queue lets you edit the draft text", queue.includes('value={text}') && queue.includes("Draft text") && queue.includes("Restore prepared draft"));
 check("the queue asks for an evidence link", queue.includes("Evidence link") && queue.includes("evidenceUrl") && queue.includes("Evidence image URL, optional"));
 check("the queue can send a voice or typed rewrite instruction", queue.includes("/api/publisher/rephrase") && queue.includes("Speak instruction") && queue.includes("Rewrite with AI"));
@@ -87,6 +88,8 @@ check("compose leaves an already-present URL alone", composeEvidencePost({ text:
 check("https evidence URLs are required", parseHttpsUrl("http://example.com").ok === false && parseHttpsUrl("https://example.com/report").ok === true);
 check("optional media may be blank", parseOptionalHttpsUrl("").ok && (parseOptionalHttpsUrl("") as { ok: true; url: string | null }).url === null);
 check("tweet payload can carry media ids", JSON.stringify(postCreateBody("Post", ["123"])).includes("media_ids"));
+check("tweet payload can reply to a source tweet", JSON.stringify(postCreateBody("Post", undefined, "1234567890")).includes("in_reply_to_tweet_id"));
+check("publish loads the claim reply target", publish.includes("loadClaimReplyTarget") && publish.includes("replyTo"));
 check("rephrase keeps evidence links", rephraseSystemPrompt().includes("https evidence link"));
 
 const rephraseRoute = readFileSync(new URL("../app/api/publisher/rephrase/route.ts", import.meta.url), "utf8");

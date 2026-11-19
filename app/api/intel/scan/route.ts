@@ -1,6 +1,6 @@
 import { connection } from "next/server";
 import { loadDiscoveryContext } from "@/lib/db/pillars";
-import { isScanMode, storagePillar } from "@/lib/pillars/catalog";
+import { isScanMode } from "@/lib/pillars/catalog";
 import { chooseScan } from "@/lib/pillars/scan";
 import { runScan } from "@/lib/intel/run";
 import { assertEditorRequest } from "@/lib/x/guard";
@@ -32,9 +32,17 @@ export async function POST(request: Request) {
       xRequests: 0,
       postsReturned: 0,
       pillar: choice.pillar,
+      pillars: choice.pillars,
       estimatedRequests: choice.estimatedRequests,
+      pillarsSearched: choice.pillarsSearched,
     });
   }
-  const report = await runScan({ storagePillar: storagePillar(choice.pillar) });
-  return Response.json({ ...report, pillar: choice.pillar, estimatedRequests: choice.estimatedRequests });
+  const report = await runScan({ pillars: choice.pillars });
+  return Response.json({
+    ...report,
+    pillar: choice.pillar,
+    pillars: choice.pillars,
+    estimatedRequests: choice.estimatedRequests,
+    pillarsSearched: choice.pillarsSearched,
+  });
 }

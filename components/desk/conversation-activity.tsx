@@ -100,7 +100,13 @@ export function ConversationActivity({ model, opportunityId }: { model: Activity
           {model.related.map((post) => <PostBlock key={`${post.membership}-${post.id}`} post={post} selected={selected === post.id} onSelect={() => setSelected(post.id)} />)}
         </div>
       ) : null}
-      {chosen ? <p className="mt-3 text-sm">You selected {chosen.username ? `@${chosen.username}` : "this post"} to answer. No reply is sent. Publishing still requires the exact text.</p> : null}
+      {chosen ? (
+        <p className="mt-3 text-sm">
+          You marked {chosen.username ? `@${chosen.username}` : "this post"} as the answer target. When you Approve, the desk publishes as a reply under the stored source tweet for this story (usually the original post being fact-checked), with the exact approved text.
+        </p>
+      ) : (
+        <p className="mt-3 text-sm text-ink-soft">Approve publishes as a reply under the source tweet when a source post id is stored. Exact approved text is still required.</p>
+      )}
     </section>
   );
 }

@@ -1,4 +1,5 @@
-import { plannedScanRequest } from "@/lib/intel/budget";
+import { plannedScanRequest, scanBudget } from "@/lib/intel/budget";
+import { rosterCoverage } from "@/lib/intel/account-roster";
 import {
   contentPillars,
   discoveryFor,
@@ -32,44 +33,58 @@ export type ScanAllowance = {
 export type ScanChoice = {
   mode: ScanMode;
   pillar: ContentPillar;
+  pillars: ContentPillar[];
   label: string;
   reason: string;
   scope: string;
   maximumPosts: number;
   estimatedRequests: number;
-  pillarsSearched: 1;
+  pillarsSearched: number;
   runnable: boolean;
   unconfigured: ContentPillar[];
   requestNote: string;
 };
 
 const enoughQueued = 3;
+const rosterRequestEstimate = 2;
 
 function blankSignal(pillar: ContentPillar): PillarSignal {
   return { pillar, share: 0, hoursSinceScan: null, hoursSincePost: null, queued: 0, timeliness: "medium" };
 }
 
+function estimateRequests(pillarCount: number) {
+  return Math.min(scanBudget.maxXRequestsPerScan, pillarCount + pillarCount * rosterRequestEstimate);
+}
+
 export function chooseScan(mode: ScanMode, signals: PillarSignal[], publishedTotal = 0, allowance?: ScanAllowance): ScanChoice {
   const byPillar = new Map(contentPillars.map((pillar) => [pillar, signals.find((item) => item.pillar === pillar) ?? blankSignal(pillar)]));
   const listed = [...byPillar.values()];
-  const pillar = mode === "smart" ? smartPillar(listed, publishedTotal) : mode;
-  const signal = byPillar.get(pillar) ?? blankSignal(pillar);
-  const plan = plannedScanRequest();
+  const configured = listed.filter((item) => item.configured !== false).map((item) => item.pillar);
   const unconfigured = listed.filter((item) => item.configured === false).map((item) => item.pillar);
-  const blocked = budgetBlock(allowance, plan.posts);
-  const runnable = signal.configured !== false && blocked == null;
+  const pillars: ContentPillar[] = mode === "smart"
+    ? (configured.length > 0 ? configured : [...contentPillars])
+    : [mode];
+  const focus = mode === "smart" ? smartPillar(listed, publishedTotal) : mode;
+  const plan = plannedScanRequest(scanBudget.maxPostsPerRequest, estimateRequests(pillars.length));
+  const blocked = budgetBlock(allowance, plan.requests, plan.posts * plan.requests);
+  const missingConfigured = mode !== "smart" && listed.find((item) => item.pillar === mode)?.configured === false;
+  const runnable = !missingConfigured && blocked == null && pillars.length > 0;
+  const coverage = rosterCoverage(pillars);
   return {
     mode,
-    pillar,
-    label: pillarLabels[pillar],
-    reason: reasonFor(mode, pillar, signal, publishedTotal, listed, blocked),
-    scope: discoveryFor(pillar).scope,
-    maximumPosts: plan.posts,
+    pillar: focus,
+    pillars,
+    label: mode === "smart" ? pillars.map((pillar) => pillarLabels[pillar]).join(", ") : pillarLabels[mode],
+    reason: reasonFor(mode, focus, pillars, byPillar.get(focus) ?? blankSignal(focus), publishedTotal, listed, blocked, coverage.accounts),
+    scope: mode === "smart"
+      ? pillars.map((pillar) => discoveryFor(pillar).scope).join(" · ")
+      : discoveryFor(mode).scope,
+    maximumPosts: plan.posts * plan.requests,
     estimatedRequests: plan.requests,
-    pillarsSearched: 1,
+    pillarsSearched: pillars.length,
     runnable,
     unconfigured,
-    requestNote: plan.note,
+    requestNote: `${plan.note} This plan covers ${coverage.accounts} shortlist handles across the selected pillars.`,
   };
 }
 
@@ -99,29 +114,37 @@ function discoveryScore(signal: PillarSignal) {
   return score;
 }
 
-function budgetBlock(allowance: ScanAllowance | undefined, posts: number) {
+function budgetBlock(allowance: ScanAllowance | undefined, requests: number, posts: number) {
   if (!allowance) return null;
   if (allowance.known === false) return "Usage tracking is not readable. No search will be sent.";
-  if (allowance.requestsRemaining < 1) return "The daily X request limit is already used. No search will be sent.";
-  if (allowance.postsRemaining < posts) return `The daily post ceiling leaves ${allowance.postsRemaining} reads, and this scan asks for ${posts}. No search will be sent.`;
+  if (allowance.requestsRemaining < requests) return `The daily X request limit leaves ${allowance.requestsRemaining}, and this multi-pillar scan asks for ${requests}. No search will be sent.`;
+  if (allowance.postsRemaining < posts) return `The daily post ceiling leaves ${allowance.postsRemaining} reads, and this scan asks for up to ${posts}. No search will be sent.`;
   return null;
 }
 
-function reasonFor(mode: ScanMode, pillar: ContentPillar, signal: PillarSignal, publishedTotal: number, signals: PillarSignal[], blocked: string | null) {
-  const label = pillarLabels[pillar];
-  if (signal.configured === false) {
-    return `${label} is unconfigured. No usable search group is stored, so no scan will be sent.`;
-  }
+function reasonFor(
+  mode: ScanMode,
+  focus: ContentPillar,
+  pillars: ContentPillar[],
+  signal: PillarSignal,
+  publishedTotal: number,
+  signals: PillarSignal[],
+  blocked: string | null,
+  rosterCount: number,
+) {
   const missing = signals.filter((item) => item.configured === false).map((item) => pillarLabels[item.pillar]);
   const missingLine = missing.length === 0 ? "" : `${missing.join(", ")} ${missing.length === 1 ? "is" : "are"} unconfigured. `;
+  if (mode !== "smart" && signal.configured === false) {
+    return `${missingLine}${pillarLabels[mode]} is unconfigured. No usable search group is stored, so no scan will be sent.`;
+  }
   let base: string;
-  if (mode !== "smart") base = `You chose ${label}.`;
-  else if (publishedTotal < 1) base = "No published mix yet. Politics stays the opening scan.";
-  else {
-    const gap = pillarTargets[pillar] - signal.share;
-    if (gap >= 10 && signal.queued < enoughQueued && (signal.readyDrafts ?? 0) < 2) base = `${label} is currently underrepresented in your recent content.`;
-    else if (signal.hoursSinceScan == null) base = `${label} has not been scanned yet.`;
-    else base = `${label} has gone the longest without a scan.`;
+  if (mode === "smart") {
+    const labels = pillars.map((pillar) => pillarLabels[pillar]).join(", ");
+    base = publishedTotal < 1
+      ? `One pipeline run searches ${labels} together — keyword groups plus ${rosterCount} shortlist handles.`
+      : `One pipeline run searches ${labels} together (keywords + shortlist from:). Focus note: ${pillarLabels[focus]} is currently the thinnest mix signal.`;
+  } else {
+    base = `You chose ${pillarLabels[mode]}. Keyword discovery and that pillar's shortlist handles run in the same scan.`;
   }
   return `${missingLine}${base}${blocked ? ` ${blocked}` : ""}`;
 }

@@ -121,6 +121,8 @@ check("a rejected item needs its real reason", /nothing meaningful to add/i.test
 check("the prompt does not demand a quota", !/\b(?:50%|half of|at least \d|retain \d)\b/i.test(system));
 check("editorial basis is part of the reading", system.includes("editorial_basis"));
 check("forecasts and invented beliefs stay forbidden", /do not forecast an election winner/i.test(system) && /do not invent/i.test(system));
+check("holistic nonpartisan fact-check guidance is present", /implied factual premises/i.test(system) && /poorest since Tinubu/i.test(system) && /for or against APC/i.test(system));
+check("long-run economic context is required for hardship claims", /poverty indices/i.test(system) && /1999/i.test(system) && /one series alone would mislead/i.test(system));
 
 const ten = Array.from({ length: 10 }, (_, index) => ({
   id: `c${index}`,
@@ -220,8 +222,9 @@ check("a prediction does not become an election forecast", byId("forecast")?.opp
 check("an understandable opinion can be passed for a specific reason", byId("praise")?.worthTalkingAbout === false && byId("praise")?.passReason === "Nothing meaningful to add. The praise is clear and has no angle.");
 check("the card uses the full conversation when the summary is only the opening line", (byId("airport")?.title ?? "").includes("₦2 billion") && (byId("airport")?.title ?? "").includes("Abuja Airport"));
 check("a worthwhile visit can survive without an extracted claim", byId("visit")?.worthTalkingAbout === true && byId("visit")?.claimExtractionNeeded === false);
-check("ranking happens after assessment", ranked.filter((item) => item.worthTalkingAbout).every((item, index, list) => item.rank === index + 1 || list.some((other) => (other.rank ?? 0) < (item.rank ?? 0))));
-const keptRanks = ranked.filter((item) => item.worthTalkingAbout).map((item) => item.rank).sort((left, right) => (left ?? 0) - (right ?? 0));
+const kept = ranked.filter((item) => item.worthTalkingAbout).slice().sort((left, right) => (left.rank ?? 99) - (right.rank ?? 99));
+check("ranking happens after assessment", kept.every((item, index) => item.rank === index + 1));
+const keptRanks = kept.map((item) => item.rank);
 check("one passed item does not remove the others", keptRanks.join(",") === keptRanks.map((_, index) => String(index + 1)).join(",") && byId("praise")?.worthTalkingAbout === false);
 check("a stronger specific item ranks above a weaker one", (byId("airport")?.rank ?? 99) < (byId("forecast")?.rank ?? 0));
 
