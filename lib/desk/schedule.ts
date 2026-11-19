@@ -1,3 +1,5 @@
+import type { PipelineLastRun } from "@/lib/desk/pipeline";
+
 export const scheduleModes = ["manual", "every-3-hours", "every-4-hours", "custom"] as const;
 
 export type ScheduleMode = (typeof scheduleModes)[number];
@@ -9,6 +11,7 @@ export type DeskSchedule = {
   runningSince: string | null;
   lastStartedAt: string | null;
   lastFinishedAt: string | null;
+  lastRun: PipelineLastRun | null;
 };
 
 export const defaultSchedule: DeskSchedule = {
@@ -18,6 +21,7 @@ export const defaultSchedule: DeskSchedule = {
   runningSince: null,
   lastStartedAt: null,
   lastFinishedAt: null,
+  lastRun: null,
 };
 
 export function customIntervalHours(hours: number) {

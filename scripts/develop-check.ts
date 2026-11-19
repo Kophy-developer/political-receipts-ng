@@ -79,8 +79,8 @@ function ports(log: { research: number; draft: number }, behavior: { research?: 
 
 let currentKind = "";
 function goodDraft(log: { research: number }) {
-  if (currentKind === "taxi") return "Tinubu says he drove taxis to fund university. example.edu has an opened page on the taxis. This is not a closed verdict.";
-  if (currentKind === "investment") return "The post rejects another person's claim that foreign companies are investing because of Tinubu. example.edu is the page on file, and this is not a verdict.";
+  if (currentKind === "taxi") return "Tinubu says he drove taxis to fund university. example.edu has an opened page on the taxis. This was not independently verified.";
+  if (currentKind === "investment") return "The post rejects another person's claim that foreign companies are investing because of Tinubu. example.edu is the page on file. That claim was not independently verified.";
   if (currentKind === "ringtone") return "The post pairs an opinion with a ringtone and billboards being torn down. example.edu is the page on file. The opinion was not independently verified.";
   if (currentKind === "atiku") return "The post reports that Atiku led the ADC to the Sultan's palace. This desk has not confirmed the visit. The other lines are commentary.";
   if (currentKind === "prediction") return "The post speculates that there is no way Tinubu will survive 2027. That is not a result, and this desk does not forecast the election.";
@@ -132,7 +132,7 @@ const ambiguousPreview = developmentPreview(ambiguous);
 check("ambiguous attribution blocks factual drafting", ambiguousPreview.blocked && ambiguousPreview.review === "Needs editorial review" && ambiguousPreview.modelRequests === 0 && ambiguousPreview.researchSearches === 0);
 
 const thin = await run(taxi, "taxi", { research: "insufficient", draft: "good" });
-check("insufficient evidence for a required premise asks for review and does not draft", thin.state.review === "Needs editorial review" && thin.log.draft === 0 && thin.log.research === 1);
+check("insufficient non-numerical evidence can still draft an unverified reply", thin.state.ready === true && thin.log.draft === 1 && thin.log.research === 1 && /not independently verified/i.test(thin.state.drafts[0]?.text || ""));
 
 const failed = await run(taxi, "taxi", { research: "usable", draft: "fail" });
 check("a draft failure keeps the research", failed.state.ready === false && failed.state.completed.includes("research") && failed.state.evidence?.label === "usable" && failed.log.draft === 1);
@@ -159,7 +159,7 @@ const savedTaxi = classifyEvidence({
 });
 check("the five statehouse pages do not address the taxi premise", savedTaxi.evidenceStatus === "EVIDENCE_INSUFFICIENT" && savedTaxi.searchStatus === "SEARCH_COMPLETED" && savedTaxi.readings.every((item) => item.stance === "does_not_address" && item.opened === false));
 const mentioned = await run(taxi, "taxi", { research: "snippet", draft: "good" });
-check("an unopened relevant snippet is not evidence ready and is not drafted", mentioned.state.evidenceStatus === "RELEVANT_EVIDENCE_FOUND" && mentioned.state.ready === false && mentioned.log.draft === 0 && mentioned.state.failureKind === "inadequate evidence");
+check("an unopened relevant snippet can still reach an unverified draft", mentioned.state.evidenceStatus === "RELEVANT_EVIDENCE_FOUND" && mentioned.state.ready === true && mentioned.log.draft === 1 && /not independently verified/i.test(mentioned.state.drafts[0]?.text || ""));
 const stale: DevelopmentState = {
   ...initialDevelopment(taxi),
   completed: ["interpret", "research", "angle"],
@@ -173,8 +173,20 @@ const stale: DevelopmentState = {
 };
 const staleLog = { research: 0, draft: 0 };
 const revalidated = await advanceDevelopment(stale, ports(staleLog, { research: "usable", draft: "good" }));
-check("retry revalidates stored evidence before any draft call", revalidated.ready === false && revalidated.review === "Needs editorial review" && staleLog.draft === 0 && staleLog.research === 0 && revalidated.completed.includes("research") && revalidated.angle === stale.angle);
-const openedLater: DevelopmentState = { ...revalidated, evidence: { label: "insufficient", sources: usable }, draftFailed: false, review: null, gateFailed: false };
+check("retry revalidates stored evidence then may draft unverified", revalidated.ready === true && staleLog.draft === 1 && staleLog.research === 0 && revalidated.completed.includes("research") && revalidated.completed.includes("draft") && /not independently verified/i.test(revalidated.drafts[0]?.text || ""));
+const openedLater: DevelopmentState = {
+  ...initialDevelopment(taxi),
+  completed: ["interpret", "research", "angle"],
+  angle: "Keep the claim with the speaker the post names. Do not move it onto the posting account.",
+  anglePoints: ["Do not say the claim was independently verified."],
+  evidence: { label: "insufficient", sources: usable },
+  evidenceStatus: "EVIDENCE_INSUFFICIENT",
+  searchStatus: "SEARCH_COMPLETED",
+  draftFailed: false,
+  review: null,
+  gateFailed: false,
+  ready: false,
+};
 const resumedLog = { research: 0, draft: 0 };
 const resumed = await advanceDevelopment(openedLater, ports(resumedLog, { draft: "good" }));
 check("opened relevant evidence resumes drafting without a new search", resumed.ready === true && resumedLog.research === 0 && resumedLog.draft === 1);

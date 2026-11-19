@@ -35,6 +35,10 @@ Apply `supabase/migrations/20261114120000_publisher_notifications.sql` on the ex
 
 `POST/GET /api/schedule/run` runs find → research → draft (up to two ranked stories). It never publishes.
 
+The route sets `maxDuration = 300` (five minutes). That fits **Vercel Fluid Hobby or Pro** (Hobby max 300s; Pro default 300s, higher only if configured). A full smart run can do several X searches plus extract and up to two develops, so shorter ceilings often cut the job mid-flight.
+
+After each finished run, Schedule and Approve show a short funnel line (posts found → claims kept → develop attempted → ready). Approve also polls schedule state so an empty queue says “still running” vs “finished with 0 ready” instead of a silent blank.
+
 ### Cadence (Vercel Hobby + cron-job.org)
 
 Vercel Hobby only allows daily crons. Every-3-hours expressions such as `0 */3 * * *` are rejected on deploy, so they are not the primary scheduler here.
@@ -48,7 +52,7 @@ Vercel Hobby only allows daily crons. Every-3-hours expressions such as `0 */3 *
 
 - `desk_schedule.enabled` defaults to **off**. External cron calls no-op until you arm the schedule in **Settings → Schedule**, pick **Every 3 hours** (or 4 / custom), and accept the cost checkbox.
 - Cron never publishes. Publishing stays exact-text approve on `/`.
-- Same-origin **Settings → Schedule → Run pipeline once** still forces one test run (`force: true`).
+- Same-origin **Settings → Schedule → Run pipeline once** still forces one test run (`force: true`). Expect up to about five minutes.
 
 ### cron-job.org setup
 
@@ -57,8 +61,11 @@ Vercel Hobby only allows daily crons. Every-3-hours expressions such as `0 */3 *
 3. **Method:** `POST`
 4. **Header:** `Authorization` = `Bearer <CRON_SECRET>` (same value as the Vercel env var `CRON_SECRET`; do not commit the secret)
 5. **Schedule:** every 3 hours (e.g. cron expression `0 */3 * * *`, or the UI’s every-3-hours option)
-6. **Timezone:** job timezone is only when the HTTP call fires. Eligibility still uses `lastFinishedAt` + the armed interval (product times are America/Chicago / CT). A call that arrives early is skipped until the interval has elapsed.
-7. After the job exists, open **Settings → Schedule**, set interval to **Every 3 hours**, check the cost box, and **Arm schedule**.
+6. **HTTP timeout:** set to **at least 330 seconds** so the client does not abort while Vercel is still inside the 300s function limit.
+7. **Timezone:** job timezone is only when the HTTP call fires. Eligibility still uses `lastFinishedAt` + the armed interval (product times are America/Chicago / CT). A call that arrives early is skipped until the interval has elapsed.
+8. After the job exists, open **Settings → Schedule**, set interval to **Every 3 hours**, check the cost box, and **Arm schedule**.
+
+Apply `supabase/migrations/20261119120000_desk_schedule_last_run.sql` so `desk_schedule.last_run` can store the funnel summary Approve/Schedule read after refresh.
 
 ### Secrets and backup
 

@@ -2,7 +2,14 @@ import "server-only";
 import { developContent } from "@/lib/db/develop";
 import { serviceClient } from "@/lib/db/client";
 import { loadDeskSchedule } from "@/lib/db/schedule";
-import { dueForScheduledRun, pipelineDevelopLimit } from "@/lib/desk/pipeline";
+import {
+  dueForScheduledRun,
+  pipelineDevelopLimit,
+  pipelineFunnelLine,
+  staleScheduleRunningMs,
+  type PipelineDevelopOutcome,
+  type PipelineLastRun,
+} from "@/lib/desk/pipeline";
 import { runScan } from "@/lib/intel/run";
 import { chooseScan } from "@/lib/pillars/scan";
 import { loadDiscoveryContext } from "@/lib/db/pillars";
@@ -11,15 +18,21 @@ async function markSchedule(patch: {
   runningSince?: string | null;
   lastStartedAt?: string | null;
   lastFinishedAt?: string | null;
+  lastRun?: PipelineLastRun | null;
 }) {
   const db = serviceClient();
   if (!db) return;
-  await db.from("desk_schedule").update({
+  const base = {
     ...(patch.runningSince !== undefined ? { running_since: patch.runningSince } : {}),
     ...(patch.lastStartedAt !== undefined ? { last_started_at: patch.lastStartedAt } : {}),
     ...(patch.lastFinishedAt !== undefined ? { last_finished_at: patch.lastFinishedAt } : {}),
     updated_at: new Date().toISOString(),
-  }).eq("id", "default");
+  };
+  if (patch.lastRun !== undefined) {
+    const withRun = await db.from("desk_schedule").update({ ...base, last_run: patch.lastRun }).eq("id", "default");
+    if (!withRun.error) return;
+  }
+  await db.from("desk_schedule").update(base).eq("id", "default");
 }
 
 export async function listRankedForPipeline(limit = pipelineDevelopLimit) {
@@ -43,8 +56,44 @@ export async function listRankedForPipeline(limit = pipelineDevelopLimit) {
   return ids;
 }
 
+async function clearStaleRunningLock(runningSince: string | null) {
+  if (!runningSince) return false;
+  const started = Date.parse(runningSince);
+  if (!Number.isFinite(started) || Date.now() - started < staleScheduleRunningMs) return false;
+  await markSchedule({ runningSince: null });
+  return true;
+}
+
+function buildLastRun(input: {
+  finishedAt: string;
+  scanned: boolean;
+  postsReturned: number;
+  claimsKept: number;
+  queriesRun: number;
+  developed: PipelineDevelopOutcome[];
+  message: string;
+}): PipelineLastRun {
+  const readyCount = input.developed.filter((item) => item.ready).length;
+  const blockedCount = input.developed.length - readyCount;
+  return {
+    finishedAt: input.finishedAt,
+    scanned: input.scanned,
+    postsReturned: input.postsReturned,
+    claimsKept: input.claimsKept,
+    queriesRun: input.queriesRun,
+    developAttempted: input.developed.length,
+    readyCount,
+    blockedCount,
+    message: input.message,
+    developed: input.developed,
+  };
+}
+
 export async function runBackgroundPipeline(input?: { force?: boolean; skipScan?: boolean }) {
-  const schedule = await loadDeskSchedule();
+  let schedule = await loadDeskSchedule();
+  if (await clearStaleRunningLock(schedule.runningSince)) {
+    schedule = await loadDeskSchedule();
+  }
   if (!input?.force) {
     const due = dueForScheduledRun(schedule);
     if (!due.ok) {
@@ -52,7 +101,8 @@ export async function runBackgroundPipeline(input?: { force?: boolean; skipScan?
         ok: false as const,
         message: due.reason,
         scanned: false,
-        developed: [] as Array<{ id: string; ready: boolean; message: string }>,
+        developed: [] as PipelineDevelopOutcome[],
+        lastRun: null as PipelineLastRun | null,
         posted: false as const,
       };
     }
@@ -61,7 +111,8 @@ export async function runBackgroundPipeline(input?: { force?: boolean; skipScan?
       ok: false as const,
       message: "A scheduled scan is already running.",
       scanned: false,
-      developed: [] as Array<{ id: string; ready: boolean; message: string }>,
+      developed: [] as PipelineDevelopOutcome[],
+      lastRun: null as PipelineLastRun | null,
       posted: false as const,
     };
   }
@@ -69,6 +120,9 @@ export async function runBackgroundPipeline(input?: { force?: boolean; skipScan?
   await markSchedule({ runningSince: started, lastStartedAt: started });
   let scanned = false;
   let scanMessage: string | null = null;
+  let postsReturned = 0;
+  let claimsKept = 0;
+  let queriesRun = 0;
   try {
     if (!input?.skipScan) {
       const context = await loadDiscoveryContext();
@@ -78,13 +132,16 @@ export async function runBackgroundPipeline(input?: { force?: boolean; skipScan?
       } else {
         const report = await runScan({ pillars: choice.pillars });
         scanned = true;
+        postsReturned = report.postsReturned;
+        claimsKept = report.claims;
+        queriesRun = report.queriesRun ?? choice.estimatedRequests;
         scanMessage = report.stopped || (report.ok
           ? `Scan finished across ${report.pillarsSearched ?? choice.pillarsSearched} pillar(s) with ${report.queriesRun ?? choice.estimatedRequests} X search(es).`
           : "Scan stopped.");
       }
     }
     const ids = await listRankedForPipeline(pipelineDevelopLimit);
-    const developed: Array<{ id: string; ready: boolean; message: string }> = [];
+    const developed: PipelineDevelopOutcome[] = [];
     for (const id of ids) {
       const result = await developContent(id);
       developed.push({
@@ -93,25 +150,62 @@ export async function runBackgroundPipeline(input?: { force?: boolean; skipScan?
         message: result.message,
       });
     }
-    await markSchedule({ runningSince: null, lastFinishedAt: new Date().toISOString() });
+    const finishedAt = new Date().toISOString();
     const readyCount = developed.filter((item) => item.ready).length;
+    const blocked = developed.filter((item) => !item.ready);
+    const funnel = pipelineFunnelLine({
+      scanned,
+      postsReturned,
+      claimsKept,
+      queriesRun,
+      developAttempted: developed.length,
+      readyCount,
+      blockedCount: blocked.length,
+    });
+    const blockedHint = blocked.length > 0
+      ? ` ${blocked.map((item) => item.message).filter(Boolean).slice(0, 2).join(" ")}`
+      : "";
+    const message = readyCount > 0
+      ? `${readyCount} draft${readyCount === 1 ? "" : "s"} ready for the Approve queue. ${funnel} Nothing was published.`
+      : `${funnel}${blockedHint || (scanMessage ? ` ${scanMessage}` : "")} No draft reached Ready for editor. Nothing was published.`;
+    const lastRun = buildLastRun({
+      finishedAt,
+      scanned,
+      postsReturned,
+      claimsKept,
+      queriesRun,
+      developed,
+      message,
+    });
+    await markSchedule({ runningSince: null, lastFinishedAt: finishedAt, lastRun });
     return {
       ok: true as const,
-      message: readyCount > 0
-        ? `${readyCount} draft${readyCount === 1 ? "" : "s"} ready for the Approve queue. Nothing was published.`
-        : (scanMessage || "Pipeline finished. No draft reached Ready for editor. Nothing was published."),
+      message,
       scanned,
       scanMessage,
       developed,
+      lastRun,
       posted: false as const,
     };
   } catch {
-    await markSchedule({ runningSince: null, lastFinishedAt: new Date().toISOString() });
+    const finishedAt = new Date().toISOString();
+    const message = "The background pipeline stopped before it finished. Nothing was published.";
+    const lastRun = buildLastRun({
+      finishedAt,
+      scanned,
+      postsReturned,
+      claimsKept,
+      queriesRun,
+      developed: [],
+      message,
+    });
+    await markSchedule({ runningSince: null, lastFinishedAt: finishedAt, lastRun });
     return {
       ok: false as const,
-      message: "The background pipeline stopped before it finished. Nothing was published.",
+      message,
       scanned,
-      developed: [] as Array<{ id: string; ready: boolean; message: string }>,
+      developed: [] as PipelineDevelopOutcome[],
+      lastRun,
       posted: false as const,
     };
   }
