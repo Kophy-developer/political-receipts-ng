@@ -128,11 +128,13 @@ export function revalidateDevelopment(state: DevelopmentState): DevelopmentState
     searchCompleted: state.completed.includes("research"),
   });
   const required = state.quality.researchNeed === "yes";
-  const ready = state.ready && (!required || classified.evidenceStatus === "EVIDENCE_READY");
+  const researchDone = state.completed.includes("research");
+  const draftReady = researchDone && state.completed.includes("draft") && state.drafts.length > 0;
+  const ready = state.ready && (!required || classified.evidenceStatus === "EVIDENCE_READY" || draftReady);
   return {
     ...state,
     evidence: { label: classified.label, sources: classified.readings },
-    evidenceStatus: state.completed.includes("research") ? classified.evidenceStatus : state.evidenceStatus,
+    evidenceStatus: researchDone ? classified.evidenceStatus : state.evidenceStatus,
     searchStatus: classified.searchStatus,
     failureKind: required && classified.evidenceStatus !== "EVIDENCE_READY" ? classified.failureKind : state.failureKind,
     ready,
@@ -176,7 +178,7 @@ export function developmentPreview(sourceText: string, limits: { maxSearches: nu
       blocked: false,
       researchSearches: searches,
       modelRequests: 1,
-      message: `Research is required. Up to ${searches} research searches, then 1 model request only if the evidence can support a draft. If it cannot, this is marked ${editorialReview} and no draft is requested. Nothing runs until you confirm.`,
+      message: `Research is required. Up to ${searches} research searches, then 1 model request. If opened evidence is thin, the desk may still draft an unverified reply for Approve. Numerical series that stay incomplete stay in ${editorialReview}. Nothing runs until you confirm.`,
     };
   }
   if (factualContextNeeded(quality)) {
@@ -335,9 +337,12 @@ export function judgeDevelopmentDrafts(state: DevelopmentState, drafts: Array<{ 
       const framed = /not a result|speculation|not a forecast|does not forecast/i.test(text);
       if (!framed) return { ok: false as const, question: "The draft treats a prediction as a result. It needs to say this is speculation." };
     } else if (state.quality.researchNeed === "yes") {
-      if (state.evidenceStatus !== "EVIDENCE_READY") return { ok: false as const, question: "Required research does not have an opened source that addresses the premise." };
-      if (!unresolvedLanguage(text) && !cites(text, sources)) {
-        return { ok: false as const, question: "A factual draft neither cites the retrieved evidence nor says what is unresolved." };
+      if (state.evidenceStatus === "EVIDENCE_READY") {
+        if (!unresolvedLanguage(text) && !cites(text, sources)) {
+          return { ok: false as const, question: "A factual draft neither cites the retrieved evidence nor says what is unresolved." };
+        }
+      } else if (!unresolvedLanguage(text)) {
+        return { ok: false as const, question: "Required research did not open an addressing source. The draft has to say the claim was not independently verified." };
       }
     } else if (factualContextNeeded(state.quality) && state.evidence?.label !== "usable") {
       if (!/reports|the post says|the post reports/i.test(text) || !unresolvedLanguage(text)) {
@@ -390,10 +395,6 @@ export function nextStep(state: DevelopmentState, pillar?: string | null): Devel
     if (investigation.numerical && state.completed.includes("research")) {
       return { kind: "review", question: `Search completed is not a statistical series. ${question} Continue research on this story. Nothing runs until you confirm.` };
     }
-    const why = state.evidenceStatus === "RELEVANT_EVIDENCE_FOUND"
-      ? `A result mentions the premise, but no page was opened. It is not proof. ${question}`
-      : `No saved result addresses the premise. ${question}`;
-    return { kind: "review", question: `${why} ${furtherSearchNote}` };
   }
   if (!state.completed.includes("angle") || !state.angle) return { kind: "angle" };
   if (!state.completed.includes("draft")) {

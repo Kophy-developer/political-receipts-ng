@@ -30,6 +30,73 @@ function speechRecognition(): SpeechRecognitionLike | null {
 }
 
 export function ApprovalQueue({ items, notice }: { items: ReadyItem[]; notice: string }) {
+  const router = useRouter();
+  const [pipelineNote, setPipelineNote] = useState<string | null>(null);
+  const [running, setRunning] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadSchedule() {
+      try {
+        const response = await fetch("/api/schedule", { cache: "no-store" });
+        const body = (await response.json()) as {
+          schedule?: {
+            runningSince?: string | null;
+            lastFinishedAt?: string | null;
+            lastRun?: {
+              readyCount?: number;
+              blockedCount?: number;
+              postsReturned?: number;
+              claimsKept?: number;
+              developAttempted?: number;
+              message?: string;
+            } | null;
+          };
+        };
+        if (cancelled) return;
+        const schedule = body.schedule;
+        const isRunning = Boolean(schedule?.runningSince);
+        setRunning(isRunning);
+        if (isRunning) {
+          setPipelineNote("Pipeline is still running. Drafts appear here when a story reaches Ready for editor.");
+          return;
+        }
+        if (items.length > 0) {
+          setPipelineNote(null);
+          return;
+        }
+        const lastRun = schedule?.lastRun;
+        if (lastRun) {
+          const funnel = `Last run: scan found ${lastRun.postsReturned ?? 0}, extract kept ${lastRun.claimsKept ?? 0}, develop attempted ${lastRun.developAttempted ?? 0}, ready ${lastRun.readyCount ?? 0}.`;
+          setPipelineNote(
+            (lastRun.readyCount ?? 0) > 0
+              ? funnel
+              : `${funnel} Finished with no Ready-for-editor drafts${(lastRun.blockedCount ?? 0) > 0 ? " — stories stopped short of Approve (often evidence / editorial review)." : "."}`,
+          );
+          return;
+        }
+        if (schedule?.lastFinishedAt) {
+          setPipelineNote(`Last pipeline finished at ${chicagoStamp(schedule.lastFinishedAt)}. No drafts are waiting on Approve.`);
+          return;
+        }
+        setPipelineNote("When a draft is finished, it lands here and waits for your decision.");
+      } catch {
+        if (!cancelled && items.length === 0) {
+          setPipelineNote("When a draft is finished, it lands here and waits for your decision.");
+        }
+      }
+    }
+    void loadSchedule();
+    const timer = window.setInterval(() => {
+      void loadSchedule();
+      if (running) router.refresh();
+    }, 10_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [items.length, router, running]);
+
   return (
     <section>
       <p className="font-mono text-[11px] tracking-[0.16em] text-ink-soft uppercase">Approve</p>
@@ -37,7 +104,7 @@ export function ApprovalQueue({ items, notice }: { items: ReadyItem[]; notice: s
       <p className="mt-3 text-sm text-ink-soft">Edit the draft, attach a verifiable evidence link, and optionally an image. When a source tweet id is stored, Approve publishes as a reply under that original post — not as a standalone root tweet.</p>
       <p className="mt-4 text-sm">{notice}</p>
       {items.length === 0 ? (
-        <p className="mt-8 text-sm text-ink-soft">When a draft is finished, it lands here and waits for your decision.</p>
+        <p className="mt-8 text-sm text-ink-soft">{pipelineNote ?? (running ? "Pipeline is still running…" : "When a draft is finished, it lands here and waits for your decision.")}</p>
       ) : (
         <ul className="mt-8 space-y-6">
           {items.map((item) => <ApprovalCard key={item.id} item={item} />)}

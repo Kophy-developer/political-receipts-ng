@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { scheduleIntervalHours } from "@/lib/desk/pipeline";
+import { pipelineFunnelLine, scheduleIntervalHours, scheduleRunMaxDurationSeconds, type PipelineLastRun } from "@/lib/desk/pipeline";
 import { chicagoStamp } from "@/lib/format";
 
 type ScheduleMode = "manual" | "every-3-hours" | "every-4-hours" | "custom";
@@ -13,6 +13,7 @@ type ScheduleState = {
   runningSince: string | null;
   lastStartedAt: string | null;
   lastFinishedAt: string | null;
+  lastRun: PipelineLastRun | null;
 };
 
 function nextEligibleCopy(schedule: ScheduleState, mode: ScheduleMode, customHours: number) {
@@ -23,6 +24,7 @@ function nextEligibleCopy(schedule: ScheduleState, mode: ScheduleMode, customHou
     runningSince: schedule.runningSince,
     lastStartedAt: schedule.lastStartedAt,
     lastFinishedAt: schedule.lastFinishedAt,
+    lastRun: schedule.lastRun,
   });
   if (!hours) return null;
   if (!schedule.lastFinishedAt) {
@@ -45,6 +47,35 @@ export function ScheduleDesk() {
     void refresh();
   }, []);
 
+  useEffect(() => {
+    if (!schedule?.runningSince || busy === "run") return;
+    const timer = window.setInterval(() => {
+      void refreshQuiet();
+    }, 8_000);
+    return () => window.clearInterval(timer);
+  }, [schedule?.runningSince, busy]);
+
+  async function refreshQuiet() {
+    try {
+      const response = await fetch("/api/schedule", { cache: "no-store" });
+      const body = (await response.json()) as {
+        ok?: boolean;
+        schedule?: ScheduleState;
+        cronSecret?: boolean;
+        message?: string;
+      };
+      if (body.schedule) {
+        setSchedule(body.schedule);
+        if (body.schedule.lastRun?.message && !body.schedule.runningSince) {
+          setMessage(body.schedule.lastRun.message);
+        }
+      }
+      if (typeof body.cronSecret === "boolean") setCronSecret(body.cronSecret);
+    } catch {
+      return;
+    }
+  }
+
   async function refresh() {
     setBusy("load");
     try {
@@ -60,9 +91,12 @@ export function ScheduleDesk() {
         setMode(body.schedule.mode === "manual" ? "every-3-hours" : body.schedule.mode);
         if (typeof body.schedule.customHours === "number") setCustomHours(body.schedule.customHours);
         setConfirmed(body.schedule.enabled);
+        if (body.schedule.lastRun?.message) setMessage(body.schedule.lastRun.message);
+        else setMessage(body.message ?? null);
+      } else {
+        setMessage(body.message ?? null);
       }
       setCronSecret(body.cronSecret === true);
-      setMessage(body.message ?? null);
     } catch {
       setMessage("The schedule could not be loaded.");
     } finally {
@@ -96,24 +130,27 @@ export function ScheduleDesk() {
 
   async function runOnce() {
     setBusy("run");
-    setMessage(null);
+    setMessage("Pipeline running — search, extract, and develop can take up to about five minutes.");
     try {
       const response = await fetch("/api/schedule/run", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ force: true }),
       });
-      const body = (await response.json()) as { ok?: boolean; message?: string };
-      setMessage(body.message ?? "The pipeline did not finish.");
+      const body = (await response.json()) as { ok?: boolean; message?: string; lastRun?: PipelineLastRun | null };
+      setMessage(body.message ?? body.lastRun?.message ?? "The pipeline did not finish.");
       await refresh();
     } catch {
-      setMessage("The pipeline did not finish.");
+      setMessage("The pipeline did not finish. If Running stays Yes past six minutes, try Run pipeline once again.");
+      await refreshQuiet();
     } finally {
       setBusy(null);
     }
   }
 
   const nextEligible = schedule ? nextEligibleCopy(schedule, mode, customHours) : null;
+  const lastRun = schedule?.lastRun ?? null;
+  const running = Boolean(schedule?.runningSince) || busy === "run";
 
   return (
     <div className="max-w-2xl space-y-4">
@@ -123,7 +160,8 @@ export function ScheduleDesk() {
         <span className="font-mono text-[12px]">POST</span>s{" "}
         <span className="font-mono text-[12px]">/api/schedule/run</span> with{" "}
         <span className="font-mono text-[12px]">Authorization: Bearer</span> set to the server{" "}
-        <span className="font-mono text-[12px]">CRON_SECRET</span>. The daily Vercel cron is only a backup.
+        <span className="font-mono text-[12px]">CRON_SECRET</span>. Set the job’s HTTP timeout to at least{" "}
+        {scheduleRunMaxDurationSeconds + 30} seconds (Vercel Fluid Hobby/Pro allows up to {scheduleRunMaxDurationSeconds}s for this route). The daily Vercel cron is only a backup.
         The runner never publishes. Arm the schedule below with interval Every 3 hours so due logic allows work.
       </p>
       <dl className="grid gap-3 sm:grid-cols-2">
@@ -143,9 +181,14 @@ export function ScheduleDesk() {
         </div>
         <div>
           <dt className="font-mono text-[11px] tracking-[0.14em] text-ink-soft uppercase">Running</dt>
-          <dd className="mt-1 text-sm">{schedule?.runningSince ? "Yes" : "No"}</dd>
+          <dd className="mt-1 text-sm">{running ? "Yes" : "No"}</dd>
         </div>
       </dl>
+      {lastRun ? (
+        <p className="text-sm text-ink-soft">
+          Last run funnel: {pipelineFunnelLine(lastRun)}
+        </p>
+      ) : null}
       {nextEligible ? <p className="text-sm text-ink-soft">{nextEligible}</p> : null}
       <label className="block text-sm">
         <span className="text-ink-soft">Interval</span>
@@ -199,7 +242,7 @@ export function ScheduleDesk() {
           disabled={busy !== null}
           className="inline-flex h-10 items-center border border-rule px-4 text-sm disabled:opacity-50"
         >
-          {busy === "run" ? "Running…" : "Run pipeline once"}
+          {busy === "run" || schedule?.runningSince ? "Running…" : "Run pipeline once"}
         </button>
       </div>
       {message ? <p className="text-sm">{message}</p> : null}

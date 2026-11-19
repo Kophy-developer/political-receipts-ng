@@ -2,7 +2,7 @@ import { connection } from "next/server";
 import { assertScheduleRequest } from "@/lib/auth/schedule";
 import { runBackgroundPipeline } from "@/lib/db/pipeline";
 
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 export async function POST(request: Request) {
   await connection();
