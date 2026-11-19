@@ -30,8 +30,8 @@ export function validatePublishRequest(
   return null;
 }
 
-export async function publishApprovedPost(text: string, mediaIds?: string[]) {
-  const result = await xUserRequest("POST", tweetsUrl, JSON.stringify(postCreateBody(text, mediaIds)));
+export async function publishApprovedPost(text: string, mediaIds?: string[], replyToTweetId?: string | null) {
+  const result = await xUserRequest("POST", tweetsUrl, JSON.stringify(postCreateBody(text, mediaIds, replyToTweetId)));
   if (!result.ok) return result;
   const id = (result.data as { data?: { id?: unknown } }).data?.id;
   if (typeof id !== "string" || !/^\d+$/.test(id)) {

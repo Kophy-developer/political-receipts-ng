@@ -23,7 +23,11 @@ export const extractionSchema = {
   },
 } as const;
 
-export const extractionSystem = `Extract checkable claims from the posts you are given. Use only those posts. Do not invent numbers, quotations, dates, or speakers. Omit opinions, slogans, jokes, and predictions. If nothing is checkable, return {"claims":[]}.
+export const extractionSystem = `Extract checkable claims and implied factual premises from the posts you are given. Use only those posts. Do not invent numbers, quotations, dates, or speakers.
+
+Opinions, praise, blame, and slogans often hide premises (for example \"poorest since Tinubu\" implies a comparative poverty claim). Restate those premises as checkable sentences. Keep the speaker attribution in why when the post names one. Skip pure insults, jokes with no proposition, and bare election forecasts with no observable premise. If nothing is checkable, return {"claims":[]}.
+
+Do not write for or against a party. The aim is intelligent fact-check intake, not rebuttal copy.
 
 Return JSON only.
 Do not use markdown.

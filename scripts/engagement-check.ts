@@ -24,7 +24,7 @@ for (const [pillar, queries] of catalogs) {
   for (const item of queries) {
     const built = withEngagement(item.query, defaultEngagement);
     const operatorCount = built.ok ? (built.query.match(/\bmin_(?:replies|likes|reposts):\d+\b/g) ?? []).length : 0;
-    check(`${pillar} ${item.slug} sends min_replies:20`, built.ok && built.query === `${item.query} min_replies:20` && built.operator === "min_replies:20");
+    check(`${pillar} ${item.slug} sends min_replies:5`, built.ok && built.query === `${item.query} min_replies:5` && built.operator === "min_replies:5");
     check(`${pillar} ${item.slug} keeps one operator`, operatorCount === 1);
     check(`${pillar} ${item.slug} keeps the exclusion`, built.ok && built.query.includes("-is:retweet"));
     check(`${pillar} ${item.slug} stays inside the X limit`, built.ok && built.query.length <= engagementQueryLimit);
@@ -40,14 +40,14 @@ check("politics query text is unchanged in the catalog", politicsDiscovery.queri
 
 const repeated = withEngagement(preservedPoliticsQuery, defaultEngagement);
 const again = repeated.ok ? withEngagement(repeated.query, defaultEngagement) : repeated;
-check("a repeated scan keeps the same operator once", repeated.ok && again.ok && again.query === repeated.query && (again.query.match(/min_replies:20/g) ?? []).length === 1);
+check("a repeated scan keeps the same operator once", repeated.ok && again.ok && again.query === repeated.query && (again.query.match(/min_replies:5/g) ?? []).length === 1);
 
 const swapped = withEngagement(`${preservedPoliticsQuery} min_likes:5`, { metric: "reposts", minimum: 12 });
 check("a repeated scan replaces the previous operator", swapped.ok && swapped.query.endsWith("min_reposts:12") && !swapped.query.includes("min_likes"));
 
 const webSpellings = `${preservedPoliticsQuery} min_faves:10 min_retweets:3`;
 const cleaned = withEngagement(webSpellings, defaultEngagement);
-check("web-search spellings are not sent", cleaned.ok && !/min_faves|min_retweets/.test(cleaned.query) && cleaned.query.endsWith("min_replies:20"));
+check("web-search spellings are not sent", cleaned.ok && !/min_faves|min_retweets/.test(cleaned.query) && cleaned.query.endsWith("min_replies:5"));
 check("the stored topic query is not rewritten", webSpellings.includes("min_faves:10") && preservedPoliticsQuery.endsWith("-is:retweet"));
 
 const language = withEngagement('lang:en (INEC OR Nigeria) -is:reply -is:retweet', defaultEngagement);
@@ -77,7 +77,7 @@ check("a zero minimum builds no X query", !zero.ok);
 
 const tooLong = withEngagement(`${"budget ".repeat(90)}-is:retweet`, defaultEngagement);
 check("an over-long completed query is refused", !tooLong.ok && tooLong.ok === false && tooLong.message.includes("too long"));
-check("a blank topic is refused", !withEngagement("   min_replies:20", defaultEngagement).ok);
+check("a blank topic is refused", !withEngagement("   min_replies:5", defaultEngagement).ok);
 
 const politics = withEngagement(preservedPoliticsQuery, defaultEngagement);
 const finance = withEngagement(financeDiscovery.queries[0].query, { metric: "likes", minimum: 25 });
@@ -106,12 +106,12 @@ const run = readFileSync(new URL("../lib/intel/run.ts", import.meta.url), "utf8"
 const searchSource = readFileSync(new URL("../lib/x/search.ts", import.meta.url), "utf8");
 const discover = readFileSync(new URL("../components/desk/discover.tsx", import.meta.url), "utf8");
 const route = readFileSync(new URL("../app/api/desk/engagement/route.ts", import.meta.url), "utf8");
-const emptyAt = run.indexOf("if (searched.posts.length === 0)");
+const emptyAt = run.indexOf("if (allPosts.length === 0)");
 const extractAt = run.indexOf("await extractFromPosts(");
 const fileAt = run.indexOf("await fileDiscussions(");
 const searchRecentBody = searchSource.slice(searchSource.indexOf("export async function searchRecent"), searchSource.indexOf("export async function lookupPosts"));
 check("an empty X page stops before extraction", emptyAt > 0 && emptyAt < extractAt && emptyAt < fileAt && run.includes("error: engagementMiss"));
-check("the scan sends the completed query once", (run.match(/searchRecent\(/g) ?? []).length === 1 && run.includes("query: gated.requestQuery"));
+check("the scan sends each planned query through searchRecent", (run.match(/searchRecent\(/g) ?? []).length === 1 && run.includes("query.requestQuery") && run.includes("planDiscoveryQueries"));
 check("the scan source never uses web-search spellings", !run.includes("min_faves") && !run.includes("min_retweets") && !searchSource.includes("min_faves") && !searchSource.includes("min_retweets"));
 check("search passes the query through", searchRecentBody.includes("query: input.query") && searchRecentBody.includes("recentSearchParams(") && !searchRecentBody.includes(".filter("));
 check("Discover shows the completed query and the read cost", discover.includes("Query sent to X") && discover.includes("Expected post reads") && discover.includes("Save threshold") && discover.includes("min_replies") && !discover.includes("min_faves") && !discover.includes("min_retweets"));

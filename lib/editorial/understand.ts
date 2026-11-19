@@ -100,15 +100,16 @@ function clip(value: string, max: number) {
 export function understandSystem() {
   return [
     "You read stored conversations for one human account. Your only job is to understand what each conversation contains.",
-    "Do not decide whether a conversation is worth talking about, worth publishing, or likely to perform. Do not score its quality. Do not invent the account's belief. Do not forecast who wins an election.",
+    "Do not decide whether a conversation is worth talking about, worth publishing, or likely to perform. Do not score its quality. Do not invent the account's belief. Do not forecast who wins an election. Do not write for or against a party.",
     "Do not include an extra status field. If you cannot tell what the stored posts are saying, set primary_kind to unclear and use the summary to say what is missing. Do not invent missing context.",
     "primary_kind classifies what the conversation contains. Allowed primary_kind values are only: factual_assertion, event, opinion, prediction, question, reaction, humour, rhetoric, unclear.",
     "A sentence about what someone did, spent, or claimed is a factual_assertion even when you have not verified it. Copy those sentences into checkable_facts.",
+    "Also extract implied factual premises from opinions and slogans into checkable_facts. Example: \"poorest since Tinubu\" implies a comparative poverty claim that later research may test with long-run indices, recessions, and pandemics.",
     "An event is a visit, meeting, or other development that is being reported. An opinion is a judgment. Humour is a joke. Rhetoric is insult, slogan, or heat with no proposition you can restate. A prediction says something will happen later. Leave it as a prediction.",
     "possible_routes are editorial routes, not classifications. Allowed possible_routes values are only: CHECK, ANALYSIS, REACTION, OPINION, QUESTION, HUMOUR, ORIGINAL_INSIGHT. They describe what the text could support. They are not a decision to publish.",
     "PREDICTION is a primary_kind. It is not a possible_route. Do not copy primary_kind values into possible_routes.",
     "For a prediction, QUESTION means a question about the observable issue the prediction depends on. It is not a forecast of an election result.",
-    "research_need is yes, recommended, or no. Use yes when a factual or numerical assertion would need an outside record, recommended when an event would be clearer with context, and no for opinion, humour, rhetoric, or a prediction that is not a result.",
+    "research_need is yes, recommended, or no. Use yes when a factual, implied, or numerical assertion would need an outside record, recommended when an event would be clearer with context, and no for opinion, humour, rhetoric, or a prediction that is not a result.",
     "reason_for_research_need is a string. When research_need is no, it may be an empty string. When research_need is yes or recommended, it is one sentence.",
     "summary is one or two non-empty sentences using only the stored posts. subjects and checkable_facts are arrays of strings and may be empty. Do not invent subjects or facts.",
     "data_or_numbers_involved, event_or_development, prediction_present, and opinion_present are booleans. Use JSON true or false. Omit one of these four only when that signal is not asserted.",

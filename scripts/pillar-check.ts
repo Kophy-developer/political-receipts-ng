@@ -38,8 +38,8 @@ check("united queries stay off INEC", separate.unitedSkipsInec);
 check("queries are not one combined string", separate.noCombinedQuery && separate.politics.length === 1 && financeDiscovery.queries.length >= 1 && manchesterDiscovery.queries.length >= 1);
 
 const empty = chooseScan("smart", [], 0);
-check("smart scan with no mix picks one pillar", empty.pillarsSearched === 1 && empty.pillar === "politics");
-check("one smart scan estimates one X request", empty.estimatedRequests === 1 && empty.estimatedRequests === scanBudget.maxXRequestsPerScan && empty.maximumPosts === 10);
+check("smart scan with no mix searches all pillars together", empty.pillarsSearched === 3 && empty.pillars.includes("politics") && empty.pillar === "politics");
+check("one smart scan estimates multi-query X requests", empty.estimatedRequests > 1 && empty.estimatedRequests <= scanBudget.maxXRequestsPerScan);
 
 const under: PillarSignal[] = [
   signal({ pillar: "politics", share: 80 }),
@@ -47,15 +47,15 @@ const under: PillarSignal[] = [
   signal({ pillar: "manchester_united", share: 0 }),
 ];
 const smart = chooseScan("smart", under, 20);
-check("smart scan selects one underrepresented pillar", smart.pillar === "manchester_united" && smart.pillarsSearched === 1);
-check("underrepresented reason is shown before the request", smart.reason === "Manchester United is currently underrepresented in your recent content.");
-check("that scan still estimates one request", smart.estimatedRequests === 1 && smart.maximumPosts === scanBudget.maxPostsPerScan);
+check("smart scan still flags the underrepresented pillar as focus", smart.pillar === "manchester_united" && smart.pillarsSearched === 3);
+check("multi-pillar reason is shown before the request", /together/i.test(smart.reason) && /shortlist/i.test(smart.reason));
+check("that scan estimates more than one request", smart.estimatedRequests > 1 && smart.maximumPosts >= scanBudget.maxPostsPerScan);
 
 const politics = chooseScan("politics", under, 20);
 const finance = chooseScan("finance", under, 20);
 const united = chooseScan("manchester_united", under, 20);
 check("manual politics selection", politics.pillar === "politics" && politics.mode === "politics" && politics.pillarsSearched === 1);
-check("manual finance selection", finance.pillar === "finance" && finance.estimatedRequests === 1);
+check("manual finance selection", finance.pillar === "finance" && finance.estimatedRequests > 1);
 check("manual manchester united selection", united.pillar === "manchester_united" && united.scope === "Manchester United");
 
 const queued = chooseScan("smart", [
@@ -63,14 +63,14 @@ const queued = chooseScan("smart", [
   signal({ pillar: "finance", share: 20, queued: 0 }),
   signal({ pillar: "manchester_united", share: 0, queued: 3 }),
 ], 20);
-check("a full queue keeps an underrepresented pillar from being forced", queued.pillar !== "manchester_united");
+check("a full queue can still be searched in the same multi-pillar run", queued.pillarsSearched === 3 && queued.pillars.includes("manchester_united"));
 
 const missingUnited = chooseScan("smart", [
   signal({ pillar: "politics", share: 80, configured: true }),
   signal({ pillar: "finance", share: 20, configured: true }),
   signal({ pillar: "manchester_united", share: 0, configured: false }),
 ], 20);
-check("an unconfigured pillar is named and not selected", missingUnited.pillar !== "manchester_united" && missingUnited.unconfigured.includes("manchester_united") && /unconfigured/i.test(missingUnited.reason));
+check("an unconfigured pillar is named and omitted from the multi-pillar run", !missingUnited.pillars.includes("manchester_united") && missingUnited.unconfigured.includes("manchester_united") && /unconfigured/i.test(missingUnited.reason));
 const manualMissing = chooseScan("finance", [
   signal({ pillar: "finance", share: 0, configured: false }),
 ], 20);
@@ -81,12 +81,12 @@ const stocked = chooseScan("smart", [
   signal({ pillar: "finance", share: 0, readyDrafts: 3, hoursSinceScan: 48 }),
   signal({ pillar: "manchester_united", share: 60, readyDrafts: 0, hoursSinceScan: 2 }),
 ], 20);
-check("a pillar with drafts waiting is not the next scan", stocked.pillar !== "finance");
+check("a pillar with drafts waiting remains in the multi-pillar run", stocked.pillars.includes("finance") && stocked.pillarsSearched === 3);
 
 const blocked = chooseScan("politics", under, 20, { requestsRemaining: 0, postsRemaining: 40, known: true });
-check("a used daily request budget blocks the scan", blocked.runnable === false && /daily X request limit/i.test(blocked.reason) && blocked.estimatedRequests === 1);
+check("a used daily request budget blocks the scan", blocked.runnable === false && /daily X request limit/i.test(blocked.reason) && blocked.estimatedRequests > 1);
 const plan = plannedScanRequest();
-check("the request stays inside the recent-search endpoint", plan.requests === 1 && plan.posts === scanBudget.maxPostsPerScan && plan.posts >= 10 && plan.posts <= 100 && plan.paginates === false);
+check("the request stays inside the recent-search endpoint", plan.requests === 1 && plan.posts === scanBudget.maxPostsPerRequest && plan.posts >= 10 && plan.posts <= 100 && plan.paginates === false);
 check("the confirmation does not promise a larger page", !plan.note.includes("25") && !plan.note.includes("50") && plan.note.includes(String(plan.posts)));
 
 const financeGroup = pickSearchGroup([

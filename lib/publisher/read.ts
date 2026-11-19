@@ -56,6 +56,9 @@ export function readyItemFromRow(input: {
   possibleAngle: string | null;
   development: unknown;
   updatedAt: string | null;
+  replyToPostId?: string | null;
+  replyToUrl?: string | null;
+  replyToUsername?: string | null;
 }): ReadyItem | null {
   const drafts = draftsFromDevelopment(input.development);
   if (drafts.length === 0 || !input.claimId) return null;
@@ -72,6 +75,9 @@ export function readyItemFromRow(input: {
     caveats: caveatsFromDevelopment(input.development, input.possibleAngle),
     sourceUrl: links.sourceUrl,
     chartUrl: links.chartUrl,
+    replyToPostId: textOf(input.replyToPostId),
+    replyToUrl: textOf(input.replyToUrl),
+    replyToUsername: textOf(input.replyToUsername)?.replace(/^@/, "") ?? null,
     drafts,
     readyAt: input.updatedAt,
   };

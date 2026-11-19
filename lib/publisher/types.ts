@@ -13,6 +13,9 @@ export type ReadyItem = {
   caveats: string[];
   sourceUrl: string | null;
   chartUrl: string | null;
+  replyToPostId: string | null;
+  replyToUrl: string | null;
+  replyToUsername: string | null;
   drafts: ReadyDraft[];
   readyAt: string | null;
 };

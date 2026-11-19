@@ -30,7 +30,8 @@ import { reviveAnalysis } from "@/lib/research/series";
 import { storyQuality } from "@/lib/editorial/pillar-reading";
 import { describeSource } from "@/lib/editorial/quality";
 import { draftWithProviders } from "@/lib/drafts/chain";
-import { publicPostUrl, sanitizeText } from "@/lib/intel/text";
+import { resolveConversationSourcePost } from "@/lib/db/source-post";
+import { sanitizeText } from "@/lib/intel/text";
 import { researchLimits } from "@/lib/research/limits";
 import { reviseResearchPlan } from "@/lib/research/plan";
 import { hashOfPlan, readStoredPlan } from "@/lib/research/canonical";
@@ -190,16 +191,14 @@ async function ensureClaim(input: { opportunityId: string; claimId: string | nul
     }).eq("id", input.claimId);
     return { ok: true as const, claimId: input.claimId };
   }
-  const post = input.conversationId
-    ? await db.from("x_posts").select("x_post_id, username").eq("conversation_id", input.conversationId).limit(1).maybeSingle()
-    : { data: null };
+  const post = await resolveConversationSourcePost(input.conversationId);
   const kind: StatementKind = input.prediction ? "opinion" : input.premises.length ? "fact" : "opinion";
   const claim = await db.from("claims").insert({
     claim_text: claimText,
     conversation_id: input.conversationId,
-    original_post_id: post.data?.x_post_id ?? null,
-    original_post_url: post.data ? publicPostUrl(post.data.x_post_id, post.data.username) : null,
-    original_author_username: post.data?.username ?? null,
+    original_post_id: post?.id ?? null,
+    original_post_url: post?.url ?? null,
+    original_author_username: post?.username ?? null,
     original_post_text: input.sourceText,
     detected_at: new Date().toISOString(),
     origin: "live",

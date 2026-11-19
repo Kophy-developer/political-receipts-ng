@@ -90,7 +90,7 @@ for (const picked of [politics, finance, united]) {
     continue;
   }
   const built = withEngagement(picked.selected.requestQuery, defaultEngagement);
-  check(`${picked.selected.slug} keeps min_replies:20`, built.ok && built.query.endsWith(" min_replies:20") && built.query.includes("-is:retweet"));
+  check(`${picked.selected.slug} keeps min_replies:5`, built.ok && built.query.endsWith(" min_replies:5") && built.query.includes("-is:retweet"));
   check(`${picked.selected.slug} does not use a web-search operator`, built.ok && !/min_faves|min_retweets/.test(built.query));
   check(`${picked.selected.slug} names its evidence`, picked.selected.evidence.length > 0 && picked.selected.limitations.some((line) => line.includes("20 replies")));
 }

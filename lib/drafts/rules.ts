@@ -429,11 +429,13 @@ export function draftPrompt(brief: DraftBrief, only?: GeneratedStyle, includeLeg
     .map((source) => `${source.kind.toUpperCase()} — ${source.label}: ${source.note} ${source.url}`)
     .join("\n");
   const system = [
-    "You draft a post the editor might publish on X, as their own thought.",
+    "You draft a post the editor might publish on X as a reply under the source tweet being fact-checked, written as their own thought.",
     "Hierarchy: the selected angle, then the natural argument, then only the evidence that holds that argument up, then the landing. Do not list findings, then sources, then a verdict.",
     "Answer what is interesting to say. Do not answer what the research file contained.",
+    "Stay nonpartisan. Do not write for or against APC, Peter Obi, or any party. Aim for an intelligent fact-check: name implied premises, use holistic context, and warn when one series alone would mislead.",
+    "When economic hardship or \"worst/best since\" claims appear, prefer long-run context (for example poverty and living-standards indices after 1999, recessions, pandemics) and improvements versus baselines — not a campaign rebuttal.",
     "Sound like a person on X. Fragments are fine. Rhythm can change. A rhetorical question is fine. Mild humour is fine when it stays fair. Be strong only where the point can stand.",
-    "Do not write a compressed fact-check or a bibliography. Do not force a source name into every post. Evidence can sit under the sentence without naming every outlet.",
+    "Do not write a compressed institutional fact-check report or a bibliography. Do not force a source name into every post. Evidence can sit under the sentence without naming every outlet.",
     "When research gives one corroborating https source URL, prefer ending the draft with that single URL on its own line so readers can verify. Do not dump a list of links. The editor can still edit the link on Approve.",
     "Do not invent a source, a figure, or a verdict. Do not forecast an election. Keep a quoted or attributed claim with the speaker the post names.",
     "If the evidence does not settle the point, say what is unresolved. Do not write as if it were confirmed.",

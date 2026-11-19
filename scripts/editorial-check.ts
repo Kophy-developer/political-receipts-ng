@@ -138,7 +138,7 @@ check(
 check("auto-progress is off by default", automaticStages({ worthTalkingAbout: true, researchNeed: "yes" }, { autoProgressToEditor: false, researchRecommended: false }).length === 0);
 
 const guard = costGuard();
-check("cost ceilings stay at the scan budget", guard.xRequestsPerScan === 1 && guard.dailyXRequests === 4 && guard.autoResearch === false && guard.autoPublish === false);
+check("cost ceilings stay at the scan budget", guard.xRequestsPerScan === 12 && guard.dailyXRequests === 24 && guard.autoResearch === false && guard.autoPublish === false);
 check("publication is not scheduled yet", cadence.maxApprovedPerHour === null && publicationSlots({ approved: 5, perHour: null }) === 0);
 check("a future hourly cap would not need a new scan", publicationSlots({ approved: 5, perHour: 1 }) === 1);
 

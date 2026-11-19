@@ -4,6 +4,7 @@ import { loadFinalPost } from "@/lib/db/final-post";
 import { failPublication, finishPublication, reservePublication } from "@/lib/db/publishing";
 import { claimPublishConfirmation } from "@/lib/db/confirmations";
 import { markPublishedOpportunity } from "@/lib/db/publisher";
+import { loadClaimReplyTarget } from "@/lib/db/source-post";
 import { assertEditorRequest } from "@/lib/x/guard";
 import { uploadEvidenceImage } from "@/lib/x/media";
 import { publishApprovedPost, validatePublishRequest } from "@/lib/x/publish";
@@ -59,7 +60,8 @@ export async function POST(request: Request) {
     }
     mediaIds = [uploaded.mediaId];
   }
-  const posted = await publishApprovedPost(body.text as string, mediaIds);
+  const replyTarget = await loadClaimReplyTarget(approval.claimId);
+  const posted = await publishApprovedPost(body.text as string, mediaIds, replyTarget?.id ?? null);
   if (!posted.ok) {
     await failPublication(reserved.id, approval.approvalId);
     return Response.json(
@@ -80,6 +82,9 @@ export async function POST(request: Request) {
       ok: true,
       id: posted.id,
       url: posted.url,
+      replyTo: replyTarget
+        ? { id: replyTarget.id, url: replyTarget.url, username: replyTarget.username }
+        : null,
       retained: stored.ok,
       queueCleared: opportunity.ok,
       queueMessage: opportunity.ok ? null : opportunity.message,

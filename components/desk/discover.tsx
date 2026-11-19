@@ -396,7 +396,7 @@ function ScanConfirm({
         </div>
       ) : null}
       <p className="mt-3 text-sm text-ink-soft">{choice.requestNote}</p>
-      <p className="mt-2 text-sm text-ink-soft">One search. {choice.scope}. X applies {engagementOperator(engagement)} before any post reaches this desk. A result of zero stays zero. The threshold is not lowered.</p>
+      <p className="mt-2 text-sm text-ink-soft">{choice.pillarsSearched > 1 ? `${choice.pillarsSearched} pillars in one run` : "One pillar"}. Keywords plus shortlist from: batches. {choice.scope}. Keyword discovery uses {engagementOperator(engagement)}; watched-account batches use a lower min_replies so claim-dense posts are not lost. A result of zero stays zero.</p>
       {built && !built.ok ? <p className="mt-2 text-sm">{built.message}</p> : null}
       {!engagementReady ? <p className="mt-2 text-sm">The saved threshold could not be read. No X request will be made.</p> : null}
       {choice.unconfigured.length > 0 ? (

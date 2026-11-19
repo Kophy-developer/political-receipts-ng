@@ -34,7 +34,7 @@ export function ApprovalQueue({ items, notice }: { items: ReadyItem[]; notice: s
     <section>
       <p className="font-mono text-[11px] tracking-[0.16em] text-ink-soft uppercase">Approve</p>
       <h1 className="mt-2 font-serif text-4xl tracking-[-0.03em]">Ready for you.</h1>
-      <p className="mt-3 text-sm text-ink-soft">Edit the draft, attach a verifiable evidence link, and optionally an image. Publish only when the exact text is right.</p>
+      <p className="mt-3 text-sm text-ink-soft">Edit the draft, attach a verifiable evidence link, and optionally an image. When a source tweet id is stored, Approve publishes as a reply under that original post — not as a standalone root tweet.</p>
       <p className="mt-4 text-sm">{notice}</p>
       {items.length === 0 ? (
         <p className="mt-8 text-sm text-ink-soft">When a draft is finished, it lands here and waits for your decision.</p>
@@ -241,12 +241,22 @@ function ApprovalCard({ item }: { item: ReadyItem }) {
           confirm: true,
         }),
       });
-      const posted = (await response.json()) as { ok?: boolean; message?: string; queueCleared?: boolean; queueMessage?: string | null };
+      const posted = (await response.json()) as {
+        ok?: boolean;
+        message?: string;
+        queueCleared?: boolean;
+        queueMessage?: string | null;
+        replyTo?: { id?: string; url?: string | null; username?: string | null } | null;
+      };
       if (!posted.ok) {
         setMessage(posted.message ?? "X did not accept the post.");
         return;
       }
-      setMessage(posted.queueCleared === false && posted.queueMessage ? `Published. ${posted.queueMessage}` : "Published.");
+      const replyNote = posted.replyTo?.id
+        ? ` Replied under ${posted.replyTo.username ? `@${posted.replyTo.username}` : "the source tweet"}.`
+        : " No source tweet id was stored, so this published as a standalone post.";
+      const queueNote = posted.queueCleared === false && posted.queueMessage ? ` ${posted.queueMessage}` : "";
+      setMessage(`Published.${replyNote}${queueNote}`);
       router.refresh();
     } catch {
       setMessage("The publish gate was not reached. Nothing was sent.");
@@ -358,6 +368,21 @@ function ApprovalCard({ item }: { item: ReadyItem }) {
           ) : null}
         </div>
       </div>
+      <div className="mt-4 border border-ink px-4 py-4">
+        <p className="font-mono text-[11px] tracking-[0.14em] text-ink-soft uppercase">Reply target</p>
+        {item.replyToPostId ? (
+          <>
+            <p className="mt-2 text-sm">Approve will publish this as a reply under {item.replyToUsername ? `@${item.replyToUsername}` : "the source tweet"} — the post this desk is fact-checking.</p>
+            {item.replyToUrl ? (
+              <p className="mt-2 text-sm"><a href={item.replyToUrl} className="underline" target="_blank" rel="noreferrer">Open the source tweet on X</a></p>
+            ) : (
+              <p className="mt-2 text-sm text-ink-soft">Source tweet id {item.replyToPostId}.</p>
+            )}
+          </>
+        ) : (
+          <p className="mt-2 text-sm text-ink-soft">No source tweet id is stored on this claim. Publish will go out as a standalone post.</p>
+        )}
+      </div>
       <div className="mt-4 space-y-1 text-sm">
         {item.sourceUrl ? <p><a href={item.sourceUrl} className="underline" target="_blank" rel="noreferrer">Open the source table</a></p> : null}
         {item.chartUrl && item.chartUrl !== item.sourceUrl ? <p><a href={item.chartUrl} className="underline" target="_blank" rel="noreferrer">Open the chart</a></p> : null}
@@ -365,7 +390,7 @@ function ApprovalCard({ item }: { item: ReadyItem }) {
       </div>
       <label className="mt-4 flex items-start gap-2 text-sm">
         <input type="checkbox" checked={agree} onChange={(event) => setAgree(event.target.checked)} />
-        Publish this exact text
+        {item.replyToPostId ? "Publish this exact text as a reply under the source tweet" : "Publish this exact text"}
       </label>
       <div className="mt-4 flex flex-wrap gap-2">
         <button
