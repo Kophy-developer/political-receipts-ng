@@ -130,18 +130,27 @@ export function ScheduleDesk() {
 
   async function runOnce() {
     setBusy("run");
-    setMessage("Pipeline running — search, extract, and develop can take up to about five minutes.");
+    setMessage("Starting pipeline — the HTTP call returns quickly; find and draft continue in the background.");
     try {
       const response = await fetch("/api/schedule/run", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ force: true }),
       });
-      const body = (await response.json()) as { ok?: boolean; message?: string; lastRun?: PipelineLastRun | null };
-      setMessage(body.message ?? body.lastRun?.message ?? "The pipeline did not finish.");
+      const body = (await response.json()) as {
+        ok?: boolean;
+        accepted?: boolean;
+        message?: string;
+        lastRun?: PipelineLastRun | null;
+      };
+      if (response.status === 202 || body.accepted) {
+        setMessage(body.message ?? "Pipeline started. Running stays Yes until Last finished updates.");
+      } else {
+        setMessage(body.message ?? body.lastRun?.message ?? "The pipeline did not start.");
+      }
       await refresh();
     } catch {
-      setMessage("The pipeline did not finish. If Running stays Yes past six minutes, try Run pipeline once again.");
+      setMessage("The pipeline did not start. If Running stays Yes past six minutes, try Run pipeline once again.");
       await refreshQuiet();
     } finally {
       setBusy(null);
@@ -158,11 +167,13 @@ export function ScheduleDesk() {
         Auto every-3-hours runs come from{" "}
         <span className="font-medium">cron-job.org</span>, not Vercel Hobby. Create a job that{" "}
         <span className="font-mono text-[12px]">POST</span>s{" "}
-        <span className="font-mono text-[12px]">/api/schedule/run</span> with{" "}
+        <span className="font-mono text-[12px]">/api/schedule/run</span> with Advanced header{" "}
         <span className="font-mono text-[12px]">Authorization: Bearer</span> set to the server{" "}
-        <span className="font-mono text-[12px]">CRON_SECRET</span>. Set the job’s HTTP timeout to at least{" "}
-        {scheduleRunMaxDurationSeconds + 30} seconds (Vercel Fluid Hobby/Pro allows up to {scheduleRunMaxDurationSeconds}s for this route). The daily Vercel cron is only a backup.
-        The runner never publishes. Arm the schedule below with interval Every 3 hours so due logic allows work.
+        <span className="font-mono text-[12px]">CRON_SECRET</span> (one space after Bearer; empty body). A{" "}
+        <span className="font-mono text-[12px]">30</span>s HTTP timeout is enough — the route returns{" "}
+        <span className="font-mono text-[12px]">202</span> after auth and lock claim; find/draft continue on Vercel (up to{" "}
+        {scheduleRunMaxDurationSeconds}s). The daily Vercel cron is only a backup. The runner never publishes. Arm the
+        schedule below with interval Every 3 hours so due logic allows work.
       </p>
       <dl className="grid gap-3 sm:grid-cols-2">
         <div>

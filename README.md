@@ -33,9 +33,9 @@ Apply `supabase/migrations/20261114120000_publisher_notifications.sql` on the ex
 
 ## Background pipeline
 
-`POST/GET /api/schedule/run` runs find → research → draft (up to two ranked stories). It never publishes.
+`POST/GET /api/schedule/run` authenticates, claims the schedule lock, returns **202 Accepted** quickly, then continues find → research → draft (up to two ranked stories) after the HTTP response via Next.js `after()` (Vercel Fluid `waitUntil`). It never publishes.
 
-The route sets `maxDuration = 300` (five minutes). That fits **Vercel Fluid Hobby or Pro** (Hobby max 300s; Pro default 300s, higher only if configured). A full smart run can do several X searches plus extract and up to two develops, so shorter ceilings often cut the job mid-flight.
+The HTTP wait for cron is only auth + lock claim. The long work still runs under the route’s `maxDuration = 300` (five minutes on **Vercel Fluid Hobby or Pro**). A full smart run can do several X searches plus extract and up to two develops; that work continues after cron has already gotten its 202.
 
 After each finished run, Schedule and Approve show a short funnel line (posts found → claims kept → develop attempted → ready). Approve also polls schedule state so an empty queue says “still running” vs “finished with 0 ready” instead of a silent blank.
 
@@ -52,18 +52,43 @@ Vercel Hobby only allows daily crons. Every-3-hours expressions such as `0 */3 *
 
 - `desk_schedule.enabled` defaults to **off**. External cron calls no-op until you arm the schedule in **Settings → Schedule**, pick **Every 3 hours** (or 4 / custom), and accept the cost checkbox.
 - Cron never publishes. Publishing stays exact-text approve on `/`.
-- Same-origin **Settings → Schedule → Run pipeline once** still forces one test run (`force: true`). Expect up to about five minutes.
+- Same-origin **Settings → Schedule → Run pipeline once** still forces one test run (`force: true`). The HTTP call returns 202 quickly; Schedule shows **Running** until Last finished updates (background work can take up to about five minutes).
 
 ### cron-job.org setup
 
 1. Create a job at [cron-job.org](https://cron-job.org).
 2. **URL:** `https://political-receipts-ng.vercel.app/api/schedule/run`
 3. **Method:** `POST`
-4. **Header:** `Authorization` = `Bearer <CRON_SECRET>` (same value as the Vercel env var `CRON_SECRET`; do not commit the secret)
-5. **Schedule:** every 3 hours (e.g. cron expression `0 */3 * * *`, or the UI’s every-3-hours option)
-6. **HTTP timeout:** set to **at least 330 seconds** so the client does not abort while Vercel is still inside the 300s function limit.
-7. **Timezone:** job timezone is only when the HTTP call fires. Eligibility still uses `lastFinishedAt` + the armed interval (product times are America/Chicago / CT). A call that arrives early is skipped until the interval has elapsed.
-8. After the job exists, open **Settings → Schedule**, set interval to **Every 3 hours**, check the cost box, and **Arm schedule**.
+4. **Schedule:** every 3 hours (e.g. cron expression `0 */3 * * *`, or the UI’s every-3-hours option)
+5. **HTTP timeout:** **30 seconds is OK** (cron-job.org free/plan max). The runner answers within that window; Vercel still allows up to ~300s for the background pipeline.
+6. **Timezone:** job timezone is only when the HTTP call fires. Eligibility still uses `lastFinishedAt` + the armed interval (product times are America/Chicago / CT). A call that arrives early is skipped until the interval has elapsed.
+7. After the job exists, open **Settings → Schedule**, set interval to **Every 3 hours**, check the cost box, and **Arm schedule**.
+
+#### Advanced / Request headers (required for auth)
+
+On cron-job.org open **Advanced** (or Request headers) and add exactly one header:
+
+| Field | Value |
+| --- | --- |
+| Header name | `Authorization` |
+| Header value | `Bearer <CRON_SECRET>` |
+
+Rules that matter:
+
+- One space after `Bearer`. No quotes around the secret.
+- Do **not** put only the raw secret in the header value (that used to look like a fast **401**).
+- Do **not** put the secret in the URL query string.
+- **Body:** leave empty (or send `{}`). Empty body is fine. Do not send form fields or non-JSON text.
+- **Content-Type:** optional when the body is empty. If you send JSON, use `application/json`.
+
+#### What Test Run statuses mean
+
+| Status | Meaning |
+| --- | --- |
+| **202** | Auth OK, lock claimed, pipeline started in the background. Check Settings → Schedule: **Running** Yes, then **Last finished** when done. |
+| **200** with `ok: false` | Auth OK, but the desk skipped work (schedule off, already running, or interval not due yet). Not a cron misconfig. |
+| **401** | Missing/wrong `Authorization: Bearer …` (most common Advanced-tab mistake). |
+| **400** | Non-empty body that is not valid JSON. Empty body is not a 400. Older builds also returned **400** when the pipeline skipped (`ok: false`); current builds use **200** for skips. |
 
 Apply `supabase/migrations/20261119120000_desk_schedule_last_run.sql` so `desk_schedule.last_run` can store the funnel summary Approve/Schedule read after refresh.
 
