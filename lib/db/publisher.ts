@@ -1,6 +1,8 @@
 import "server-only";
 import { saveFinalPost } from "@/lib/db/final-post";
 import { scrubDbMessage, serviceClient } from "@/lib/db/client";
+import { loadStoredCapability } from "@/lib/db/connections";
+import { composeEvidencePost, parseHttpsUrl, parseOptionalHttpsUrl } from "@/lib/publish/evidence";
 import { noticeFor, readyItemFromRow } from "@/lib/publisher/read";
 import { parseApprovalText } from "@/lib/publisher/rephrase";
 import type { ReadyItem } from "@/lib/publisher/types";
@@ -44,7 +46,12 @@ export async function listReadyForApproval(): Promise<{ items: ReadyItem[]; noti
   return { items, notice: noticeFor(items.length) };
 }
 
-export async function prepareApprovalDraft(input: { opportunityId: string; text: string }) {
+export async function prepareApprovalDraft(input: {
+  opportunityId: string;
+  text: string;
+  evidenceUrl?: unknown;
+  mediaUrl?: unknown;
+}) {
   const db = serviceClient();
   if (!db) return { ok: false as const, message: "The database is not configured." };
   const row = await db
@@ -71,10 +78,36 @@ export async function prepareApprovalDraft(input: { opportunityId: string; text:
   if (!item) return { ok: false as const, message: "That draft is not on the approval queue." };
   const parsed = parseApprovalText(input.text);
   if (!parsed.ok) return parsed;
-  const sources = [item.sourceUrl, item.chartUrl].flatMap((url) => (url ? [url] : [])).filter((url, index, list) => list.indexOf(url) === index);
-  const saved = await saveFinalPost({ claimId: row.data.claim_id, text: parsed.text, sources });
+  const evidence = parseHttpsUrl(input.evidenceUrl ?? item.sourceUrl);
+  if (!evidence.ok) return evidence;
+  const media = parseOptionalHttpsUrl(input.mediaUrl);
+  if (!media.ok) return media;
+  const capability = await loadStoredCapability();
+  const composed = composeEvidencePost({
+    text: parsed.text,
+    evidenceUrl: evidence.url,
+    maximum: capability.maximum,
+  });
+  if (!composed.ok) return composed;
+  const sources = [evidence.url, media.url, item.sourceUrl, item.chartUrl]
+    .flatMap((url) => (url ? [url] : []))
+    .filter((url, index, list) => list.indexOf(url) === index);
+  const saved = await saveFinalPost({
+    claimId: row.data.claim_id,
+    text: composed.text,
+    sources,
+    evidenceUrl: evidence.url,
+    mediaUrl: media.url,
+  });
   if (!saved.ok) return saved;
-  return { ok: true as const, claimId: row.data.claim_id, draftId: saved.id, text: saved.text };
+  return {
+    ok: true as const,
+    claimId: row.data.claim_id,
+    draftId: saved.id,
+    text: saved.text,
+    evidenceUrl: evidence.url,
+    mediaUrl: media.url,
+  };
 }
 
 export async function rejectReadyDraft(input: { opportunityId: string; reason?: string }) {

@@ -85,7 +85,9 @@ export function parseSourceLinks(raw: string) {
 }
 
 /** The editor's string is stored and read back unchanged. Hashtags are not removed. */
-export function finalPostRecord(text: string, sources: string[]) {
+export function finalPostRecord(text: string, sources: string[], evidence?: { evidenceUrl?: string | null; mediaUrl?: string | null }) {
+  const evidenceUrl = typeof evidence?.evidenceUrl === "string" && evidence.evidenceUrl.startsWith("https://") ? evidence.evidenceUrl : null;
+  const mediaUrl = typeof evidence?.mediaUrl === "string" && evidence.mediaUrl.startsWith("https://") ? evidence.mediaUrl : null;
   return {
     version: "M" as const,
     style: "manual" as const,
@@ -95,19 +97,34 @@ export function finalPostRecord(text: string, sources: string[]) {
       source: "final-post" as const,
       exact: true,
       sources,
+      evidenceUrl,
+      mediaUrl,
       holdReason: "The editor's final post. Publishing is a separate confirmation.",
     },
   };
 }
 
-export function readFinalPost(record: { content: string; generation_metadata?: { sources?: unknown; source?: unknown; exact?: unknown } | null }) {
+export function readFinalPost(record: {
+  content: string;
+  generation_metadata?: {
+    sources?: unknown;
+    source?: unknown;
+    exact?: unknown;
+    evidenceUrl?: unknown;
+    mediaUrl?: unknown;
+  } | null;
+}) {
   const meta = record.generation_metadata;
   const exact = meta?.source === "final-post" && meta.exact === true;
   const sources = meta?.sources;
+  const evidenceUrl = exact && typeof meta?.evidenceUrl === "string" && meta.evidenceUrl.startsWith("https://") ? meta.evidenceUrl : null;
+  const mediaUrl = exact && typeof meta?.mediaUrl === "string" && meta.mediaUrl.startsWith("https://") ? meta.mediaUrl : null;
   return {
     exact,
     text: exact ? record.content : "",
     sources: exact && Array.isArray(sources) ? sources.filter((item): item is string => typeof item === "string") : [],
+    evidenceUrl,
+    mediaUrl,
   };
 }
 

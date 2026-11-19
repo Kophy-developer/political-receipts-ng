@@ -26,6 +26,7 @@ export function rephraseSystemPrompt() {
     "You rewrite one social post for Political Receipts NG.",
     "Return JSON only: {\"text\":\"...\"}.",
     "Keep the factual numbers, years, units, and caveats that are already in the draft unless the instruction asks to cut them.",
+    "Keep any https evidence link already in the draft unless the instruction removes it.",
     "Do not invent new statistics, sources, quotes, or causes.",
     "Do not add hashtags unless the instruction asks for them.",
     "Do not sound more certain than the draft.",

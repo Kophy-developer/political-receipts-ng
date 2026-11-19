@@ -45,7 +45,7 @@ export function XCapability({
           <dd>Automatic thread publishing: Not enabled.</dd>
         </div>
       </dl>
-      <p className="mt-4 text-sm leading-relaxed text-ink-soft">{urlPriceNote} Source links are not added to the post.</p>
+      <p className="mt-4 text-sm leading-relaxed text-ink-soft">{urlPriceNote} On Approve, the evidence link is added to the post text. An optional image URL is uploaded to X when provided.</p>
     </div>
   );
 }
