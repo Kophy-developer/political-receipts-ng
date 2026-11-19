@@ -43,8 +43,21 @@ export async function listRankedForPipeline(limit = pipelineDevelopLimit) {
   return ids;
 }
 
+const staleRunningMs = 3 * 60 * 1000;
+
+async function clearStaleRunningLock(runningSince: string | null) {
+  if (!runningSince) return false;
+  const started = Date.parse(runningSince);
+  if (!Number.isFinite(started) || Date.now() - started < staleRunningMs) return false;
+  await markSchedule({ runningSince: null });
+  return true;
+}
+
 export async function runBackgroundPipeline(input?: { force?: boolean; skipScan?: boolean }) {
-  const schedule = await loadDeskSchedule();
+  let schedule = await loadDeskSchedule();
+  if (await clearStaleRunningLock(schedule.runningSince)) {
+    schedule = await loadDeskSchedule();
+  }
   if (!input?.force) {
     const due = dueForScheduledRun(schedule);
     if (!due.ok) {
